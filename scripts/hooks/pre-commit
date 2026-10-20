@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Para el commit si se va a subir código que NO pasó por Codex.
+#
+# La regla está en AGENTS.md («Codex como segunda voz») y existe porque es la
+# única segunda lectura que tiene este repo. El hook está porque la regla se
+# olvida (en el repo del TPV se saltó tres veces en una sesión, y la revisión
+# que se corrió después encontró un P1). Copiado de SoftbotMX/tpv.
+#
+# Instalar (una vez por clon):   git config core.hooksPath scripts/hooks
+# Registrar una revisión:        scripts/hooks/codex-visto
+# Saltárselo a propósito:        git commit --no-verify
+set -u
+set -o pipefail
+
+. "$(dirname "$0")/lib-codex.sh"
+
+GITDIR="$(git rev-parse --git-dir)" || exit 1
+REGISTRO="$GITDIR/codex-revisado"
+
+CODIGO=()
+while IFS= read -r -d '' f; do
+    es_documentacion "$f" || CODIGO+=("$f")
+done < <(git diff --cached --name-only -z)
+[ ${#CODIGO[@]} -eq 0 ] && exit 0
+
+# 🔴 Falla CERRADA. Si la huella no se puede calcular (falta `shasum`, git
+# devuelve error), el hook PARA en vez de dejar pasar: una guarda que se apaga
+# sola cuando su herramienta no está es peor que no tenerla, porque nadie se
+# entera. Sin `pipefail` el fallo de `shasum` se tragaba y la huella salía
+# vacía, con lo que `codex-visto` registraba una línea en blanco y a partir de
+# ahí pasaba CUALQUIER cosa.
+if ! HUELLA="$(huella_del_staged)"; then
+    echo "pre-commit: no se pudo calcular la huella del diff (¿falta shasum?)." >&2
+    echo "            No se puede comprobar la revisión de Codex; se para." >&2
+    exit 1
+fi
+
+if [ -f "$REGISTRO" ] && grep -qxF "$HUELLA" "$REGISTRO"; then
+    exit 0
+fi
+
+{
+printf '\n  ─────────────────────────────────────────────────────────────\n'
+printf '   Este commit NO ha pasado por Codex.\n\n'
+printf '     · %s\n' "${CODIGO[@]:0:12}"
+[ ${#CODIGO[@]} -gt 12 ] && printf '     · … y %s más\n' "$(( ${#CODIGO[@]} - 12 ))"
+cat <<'MSG'
+
+   AGENTS.md lo pide para todo lo que sea código o configuración, y es
+   obligatorio en: pagos (MercadoPago, recargas), autenticación y sesiones,
+   llamadas firmadas al TPV, migraciones y despliegue.
+
+   Qué hacer:
+     1. /codex review   (o /codex challenge si toca dinero o fiscal)
+     2. aplicar o rechazar lo que diga, y decirlo en el mensaje
+     3. scripts/hooks/codex-visto
+     4. git commit
+
+   Si de verdad no aplica:  git commit --no-verify
+  ─────────────────────────────────────────────────────────────
+
+MSG
+} >&2
+exit 1

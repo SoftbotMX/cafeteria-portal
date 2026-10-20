@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Registra que el diff que está staged AHORA MISMO ya pasó por Codex.
+#
+# La huella es del contenido exacto: si después se añade otro archivo al
+# commit, deja de valer — y tiene que dejar de valer, porque esa parte no la
+# vio nadie.
+set -eu
+set -o pipefail
+
+. "$(dirname "$0")/lib-codex.sh"
+
+GITDIR="$(git rev-parse --git-dir)"
+if [ -z "$(git diff --cached --name-only)" ]; then
+    echo "No hay nada staged que registrar." >&2
+    exit 1
+fi
+if ! HUELLA="$(huella_del_staged)"; then
+    echo "No se pudo calcular la huella del diff (¿falta shasum?). No se" >&2
+    echo "registra nada: una huella vacía desactivaría el hook entero." >&2
+    exit 1
+fi
+touch "$GITDIR/codex-revisado"
+grep -qxF "$HUELLA" "$GITDIR/codex-revisado" || echo "$HUELLA" >> "$GITDIR/codex-revisado"
+tail -50 "$GITDIR/codex-revisado" > "$GITDIR/codex-revisado.tmp" \
+    && mv "$GITDIR/codex-revisado.tmp" "$GITDIR/codex-revisado"
+echo "Anotado: este diff ya pasó por Codex ($(git diff --cached --name-only | wc -l | tr -d ' ') archivo(s))."

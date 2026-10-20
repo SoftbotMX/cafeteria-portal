@@ -1,0 +1,11 @@
+.DS_Store
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.claude/
+.superpowers/
+# Documentos de trabajo de los agentes (specs/plans) — no versionar en el remoto
+docs/superpowers/
