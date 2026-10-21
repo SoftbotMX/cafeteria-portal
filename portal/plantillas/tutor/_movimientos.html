@@ -1,0 +1,19 @@
+{% if error_mov %}<p class="aviso">{{ error_mov }}</p>{% endif %}
+{% if not movs and not error_mov and pagina == 1 %}<p>Todavía no hay movimientos.</p>{% endif %}
+{% for m in movs %}
+<div class="movimiento">
+  <div><strong>{{ m.descripcion }}</strong><br><small>{{ m.fecha | fecha }}</small></div>
+  <div class="importe">
+    {% set d = m.disponible | cambio %}{% set r = m.retenido | cambio %}
+    {% if d %}<span class="{{ 'mas' if m.disponible > 0 else 'menos' }}">{{ d }}</span>{% endif %}
+    {% if r %}<small>{{ r }} apartado</small>{% endif %}
+  </div>
+</div>
+{% endfor %}
+{% if hay_mas %}
+<div id="mas-{{ pagina + 1 }}">
+  <button type="button" class="secundario"
+          hx-get="/hijos/{{ alumno_id }}/movimientos?pagina={{ pagina + 1 }}"
+          hx-target="#mas-{{ pagina + 1 }}" hx-swap="outerHTML">Ver más</button>
+</div>
+{% endif %}

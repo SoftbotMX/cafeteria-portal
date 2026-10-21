@@ -29,6 +29,7 @@ class TPVFalso:
         self.guardado: dict[str, tuple[str, dict, dict]] = {}  # llave -> (operacion, cuerpo, respuesta)
         self.tutores: dict[str, dict] = {}
         self.alumnos: dict[int, dict] = {}
+        self.movimientos: dict[int, list[dict]] = {}  # más reciente primero, como el real
         self.transport = httpx.MockTransport(self._manejar)
 
     def _manejar(self, req: httpx.Request) -> httpx.Response:
@@ -58,7 +59,44 @@ class TPVFalso:
             return _err("json_invalido", "El cuerpo no es JSON.", 400)
         return self._operar(op, datos)
 
+    def agregar_tutor(self, tutor_ref) -> dict:
+        return self.tutores.setdefault(tutor_ref, {
+            "tutor_ref": tutor_ref, "nombre": tutor_ref, "telefono": None, "correo": None,
+            "activo": True, "alumnos": []})
+
+    def agregar_hijo(self, tutor_ref, nombre, disponible=0, retenido=0, credenciales=None) -> dict:
+        t = self.agregar_tutor(tutor_ref)
+        aid = len(self.alumnos) + 1
+        al = {"id": aid, "nombre": nombre, "matricula": None, "codigo": f"C{aid:04d}",
+              "compra_sin_pedido": True, "disponible": disponible, "retenido": retenido,
+              "credenciales": credenciales or []}
+        self.alumnos[aid] = al
+        self.movimientos[aid] = []
+        t["alumnos"].append(al)
+        return al
+
+    def _lectura_tutor(self, op: str, d: dict) -> httpx.Response | None:
+        t = self.tutores.get(d.get("tutor_ref"))
+        if not t or not t["activo"]:
+            return _err("tutor_desconocido", "Tutor desconocido.", 404)
+        if op == "tutor/alumnos":
+            return httpx.Response(200, json={"ok": True, "alumnos": copy.deepcopy(t["alumnos"])})
+        # Un alumno ajeno responde igual que uno inexistente.
+        if d.get("alumno_id") not in [a["id"] for a in t["alumnos"]]:
+            return _err("alumno_desconocido", "Alumno desconocido.", 404)
+        try:
+            pagina = max(int(d.get("pagina") or 1), 1)
+            por = min(max(int(d.get("por_pagina") or 50), 1), 100)
+        except (TypeError, ValueError):
+            return _err("dato_invalido", "Página no válida.", 400)
+        movs = self.movimientos.get(d["alumno_id"], [])
+        return httpx.Response(200, json={
+            "ok": True, "total": len(movs), "pagina": pagina,
+            "movimientos": copy.deepcopy(movs[(pagina - 1) * por: pagina * por])})
+
     def _operar(self, op: str, d: dict) -> httpx.Response:
+        if op in ("tutor/alumnos", "alumno/movimientos"):
+            return self._lectura_tutor(op, d)
         if op == "admin/tutor/detalle":
             t = self.tutores.get(d.get("tutor_ref"))
             if not t:
