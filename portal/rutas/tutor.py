@@ -260,3 +260,83 @@ def permiso(alumno_id: int, request: Request, csrf: str = Form(""), valor: str =
         return _resultado(request, TIT_PERMISO, "Valor no válido.", volver, error=True, status=400)
     return _hacer_cambio(request, sesion, tutor, operador, db, _cambio_permiso(hijo, valor), hijo,
                          llave, volver)
+
+
+# --- bloquear y desbloquear credenciales
+
+ACCIONES_CREDENCIAL = {"bloquear": True, "desbloquear": False}  # acción -> `bloqueada` resultante
+TIT_CREDENCIAL = "No se pudo cambiar la credencial"
+MSG_CAMBIO_CREDENCIAL = ("Esta confirmación ya se usó para otro cambio. Vuelve a abrir la ficha de "
+                         "tu hijo y toca el botón otra vez.")
+# Con artículo: «esta tarjeta», «este código QR» (el género no se puede sacar de la etiqueta).
+ESTA_CREDENCIAL = {"nfc": "esta tarjeta", "qr": "este código QR"}
+
+
+def _credencial_de(alumno: dict, cred_id: int) -> dict | None:
+    for x in alumno.get("credenciales") or []:
+        if isinstance(x, dict) and x.get("id") == cred_id and not isinstance(x.get("id"), bool):
+            return x
+    return None
+
+
+def _cambio_credencial(hijo: dict, cred: dict, accion: str) -> Cambio:
+    cred_id, tipo = cred["id"], cred.get("tipo")
+    esta = ESTA_CREDENCIAL.get(tipo, "esta credencial")
+    bloquear = ACCIONES_CREDENCIAL[accion]
+
+    def leer(alumno: dict) -> bool | None:
+        x = _credencial_de(alumno, cred_id)
+        return x["bloqueada"] if x and isinstance(x.get("bloqueada"), bool) else None
+
+    etiqueta = TIPOS_CREDENCIAL.get(tipo, "Credencial")
+    return Cambio(
+        operacion=f"credencial/{accion}",
+        titulo=f"{'Bloquear' if bloquear else 'Desbloquear'}: {etiqueta} de {hijo['nombre']}",
+        titulo_error=TIT_CREDENCIAL, accion=f"/hijos/{hijo['id']}/credenciales/{cred_id}/{accion}",
+        campos={}, volver=f"/hijos/{hijo['id']}", boton="Bloquear" if bloquear else "Desbloquear",
+        texto=(f"Nadie podrá pagar con {esta} hasta que la desbloquees." if bloquear
+               else f"Se podrá volver a pagar con {esta}."),
+        titulo_listo=f"{etiqueta} {'bloqueada' if bloquear else 'desbloqueada'}",
+        cuerpo={"credencial_id": cred_id}, msg_cambio=MSG_CAMBIO_CREDENCIAL, objetivo=bloquear,
+        leer=leer)
+
+
+def _credencial_del_hijo(hijo: dict, cred_id: int) -> dict:
+    """Sólo vale una credencial que la ficha de ESTE hijo lista (las dadas de baja no salen):
+    si no, 404 sin tocar el TPV."""
+    cred = _credencial_de(hijo, cred_id)
+    if cred is None:
+        raise HTTPException(404)
+    return cred
+
+
+@router.get("/hijos/{alumno_id}/credenciales/{cred_id}/{accion}")
+def credencial_confirmacion(alumno_id: int, cred_id: int, accion: str, request: Request,
+                            par: tuple[Sesion, Tutor] = Depends(tutor_listo),
+                            operador: Operador = Depends(operador_actual)):
+    if accion not in ACCIONES_CREDENCIAL:
+        raise HTTPException(404)
+    sesion, tutor = par
+    volver = f"/hijos/{alumno_id}"
+    hijo, error = _hijo_para_cambio(request, operador, tutor, alumno_id, volver, TIT_CREDENCIAL)
+    if error:
+        return error
+    cred = _credencial_del_hijo(hijo, cred_id)
+    return _ver_cambio(request, sesion, _cambio_credencial(hijo, cred, accion), hijo, volver)
+
+
+@router.post("/hijos/{alumno_id}/credenciales/{cred_id}/{accion}")
+def credencial(alumno_id: int, cred_id: int, accion: str, request: Request, csrf: str = Form(""),
+               llave: str = Form(""), par: tuple[Sesion, Tutor] = Depends(tutor_listo),
+               operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
+    if accion not in ACCIONES_CREDENCIAL:
+        raise HTTPException(404)
+    sesion, tutor = par
+    exigir_csrf(csrf, sesion.csrf)
+    volver = f"/hijos/{alumno_id}"
+    hijo, error = _hijo_para_cambio(request, operador, tutor, alumno_id, volver, TIT_CREDENCIAL)
+    if error:
+        return error
+    cred = _credencial_del_hijo(hijo, cred_id)
+    return _hacer_cambio(request, sesion, tutor, operador, db, _cambio_credencial(hijo, cred, accion),
+                         hijo, llave, volver)

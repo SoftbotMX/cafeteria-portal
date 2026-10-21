@@ -8,9 +8,18 @@
   <h1>{{ hijo.nombre }}</h1>
   <p class="saldo">{{ hijo.disponible | dinero }} <span>disponible</span></p>
   <p class="apartado">{{ hijo.retenido | dinero }} apartado</p>
-  {% for c in hijo.credenciales if c.bloqueada %}
-    <p class="alerta">Bloqueada: {{ tipos_credencial.get(c.tipo, c.tipo) }}</p>
+  {% if hijo.credenciales %}
+  <h2>Tarjeta y código QR</h2>
+  {% for c in hijo.credenciales if c.id is integer and c.bloqueada is boolean %}
+  <div class="movimiento">
+    <div><strong>{{ tipos_credencial.get(c.tipo, "Credencial") }}</strong><br>
+      <small class="{{ 'alerta' if c.bloqueada else '' }}">{{ "Bloqueada" if c.bloqueada else "Activa" }}</small></div>
+    <div class="importe">
+      <a class="boton secundario" href="/hijos/{{ hijo.id }}/credenciales/{{ c.id }}/{{ 'desbloquear' if c.bloqueada else 'bloquear' }}">{{ "Desbloquear" if c.bloqueada else "Bloquear" }}</a>
+    </div>
+  </div>
   {% endfor %}
+  {% endif %}
   <p><a class="boton" href="/hijos/{{ hijo.id }}/pedir">Pedir</a></p>
   {% if hijo.compra_sin_pedido is sameas true %}
     <p>Hoy {{ hijo.nombre }} puede comprar sin pedido.
