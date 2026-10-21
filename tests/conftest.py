@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from portal.app import create_app
 from portal.config import Settings
+import portal.models  # noqa: F401  registra las tablas en Base.metadata
 from portal.db import Base, crear_engine
 
 URL_PRUEBAS = os.environ.get(
