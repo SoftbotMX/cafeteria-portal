@@ -45,6 +45,11 @@ def cerrar_sesiones(db: Session, tipo: str, usuario_id: int, excepto_token: str 
     db.commit()
 
 
+def cerrar_sesion(db: Session, token: str) -> None:
+    db.execute(delete(Sesion).where(Sesion.token_hash == _hash(token)))
+    db.commit()
+
+
 def poner_cookie(resp: Response, token: str, settings: Settings, max_age: int) -> None:
     resp.set_cookie(COOKIE, token, max_age=max_age, httponly=True,
                     secure=settings.cookie_secure, samesite="lax", path="/")
@@ -77,6 +82,13 @@ def sesion_tutor(request: Request, operador: Operador = Depends(operador_actual)
     if tutor is None or tutor.operador_id != operador.id or not tutor.activo:
         raise IrA(_LOGIN["tutor"])
     return s, tutor
+
+
+def tutor_listo(par: tuple[Sesion, Tutor] = Depends(sesion_tutor)) -> tuple[Sesion, Tutor]:
+    """Sesión de tutor ya usable: mientras tenga contraseña temporal, solo puede cambiarla."""
+    if par[1].debe_cambiar:
+        raise IrA("/cambiar-contrasena")
+    return par
 
 
 def sesion_admin(request: Request, operador: Operador = Depends(operador_actual),

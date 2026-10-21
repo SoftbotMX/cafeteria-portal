@@ -3,14 +3,13 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from portal.config import Settings, get_settings
 from portal.db import crear_engine
 from portal.sesiones import IrA
+from portal.web import templates  # noqa: F401
 
 BASE = Path(__file__).parent
-templates = Jinja2Templates(directory=str(BASE / "plantillas"))
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -31,4 +30,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def salud() -> dict[str, bool]:
         return {"ok": True}
 
+    from portal.rutas import acceso, tutor
+
+    app.include_router(acceso.router)
+    app.include_router(tutor.router)
     return app
