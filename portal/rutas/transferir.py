@@ -16,20 +16,18 @@ from portal.db import get_db
 from portal.formato import dinero, parse_importe
 from portal.models import Operador, Sesion, Tutor
 from portal.sesiones import exigir_csrf, operador_actual, tutor_listo
-from portal.tutor_tpv import MSG_SIN_TPV, SinTPV, enviar_escritura, intento_incierto, ya_registrado
+from portal.tutor_tpv import (
+    LLAVE, MSG_SIN_TPV, SIN_CACHE, SinTPV, con_aviso, enviar_escritura, intento_incierto,
+    msg_llave, ya_registrado)
 from portal.web import templates
 
 router = APIRouter()
 
 OP = "transferencia"
-SIN_CACHE = {"Cache-Control": "no-store"}
 _ID = re.compile(r"[0-9]{1,12}")
-_LLAVE = re.compile(r"[A-Za-z0-9_-]{8,100}")
-MSG_LLAVE = "La confirmación no es válida. Vuelve a revisar tu transferencia."
 MSG_IMPORTE = "Escribe un importe válido, mayor que cero y con máximo 2 decimales (por ejemplo 150.50)."
 MSG_DISTINTOS = "Elige dos hijos distintos: de quién sale el saldo y a quién llega."
 MSG_ELIGE = "Elige de quién sale el saldo y a quién llega."
-MSG_CAMBIO = "Esta transferencia cambió desde que la revisaste; vuelve a hacerla."
 MSG_SIN_RESPUESTA = ("No se pudo contactar al TPV. Tu transferencia puede haberse registrado: vuelve a "
                      "tocar «Confirmar transferencia» (no se duplica) o revisa los movimientos de tus hijos.")
 MSG_INESPERADO = ("El TPV respondió algo inesperado. Revisa los movimientos de {} antes de volver a "
@@ -142,7 +140,7 @@ def confirmar(request: Request, csrf: str = Form(""), origen_id: str = Form(""),
         hijos = tutor_tpv.hijos(request, operador, tutor)
     except SinTPV:
         # Un intento anterior pudo quedar sin respuesta: se conserva el mismo envío (misma llave).
-        if _LLAVE.fullmatch(llave) and monto is not None and _ID.fullmatch(origen_id.strip()) \
+        if LLAVE.fullmatch(llave) and monto is not None and _ID.fullmatch(origen_id.strip()) \
                 and _ID.fullmatch(destino_id.strip()):
             return _pagina(request, "tutor/confirmar.html", {
                 "titulo": "Confirma la transferencia", "lineas": [f"Importe: {dinero(monto)}"],
@@ -152,8 +150,8 @@ def confirmar(request: Request, csrf: str = Form(""), origen_id: str = Form(""),
                 "boton": "Reintentar", "volver": "/transferir"})
         return _error(request, MSG_SIN_TPV)
     origen, destino = _ficha(hijos, origen_id), _ficha(hijos, destino_id)
-    if not _LLAVE.fullmatch(llave):
-        return _error(request, MSG_LLAVE)
+    if not LLAVE.fullmatch(llave):
+        return _error(request, msg_llave(OP))
     if origen["id"] == destino["id"]:
         return _error(request, MSG_DISTINTOS)
     if monto is None:
@@ -166,7 +164,7 @@ def confirmar(request: Request, csrf: str = Form(""), origen_id: str = Form(""),
         db, operador, tutor, llave, OP)
     pareja = {"nombre": f"{origen['nombre']} y {destino['nombre']}"}
     if not ya_entro and not _alcanza(origen, monto):
-        return _error(request, tutor_tpv.con_aviso(
+        return _error(request, con_aviso(
             db, operador, tutor, llave, pareja,
             f"{origen['nombre']} no tiene tanto: su disponible es {dinero(origen.get('disponible'))}.",
             OP, "volver a transferir"))
@@ -175,7 +173,7 @@ def confirmar(request: Request, csrf: str = Form(""), origen_id: str = Form(""),
               # su repr más corto (150.5, 0.1), sin ruido binario; el TPV lo redondea a centavos.
               "importe": float(monto), "llave": llave}
     estado, r = enviar_escritura(db, request, operador, tutor, OP, cuerpo, llave, pareja,
-                                 "volver a transferir", MSG_CAMBIO)
+                                 "volver a transferir")
     if estado == "incierto":
         return _pagina(request, "tutor/confirmar.html", _contexto_confirmar(
             sesion, origen, destino, monto, llave, MSG_SIN_RESPUESTA))

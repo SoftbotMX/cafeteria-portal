@@ -20,13 +20,14 @@ from portal.reglas import (
     Reglas, ahora_fresca, ahora_local, ahora_utc, cargar_reglas, fechas_disponibles,
     motivo_fecha_invalida, puede_cancelar)
 from portal.sesiones import exigir_csrf, operador_actual, tutor_listo
-from portal.tpv import ErrorTPV
 from portal.tutor_tpv import (
-    MSG_CAMBIO, MSG_SIN_MENU, MSG_SIN_PEDIDOS, MSG_SIN_TPV, SinTPV, con_aviso, enviar_escritura, es_incierto,
-    escribir_tutor, intento_incierto, mensaje_para_tutor, ya_registrado)
+    LLAVE, MSG_SIN_MENU, MSG_SIN_PEDIDOS, MSG_SIN_TPV, SIN_CACHE, SinTPV, con_aviso,
+    enviar_escritura, intento_incierto, msg_llave, ya_registrado)
 from portal.web import templates
 
 router = APIRouter()
+
+OP_PEDIR = "precompra"
 
 # Tope por producto: un pedido de comedor escolar no pasa de unas cuantas piezas por línea, y un
 # tope corto frena el error de dedo (200 en vez de 2).
@@ -34,12 +35,9 @@ MAX_POR_LINEA = 20
 MSG_CANTIDAD = f"Cantidad no válida: usa números enteros del 1 al {MAX_POR_LINEA} por producto."
 MSG_VACIO = "Elige al menos un producto."
 MSG_FECHA = "Fecha no válida."
-MSG_LLAVE = "La confirmación no es válida. Vuelve a revisar tu pedido."
 MSG_SIN_RESPUESTA = ("No se pudo contactar al TPV. Tu pedido puede haberse registrado: vuelve a "
                      "tocar «Confirmar pedido» (no se duplica) o revisa los movimientos de tu hijo.")
-SIN_CACHE = {"Cache-Control": "no-store"}
 _ENTERO = re.compile(r"[0-9]{1,9}")
-_LLAVE = re.compile(r"[A-Za-z0-9_-]{8,100}")
 
 
 async def _formulario(request: Request):
@@ -249,7 +247,7 @@ def confirmar(alumno_id: int, request: Request, csrf: str = Form(""), fecha: str
     except SinTPV:
         # Si un intento anterior quedó sin respuesta, empezar de nuevo daría OTRA llave y un
         # segundo pedido: se conserva el mismo envío para reintentarlo tal cual.
-        if _LLAVE.fullmatch(llave) and _fecha(fecha) and len(producto_id) == len(cantidad):
+        if LLAVE.fullmatch(llave) and _fecha(fecha) and len(producto_id) == len(cantidad):
             return _pagina(request, "tutor/confirmar.html", {
                 "titulo": "Confirma tu pedido", "lineas": [], "aviso": MSG_SIN_TPV,
                 "accion": f"/hijos/{alumno_id}/pedir/confirmar", "csrf": sesion.csrf,
@@ -257,13 +255,13 @@ def confirmar(alumno_id: int, request: Request, csrf: str = Form(""), fecha: str
                            "llave": llave},
                 "boton": "Reintentar", "volver": f"/hijos/{alumno_id}"})
         return _error(request, MSG_SIN_TPV, volver)
-    if not _LLAVE.fullmatch(llave):
-        return _error(request, MSG_LLAVE, volver)
+    if not LLAVE.fullmatch(llave):
+        return _error(request, msg_llave(OP_PEDIR), volver)
     if len(producto_id) != len(cantidad):
         return _error(request, MSG_CANTIDAD, volver)
     # Si esta llave ya entró (200 en bitácora), un doble toque o una página vieja que cruza la hora
     # límite o cambia el menú debe ver el pedido que ya existe: se deja que el TPV lo repita.
-    ya_entro = ya_registrado(db, operador, tutor, llave)
+    ya_entro = ya_registrado(db, operador, tutor, llave, OP_PEDIR)
     items, error = validar_lineas(list(zip(producto_id, cantidad)),
                                   [{"id": int(x)} for x in producto_id if _ENTERO.fullmatch(x.strip())]
                                   if ya_entro else menu, cero_omite=False)
@@ -274,20 +272,17 @@ def confirmar(alumno_id: int, request: Request, csrf: str = Form(""), fecha: str
         # Con la hora de AHORA (tras las lecturas), no la de la revisión.
         error = motivo_fecha_invalida(cargar_reglas(db, operador.id), dia, ahora_fresca(request))
     if error:
-        return _error(request, con_aviso(db, operador, tutor, llave, hijo, error), volver)
+        return _error(request, con_aviso(db, operador, tutor, llave, hijo, error, OP_PEDIR), volver)
     cuerpo = {"alumno_id": alumno_id, "fecha_entrega": dia.isoformat(), "llave": llave,
               "items": [{"producto_id": pid, "cantidad": n} for pid, n in items]}
-    try:
-        r = escribir_tutor(db, request, operador, tutor, "precompra", cuerpo)
-    except ErrorTPV as e:
-        db.commit()  # la bitácora del intento fallido es verdad
-        if es_incierto(e):
-            # Sin respuesta clara: puede que sí entrara. Se reintenta con LA MISMA llave.
-            return _pagina(request, "tutor/confirmar.html", _contexto_confirmar(
-                alumno_id, sesion, hijo, dia, items, menu, llave, MSG_SIN_RESPUESTA))
-        return _error(request, con_aviso(db, operador, tutor, llave, hijo,
-                                          mensaje_para_tutor(e)), volver)
-    db.commit()
+    estado_envio, r = enviar_escritura(db, request, operador, tutor, OP_PEDIR, cuerpo, llave, hijo,
+                                       "volver a pedir")
+    if estado_envio == "incierto":
+        # Sin respuesta clara: puede que sí entrara. Se reintenta con LA MISMA llave.
+        return _pagina(request, "tutor/confirmar.html", _contexto_confirmar(
+            alumno_id, sesion, hijo, dia, items, menu, llave, MSG_SIN_RESPUESTA))
+    if estado_envio == "rechazo":
+        return _error(request, r, volver)
     pedido = r.get("pedido") if isinstance(r.get("pedido"), dict) else {}
     alumno = r.get("alumno") if isinstance(r.get("alumno"), dict) else {}
     if not pedido.get("nombre"):
@@ -409,15 +404,15 @@ def cancelar(alumno_id: int, pedido_id: int, request: Request, csrf: str = Form(
         pedidos = tutor_tpv.pedidos(request, operador, tutor, alumno_id)
     except SinTPV:
         # Un intento anterior pudo quedar sin respuesta: se conserva la llave para repetirlo tal cual.
-        if _LLAVE.fullmatch(llave):
+        if LLAVE.fullmatch(llave):
             return _pagina(request, "tutor/confirmar.html", {
                 "titulo": "Cancelar pedido", "lineas": [f"Pedido {pedido_id}"], "aviso": MSG_SIN_PEDIDOS,
                 "accion": f"/hijos/{alumno_id}/pedidos/{pedido_id}/cancelar", "csrf": sesion.csrf,
                 "campos": {"llave": llave}, "boton": "Reintentar", "volver": volver})
         return _error(request, MSG_SIN_PEDIDOS, volver, TIT_CANCELAR)
     pedido = _pedido_del_hijo(pedidos, pedido_id)
-    if not _LLAVE.fullmatch(llave):
-        return _error(request, MSG_LLAVE, volver, TIT_CANCELAR)
+    if not LLAVE.fullmatch(llave):
+        return _error(request, msg_llave(OP_CANCELAR), volver, TIT_CANCELAR)
     # Con la llave ya registrada (200), o ya cancelado tras un intento sin respuesta, el TPV
     # repite su respuesta guardada: un doble toque ve el resultado aunque ya pasara la hora límite.
     ya_entro = ya_registrado(db, operador, tutor, llave, OP_CANCELAR) or (
@@ -430,7 +425,7 @@ def cancelar(alumno_id: int, pedido_id: int, request: Request, csrf: str = Form(
                                               "volver a intentarlo"), volver, TIT_CANCELAR)
     estado, r = enviar_escritura(
         db, request, operador, tutor, OP_CANCELAR, {"pedido_id": pedido_id, "llave": llave}, llave,
-        hijo, "volver a intentarlo", MSG_CAMBIO)
+        hijo, "volver a intentarlo")
     if estado == "incierto":
         return _pagina(request, "tutor/confirmar.html", _contexto_cancelar(
             alumno_id, sesion, hijo, pedido, llave, MSG_SIN_RESPUESTA_CANCELAR))

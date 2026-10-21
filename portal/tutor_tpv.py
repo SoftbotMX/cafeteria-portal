@@ -1,4 +1,6 @@
 """Lecturas (y escrituras) del tutor al TPV. El `tutor_ref` sale siempre de la sesión."""
+import logging
+import re
 import time
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -10,6 +12,13 @@ from sqlalchemy.orm import Session
 from portal.alta import escribir_tpv
 from portal.models import Bitacora, Operador, Tutor
 from portal.tpv import ErrorTPV, cliente_tutor
+
+log = logging.getLogger(__name__)
+
+# La llave (idempotencia) de las escrituras del tutor: se genera al mostrar la confirmación y
+# vuelve en un campo oculto, así que se valida su forma antes de usarla.
+LLAVE = re.compile(r"[A-Za-z0-9_-]{8,100}")
+SIN_CACHE = {"Cache-Control": "no-store"}
 
 MSG_SIN_TPV = "No pudimos consultar el saldo, intenta en un momento."
 MSG_SIN_PEDIDOS = "No pudimos consultar los pedidos, intenta en un momento."
@@ -31,8 +40,16 @@ def hijos(request: Request, operador: Operador, tutor: Tutor) -> list[dict]:
         if not isinstance(fichas, list):
             raise TypeError
         return fichas
-    except (ErrorTPV, KeyError, TypeError):
+    except (ErrorTPV, KeyError, TypeError) as e:
+        _avisar_tutor_desconocido(e, tutor)
         raise SinTPV from None
+
+
+def _avisar_tutor_desconocido(e, tutor: Tutor) -> None:
+    """Un `tutor_ref` que el TPV no conoce es un desajuste de datos (alta a medias, tutor borrado
+    en el TPV): al papá sólo se le dice que no hay conexión, pero a quien opera hay que avisarle."""
+    if isinstance(e, ErrorTPV) and e.codigo == "tutor_desconocido":
+        log.warning("El TPV no conoce al tutor %s (tutor_desconocido)", tutor.id)
 
 
 def hijo_o_404(request: Request, operador: Operador, tutor: Tutor,
@@ -95,7 +112,8 @@ def movimientos(request: Request, operador: Operador, tutor: Tutor, alumno_id: i
             "tutor_ref": tutor.tutor_ref, "alumno_id": alumno_id,
             "pagina": pagina, "por_pagina": por_pagina})
         return {"total": int(r["total"]), "movimientos": list(r["movimientos"])}
-    except (ErrorTPV, KeyError, TypeError, ValueError):
+    except (ErrorTPV, KeyError, TypeError, ValueError) as e:
+        _avisar_tutor_desconocido(e, tutor)
         raise SinTPV from None
 
 
@@ -107,7 +125,8 @@ def pedidos(request: Request, operador: Operador, tutor: Tutor, alumno_id: int) 
             "tutor_ref": tutor.tutor_ref, "alumno_id": alumno_id})["pedidos"]
         if not isinstance(crudo, list):
             raise TypeError
-    except (ErrorTPV, KeyError, TypeError):
+    except (ErrorTPV, KeyError, TypeError) as e:
+        _avisar_tutor_desconocido(e, tutor)
         raise SinTPV from None
     lista = []
     for p in crudo:
@@ -132,6 +151,42 @@ def es_incierto(e: ErrorTPV) -> bool:
 
 
 MSG_CAMBIO = "Este pedido cambió desde que lo revisaste; vuelve a armarlo."
+# Texto de `llave_reutilizada` (la llave ya sirvió para otra cosa) y de una llave mal formada,
+# redactado para cada operación: lo que el papá debe hacer depende de lo que estaba haciendo.
+MSG_CAMBIO_POR_OPERACION = {
+    "precompra": MSG_CAMBIO,
+    "precompra/cancelar": ("Esta confirmación ya se usó para otra cancelación. Vuelve a abrir la "
+                           "ficha de tu hijo y toca «Cancelar» otra vez."),
+    "transferencia": "Esta transferencia cambió desde que la revisaste; vuelve a hacerla.",
+    "alumno/permiso": ("Esta confirmación ya se usó para otro cambio. Vuelve a abrir la ficha de "
+                       "tu hijo y toca el botón otra vez."),
+    "credencial/bloquear": ("Esta confirmación ya se usó para otro cambio. Vuelve a abrir la "
+                            "ficha de tu hijo y toca «Bloquear» otra vez."),
+    "credencial/desbloquear": ("Esta confirmación ya se usó para otro cambio. Vuelve a abrir la "
+                               "ficha de tu hijo y toca «Desbloquear» otra vez."),
+}
+MSG_LLAVE_POR_OPERACION = {
+    "precompra": "La confirmación no es válida. Vuelve a revisar tu pedido.",
+    "precompra/cancelar": ("La confirmación no es válida. Vuelve a abrir el pedido y toca "
+                           "«Cancelar pedido» de nuevo."),
+    "transferencia": "La confirmación no es válida. Vuelve a revisar tu transferencia.",
+    "alumno/permiso": ("La confirmación no es válida. Vuelve a abrir la ficha de tu hijo y "
+                       "cambia el permiso de nuevo."),
+    "credencial/bloquear": ("La confirmación no es válida. Vuelve a abrir la ficha de tu hijo y "
+                            "bloquea de nuevo."),
+    "credencial/desbloquear": ("La confirmación no es válida. Vuelve a abrir la ficha de tu hijo y "
+                               "desbloquea de nuevo."),
+}
+
+
+def msg_llave(operacion: str) -> str:
+    return MSG_LLAVE_POR_OPERACION[operacion]
+
+
+def msg_cambio(operacion: str) -> str:
+    return MSG_CAMBIO_POR_OPERACION[operacion]
+
+
 MSG_SIN_CONTACTO = "No se pudo contactar al TPV. Vuelve a intentar en un momento."
 
 
@@ -156,7 +211,7 @@ def escribir_tutor(db, request: Request, operador: Operador, tutor: Tutor, opera
                         operacion, cuerpo)
 
 
-def ya_registrado(db: Session, operador: Operador, tutor: Tutor, llave: str, operacion: str = "precompra") -> bool:
+def ya_registrado(db: Session, operador: Operador, tutor: Tutor, llave: str, operacion: str) -> bool:
     return db.scalars(select(Bitacora.id).where(
         Bitacora.operador_id == operador.id, Bitacora.actor == f"tutor:{tutor.id}",
         Bitacora.operacion == operacion, Bitacora.llave == llave,
@@ -164,7 +219,7 @@ def ya_registrado(db: Session, operador: Operador, tutor: Tutor, llave: str, ope
 
 
 def intento_incierto(db: Session, operador: Operador, tutor: Tutor, llave: str,
-                     operacion: str = "precompra") -> bool:
+                     operacion: str) -> bool:
     """¿Hubo ya un envío con esta llave que no obtuvo respuesta clara del TPV?"""
     return db.scalars(select(Bitacora.id).where(
         Bitacora.operador_id == operador.id, Bitacora.actor == f"tutor:{tutor.id}",
@@ -174,8 +229,8 @@ def intento_incierto(db: Session, operador: Operador, tutor: Tutor, llave: str,
             Bitacora.codigo_error.in_(("respuesta_invalida", "repetida"))))).first() is not None
 
 
-def con_aviso(db, operador, tutor, llave, hijo, mensaje: str,
-              operacion: str = "precompra", reintento: str = "volver a pedir",
+def con_aviso(db, operador, tutor, llave, hijo, mensaje: str, operacion: str,
+              reintento: str = "volver a pedir",
               que: str = "los movimientos") -> str:
     """Si un envío anterior con esta llave quedó sin respuesta, un rechazo de ahora no prueba que
     aquél fallara: puede haberse registrado. Se le dice al tutor que lo revise."""
@@ -186,7 +241,7 @@ def con_aviso(db, operador, tutor, llave, hijo, mensaje: str,
 
 
 def enviar_escritura(db, request: Request, operador: Operador, tutor: Tutor, operacion: str,
-                     cuerpo: dict, llave: str, hijo: dict, reintento: str, msg_cambio: str,
+                     cuerpo: dict, llave: str, hijo: dict, reintento: str,
                      que: str = "los movimientos") -> tuple[str, object]:
     """Manda la escritura y deja la bitácora confirmada (un `commit`, también si falló).
     ("ok", respuesta) | ("incierto", None): no sabemos si entró, se reintenta con la MISMA llave
@@ -197,7 +252,7 @@ def enviar_escritura(db, request: Request, operador: Operador, tutor: Tutor, ope
         db.commit()  # la bitácora del intento fallido es verdad
         if es_incierto(e):
             return "incierto", None
-        return "rechazo", con_aviso(db, operador, tutor, llave, hijo, mensaje_para_tutor(e, msg_cambio),
+        return "rechazo", con_aviso(db, operador, tutor, llave, hijo, mensaje_para_tutor(e, msg_cambio(operacion)),
                                     operacion, reintento, que)
     db.commit()
     return "ok", r

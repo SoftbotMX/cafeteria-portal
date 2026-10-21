@@ -13,11 +13,10 @@ from portal.db import get_db
 from portal.models import Operador, Sesion, Tutor
 from portal.reglas import ahora_local, ahora_utc, cargar_reglas, puede_cancelar
 from portal.formato import TIPOS_CREDENCIAL
-from portal.rutas.pedidos import MSG_LLAVE, SIN_CACHE, _LLAVE
 from portal.sesiones import exigir_csrf, operador_actual, tutor_listo
 from portal.tutor_tpv import (
-    MSG_SIN_PEDIDOS, MSG_SIN_TPV, SinTPV, enviar_escritura, hijo_o_404, intento_incierto,
-    ya_registrado)
+    LLAVE, MSG_SIN_PEDIDOS, MSG_SIN_TPV, SIN_CACHE, SinTPV, enviar_escritura, hijo_o_404,
+    intento_incierto, msg_llave, ya_registrado)
 from portal.web import templates
 
 router = APIRouter()
@@ -126,7 +125,6 @@ class Cambio:
     texto: str                           # lo que pasará (confirmación) y queda hecho (resultado)
     titulo_listo: str
     cuerpo: dict                         # al TPV, sin `llave` ni `tutor_ref`
-    msg_cambio: str                      # `llave_reutilizada`, redactado para esta operación
     objetivo: bool
     leer: Callable[[dict], bool | None]  # estado actual dentro de una ficha de alumno
 
@@ -158,8 +156,8 @@ def _ver_cambio(request, sesion, c: Cambio, hijo: dict, volver: str):
 def _hacer_cambio(request, sesion, tutor, operador, db, c: Cambio, hijo: dict, llave: str,
                   volver: str):
     """POST ya autorizado (CSRF y propiedad): validar llave, escribir y mostrar el resultado."""
-    if not _LLAVE.fullmatch(llave):
-        return _resultado(request, c.titulo_error, MSG_LLAVE, volver, error=True)
+    if not LLAVE.fullmatch(llave):
+        return _resultado(request, c.titulo_error, msg_llave(c.operacion), volver, error=True)
     ya_esta = c.leer(hijo) is c.objetivo
     # Con esta llave pudo haber entrado ya (200, o un intento sin respuesta): el TPV puede
     # contestar con su respuesta GUARDADA sin aplicar nada, aunque otro tutor lo haya cambiado después.
@@ -170,7 +168,7 @@ def _hacer_cambio(request, sesion, tutor, operador, db, c: Cambio, hijo: dict, l
     # (p. ej. desbloquear una tarjeta que otro tutor bloqueó por pérdida). Hallazgo de Codex.
     estado, r = enviar_escritura(
         db, request, operador, tutor, c.operacion, {**c.cuerpo, "llave": llave}, llave, hijo,
-        "volver a intentarlo", c.msg_cambio, "la ficha")
+        "volver a intentarlo", "la ficha")
     if estado == "incierto":
         return _confirmacion(request, sesion, c, llave, MSG_SIN_RESPUESTA_CAMBIO)
     if estado == "rechazo":
@@ -203,8 +201,6 @@ def _sin_tpv(request, mensaje, volver, titulo):
 
 OP_PERMISO = "alumno/permiso"
 TIT_PERMISO = "No se pudo cambiar el permiso"
-MSG_CAMBIO_PERMISO = ("Esta confirmación ya se usó para otro cambio. Vuelve a abrir la ficha de "
-                      "tu hijo y toca el botón otra vez.")
 VALORES_PERMISO = {"si": True, "no": False}
 
 
@@ -224,7 +220,7 @@ def _cambio_permiso(hijo: dict, valor: str) -> Cambio:
         volver=f"/hijos/{hijo['id']}",
         boton="Confirmar", texto=texto, titulo_listo="Permiso actualizado",
         cuerpo={"alumno_id": hijo["id"], "compra_sin_pedido": nuevo},
-        msg_cambio=MSG_CAMBIO_PERMISO, objetivo=nuevo, leer=_leer_permiso)
+        objetivo=nuevo, leer=_leer_permiso)
 
 
 def _hijo_para_cambio(request, operador, tutor, alumno_id, volver, titulo):
@@ -269,8 +265,6 @@ def permiso(alumno_id: int, request: Request, csrf: str = Form(""), valor: str =
 
 ACCIONES_CREDENCIAL = {"bloquear": True, "desbloquear": False}  # acción -> `bloqueada` resultante
 TIT_CREDENCIAL = "No se pudo cambiar la credencial"
-MSG_CAMBIO_CREDENCIAL = ("Esta confirmación ya se usó para otro cambio. Vuelve a abrir la ficha de "
-                         "tu hijo y toca el botón otra vez.")
 # Con artículo: «esta tarjeta», «este código QR» (el género no se puede sacar de la etiqueta).
 ESTA_CREDENCIAL = {"nfc": "esta tarjeta", "qr": "este código QR"}
 
@@ -300,7 +294,7 @@ def _cambio_credencial(hijo: dict, cred: dict, accion: str) -> Cambio:
         texto=(f"Nadie podrá pagar con {esta} hasta que la desbloquees." if bloquear
                else f"Se podrá volver a pagar con {esta}."),
         titulo_listo=f"{etiqueta} {'bloqueada' if bloquear else 'desbloqueada'}",
-        cuerpo={"credencial_id": cred_id}, msg_cambio=MSG_CAMBIO_CREDENCIAL, objetivo=bloquear,
+        cuerpo={"credencial_id": cred_id}, objetivo=bloquear,
         leer=leer)
 
 
