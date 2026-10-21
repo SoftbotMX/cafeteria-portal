@@ -22,7 +22,8 @@ from portal.reglas import (
 from portal.sesiones import exigir_csrf, operador_actual, tutor_listo
 from portal.tpv import ErrorTPV
 from portal.tutor_tpv import (
-    MSG_SIN_MENU, MSG_SIN_PEDIDOS, MSG_SIN_TPV, SinTPV, es_incierto, escribir_tutor, mensaje_para_tutor)
+    MSG_CAMBIO, MSG_SIN_MENU, MSG_SIN_PEDIDOS, MSG_SIN_TPV, SinTPV, con_aviso, enviar_escritura, es_incierto,
+    escribir_tutor, intento_incierto, mensaje_para_tutor, ya_registrado)
 from portal.web import templates
 
 router = APIRouter()
@@ -233,35 +234,6 @@ def revisar(alumno_id: int, request: Request, csrf: str = Form(""), fecha: str =
         "aviso": None if alcanza else f"No te alcanza el saldo de {hijo['nombre']} para este pedido."})
 
 
-def _ya_registrado(db: Session, operador: Operador, tutor: Tutor, llave: str,
-                   operacion: str = "precompra") -> bool:
-    return db.scalars(select(Bitacora.id).where(
-        Bitacora.operador_id == operador.id, Bitacora.actor == f"tutor:{tutor.id}",
-        Bitacora.operacion == operacion, Bitacora.llave == llave,
-        Bitacora.http_status == 200, Bitacora.codigo_error.is_(None))).first() is not None
-
-
-def _intento_incierto(db: Session, operador: Operador, tutor: Tutor, llave: str,
-                      operacion: str = "precompra") -> bool:
-    """¿Hubo ya un envío con esta llave que no obtuvo respuesta clara del TPV?"""
-    return db.scalars(select(Bitacora.id).where(
-        Bitacora.operador_id == operador.id, Bitacora.actor == f"tutor:{tutor.id}",
-        Bitacora.operacion == operacion, Bitacora.llave == llave,
-        or_(Bitacora.http_status < 200, Bitacora.http_status >= 500,
-            # misma regla que `es_incierto`: 4xx sin JSON reconocible, o 200 ilegible
-            Bitacora.codigo_error.in_(("respuesta_invalida", "repetida"))))).first() is not None
-
-
-def _con_aviso(db, operador, tutor, llave, hijo, mensaje: str, operacion: str = "precompra",
-               reintento: str = "volver a pedir") -> str:
-    """Si un envío anterior con esta llave quedó sin respuesta, un rechazo de ahora no prueba que
-    aquél fallara: puede existir el pedido. Se le dice al tutor que lo revise."""
-    if _intento_incierto(db, operador, tutor, llave, operacion):
-        mensaje += (" Ojo: tu intento anterior no tuvo respuesta y puede haberse registrado. "
-                    f"Revisa los movimientos de {hijo['nombre']} antes de {reintento}.")
-    return mensaje
-
-
 @router.post("/hijos/{alumno_id}/pedir/confirmar")
 def confirmar(alumno_id: int, request: Request, csrf: str = Form(""), fecha: str = Form(""),
               llave: str = Form(""), producto_id: list[str] = Form([]),
@@ -291,7 +263,7 @@ def confirmar(alumno_id: int, request: Request, csrf: str = Form(""), fecha: str
         return _error(request, MSG_CANTIDAD, volver)
     # Si esta llave ya entró (200 en bitácora), un doble toque o una página vieja que cruza la hora
     # límite o cambia el menú debe ver el pedido que ya existe: se deja que el TPV lo repita.
-    ya_entro = _ya_registrado(db, operador, tutor, llave)
+    ya_entro = ya_registrado(db, operador, tutor, llave)
     items, error = validar_lineas(list(zip(producto_id, cantidad)),
                                   [{"id": int(x)} for x in producto_id if _ENTERO.fullmatch(x.strip())]
                                   if ya_entro else menu, cero_omite=False)
@@ -302,7 +274,7 @@ def confirmar(alumno_id: int, request: Request, csrf: str = Form(""), fecha: str
         # Con la hora de AHORA (tras las lecturas), no la de la revisión.
         error = motivo_fecha_invalida(cargar_reglas(db, operador.id), dia, ahora_fresca(request))
     if error:
-        return _error(request, _con_aviso(db, operador, tutor, llave, hijo, error), volver)
+        return _error(request, con_aviso(db, operador, tutor, llave, hijo, error), volver)
     cuerpo = {"alumno_id": alumno_id, "fecha_entrega": dia.isoformat(), "llave": llave,
               "items": [{"producto_id": pid, "cantidad": n} for pid, n in items]}
     try:
@@ -313,7 +285,7 @@ def confirmar(alumno_id: int, request: Request, csrf: str = Form(""), fecha: str
             # Sin respuesta clara: puede que sí entrara. Se reintenta con LA MISMA llave.
             return _pagina(request, "tutor/confirmar.html", _contexto_confirmar(
                 alumno_id, sesion, hijo, dia, items, menu, llave, MSG_SIN_RESPUESTA))
-        return _error(request, _con_aviso(db, operador, tutor, llave, hijo,
+        return _error(request, con_aviso(db, operador, tutor, llave, hijo,
                                           mensaje_para_tutor(e)), volver)
     db.commit()
     pedido = r.get("pedido") if isinstance(r.get("pedido"), dict) else {}
@@ -448,25 +420,22 @@ def cancelar(alumno_id: int, pedido_id: int, request: Request, csrf: str = Form(
         return _error(request, MSG_LLAVE, volver, TIT_CANCELAR)
     # Con la llave ya registrada (200), o ya cancelado tras un intento sin respuesta, el TPV
     # repite su respuesta guardada: un doble toque ve el resultado aunque ya pasara la hora límite.
-    ya_entro = _ya_registrado(db, operador, tutor, llave, OP_CANCELAR) or (
-        pedido.get("estado") == "cancelada" and _intento_incierto(db, operador, tutor, llave, OP_CANCELAR))
+    ya_entro = ya_registrado(db, operador, tutor, llave, OP_CANCELAR) or (
+        pedido.get("estado") == "cancelada" and intento_incierto(db, operador, tutor, llave, OP_CANCELAR))
     if not ya_entro:
         # Con la hora de AHORA (tras las lecturas), no la de la confirmación.
         motivo = motivo_no_cancelable(cargar_reglas(db, operador.id), pedido, ahora_fresca(request))
         if motivo:
-            return _error(request, _con_aviso(db, operador, tutor, llave, hijo, motivo, OP_CANCELAR,
+            return _error(request, con_aviso(db, operador, tutor, llave, hijo, motivo, OP_CANCELAR,
                                               "volver a intentarlo"), volver, TIT_CANCELAR)
-    try:
-        r = escribir_tutor(db, request, operador, tutor, OP_CANCELAR,
-                           {"pedido_id": pedido_id, "llave": llave})
-    except ErrorTPV as e:
-        db.commit()  # la bitácora del intento fallido es verdad
-        if es_incierto(e):
-            return _pagina(request, "tutor/confirmar.html", _contexto_cancelar(
-                alumno_id, sesion, hijo, pedido, llave, MSG_SIN_RESPUESTA_CANCELAR))
-        return _error(request, _con_aviso(db, operador, tutor, llave, hijo, mensaje_para_tutor(e),
-                                          OP_CANCELAR, "volver a intentarlo"), volver, TIT_CANCELAR)
-    db.commit()
+    estado, r = enviar_escritura(
+        db, request, operador, tutor, OP_CANCELAR, {"pedido_id": pedido_id, "llave": llave}, llave,
+        hijo, "volver a intentarlo", MSG_CAMBIO)
+    if estado == "incierto":
+        return _pagina(request, "tutor/confirmar.html", _contexto_cancelar(
+            alumno_id, sesion, hijo, pedido, llave, MSG_SIN_RESPUESTA_CANCELAR))
+    if estado == "rechazo":
+        return _error(request, r, volver, TIT_CANCELAR)
     nuevo = r.get("pedido") if isinstance(r.get("pedido"), dict) else {}
     alumno = r.get("alumno") if isinstance(r.get("alumno"), dict) else {}
     if nuevo.get("estado") != "cancelada" or not nuevo.get("nombre"):

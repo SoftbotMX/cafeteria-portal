@@ -4,9 +4,11 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException, Request
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
 
 from portal.alta import escribir_tpv
-from portal.models import Operador, Tutor
+from portal.models import Bitacora, Operador, Tutor
 from portal.tpv import ErrorTPV, cliente_tutor
 
 MSG_SIN_TPV = "No pudimos consultar el saldo, intenta en un momento."
@@ -133,13 +135,14 @@ MSG_CAMBIO = "Este pedido cambió desde que lo revisaste; vuelve a armarlo."
 MSG_SIN_CONTACTO = "No se pudo contactar al TPV. Vuelve a intentar en un momento."
 
 
-def mensaje_para_tutor(e: ErrorTPV) -> str:
+def mensaje_para_tutor(e: ErrorTPV, msg_cambio: str = MSG_CAMBIO) -> str:
     """Texto para un papá ante un rechazo del TPV (para las escrituras del tutor, Tasks 3–7).
     El `mensaje` del TPV ya es español claro, se muestra tal cual; nunca el texto de
     administración. Excepción: «ya se registró con otros datos» (llave con otro contenido) trae
-    la llave interna; se reconoce por esa frase conocida del TPV y se cambia por MSG_CAMBIO."""
+    la llave interna; se reconoce por esa frase conocida del TPV y se cambia por `msg_cambio`,
+    que cada operación redacta a su manera (MSG_CAMBIO es el de los pedidos)."""
     if e.codigo == "llave_reutilizada" or "ya se registró con otros datos" in e.mensaje:
-        return MSG_CAMBIO
+        return msg_cambio
     if es_incierto(e):
         return MSG_SIN_CONTACTO
     return e.mensaje or "No se pudo completar la operación."
@@ -151,3 +154,50 @@ def escribir_tutor(db, request: Request, operador: Operador, tutor: Tutor, opera
     cuerpo = {**cuerpo, "tutor_ref": tutor.tutor_ref}
     return escribir_tpv(db, operador, _cliente(request, operador), f"tutor:{tutor.id}",
                         operacion, cuerpo)
+
+
+def ya_registrado(db: Session, operador: Operador, tutor: Tutor, llave: str, operacion: str = "precompra") -> bool:
+    return db.scalars(select(Bitacora.id).where(
+        Bitacora.operador_id == operador.id, Bitacora.actor == f"tutor:{tutor.id}",
+        Bitacora.operacion == operacion, Bitacora.llave == llave,
+        Bitacora.http_status == 200, Bitacora.codigo_error.is_(None))).first() is not None
+
+
+def intento_incierto(db: Session, operador: Operador, tutor: Tutor, llave: str,
+                     operacion: str = "precompra") -> bool:
+    """¿Hubo ya un envío con esta llave que no obtuvo respuesta clara del TPV?"""
+    return db.scalars(select(Bitacora.id).where(
+        Bitacora.operador_id == operador.id, Bitacora.actor == f"tutor:{tutor.id}",
+        Bitacora.operacion == operacion, Bitacora.llave == llave,
+        or_(Bitacora.http_status < 200, Bitacora.http_status >= 500,
+            # misma regla que `es_incierto`: 4xx sin JSON reconocible, o 200 ilegible
+            Bitacora.codigo_error.in_(("respuesta_invalida", "repetida"))))).first() is not None
+
+
+def con_aviso(db, operador, tutor, llave, hijo, mensaje: str,
+              operacion: str = "precompra", reintento: str = "volver a pedir",
+              que: str = "los movimientos") -> str:
+    """Si un envío anterior con esta llave quedó sin respuesta, un rechazo de ahora no prueba que
+    aquél fallara: puede haberse registrado. Se le dice al tutor que lo revise."""
+    if intento_incierto(db, operador, tutor, llave, operacion):
+        mensaje += (f" Ojo: tu intento anterior no tuvo respuesta y puede haberse registrado. "
+                    f"Revisa {que} de {hijo['nombre']} antes de {reintento}.")
+    return mensaje
+
+
+def enviar_escritura(db, request: Request, operador: Operador, tutor: Tutor, operacion: str,
+                     cuerpo: dict, llave: str, hijo: dict, reintento: str, msg_cambio: str,
+                     que: str = "los movimientos") -> tuple[str, object]:
+    """Manda la escritura y deja la bitácora confirmada (un `commit`, también si falló).
+    ("ok", respuesta) | ("incierto", None): no sabemos si entró, se reintenta con la MISMA llave
+    | ("rechazo", mensaje para el tutor)."""
+    try:
+        r = escribir_tutor(db, request, operador, tutor, operacion, cuerpo)
+    except ErrorTPV as e:
+        db.commit()  # la bitácora del intento fallido es verdad
+        if es_incierto(e):
+            return "incierto", None
+        return "rechazo", con_aviso(db, operador, tutor, llave, hijo, mensaje_para_tutor(e, msg_cambio),
+                                    operacion, reintento, que)
+    db.commit()
+    return "ok", r
