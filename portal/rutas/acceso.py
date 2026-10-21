@@ -33,19 +33,34 @@ def _usuario_valido(clave: str) -> bool:
     return "@" in clave or (len(clave) == 10 and clave.isascii() and clave.isdigit())
 
 
-def _pagina_entrar(request: Request, csrf: str, status: int = 200, error: str | None = None,
-                   usuario: str = ""):
+def pagina_prelogin(request: Request, plantilla: str, csrf: str, status: int = 200, **contexto):
+    """Página previa a la sesión: lleva el CSRF de doble envío (campo oculto + cookie)."""
     resp = templates.TemplateResponse(
-        request, "entrar.html", {"csrf": csrf, "error": error, "usuario": usuario},
-        status_code=status)
+        request, plantilla, {"csrf": csrf, **contexto}, status_code=status)
     resp.set_cookie(COOKIE_CSRF_LOGIN, csrf, max_age=3600, httponly=True,
                     secure=request.app.state.settings.cookie_secure, samesite="lax", path="/")
     return resp
 
 
+def csrf_prelogin_valido(request: Request, enviado: str) -> bool:
+    try:
+        exigir_csrf(enviado, request.cookies.get(COOKIE_CSRF_LOGIN, ""))
+    except HTTPException:
+        return False
+    return True
+
+
+def _pagina_entrar(request: Request, csrf: str, status: int = 200, error: str | None = None,
+                   usuario: str = "", aviso: str | None = None):
+    return pagina_prelogin(request, "entrar.html", csrf, status, error=error, usuario=usuario,
+                           aviso=aviso)
+
+
 @router.get("/entrar")
-def entrar_form(request: Request, _: Operador = Depends(operador_actual)):
-    return _pagina_entrar(request, request.cookies.get(COOKIE_CSRF_LOGIN) or secrets.token_urlsafe(32))
+def entrar_form(request: Request, cambiada: str = "", _: Operador = Depends(operador_actual)):
+    aviso = "Tu contraseña cambió. Ya puedes entrar." if cambiada == "1" else None
+    return _pagina_entrar(request, request.cookies.get(COOKIE_CSRF_LOGIN) or secrets.token_urlsafe(32),
+                          aviso=aviso)
 
 
 @router.post("/entrar")
@@ -54,9 +69,7 @@ def entrar(request: Request, usuario: str = Form(""), contrasena: str = Form("")
            db: Session = Depends(get_db)):
     # Doble envío: sin sesión previa, la cookie y el campo oculto deben coincidir.
     cookie = request.cookies.get(COOKIE_CSRF_LOGIN, "")
-    try:
-        exigir_csrf(csrf, cookie)
-    except HTTPException:
+    if not csrf_prelogin_valido(request, csrf):
         return _pagina_entrar(request, secrets.token_urlsafe(32), 403, MSG_EXPIRO, usuario)
     ip = ip_cliente(request)
     clave = normalizar_usuario(usuario)
