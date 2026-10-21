@@ -1,3 +1,4 @@
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -29,12 +30,18 @@ MAX_FALLOS_USUARIO = 5
 MAX_FALLOS_IP = 20
 
 
+def _usuario_bd(usuario: str) -> str:
+    # Mismo recorte al escribir y al consultar, o el límite no vería los intentos largos.
+    return usuario[:255]
+
+
 def generar_temporal() -> str:
     return "".join(secrets.choice(_SIN_AMBIGUOS) for _ in range(10))
 
 
 def normalizar_telefono(t: str) -> str | None:
-    d = "".join(ch for ch in t if ch.isdigit())
+    # Solo 0-9 ASCII: isdigit() acepta dígitos de ancho completo/árabes; esos se descartan y el número se rechaza.
+    d = re.sub(r"[^0-9]", "", t)
     if len(d) == 12 and d.startswith("52"):
         d = d[-10:]
     elif len(d) == 13 and d.startswith("521"):
@@ -43,8 +50,9 @@ def normalizar_telefono(t: str) -> str | None:
 
 
 def normalizar_usuario(u: str) -> str:
+    u = u.strip()
     if "@" in u:
-        return u.strip().lower()
+        return u.lower()
     return normalizar_telefono(u) or u
 
 
@@ -63,12 +71,12 @@ def limite_excedido(db: Session, operador_id: int, usuario: str, ip: str) -> boo
         IntentoLogin.exito.is_(False),
         IntentoLogin.creado >= desde,
     )
-    por_usuario = db.scalar(base.where(IntentoLogin.usuario == usuario))
+    por_usuario = db.scalar(base.where(IntentoLogin.usuario == _usuario_bd(usuario)))
     if por_usuario >= MAX_FALLOS_USUARIO:
         return True
     return db.scalar(base.where(IntentoLogin.ip == ip)) >= MAX_FALLOS_IP
 
 
 def registrar_intento(db: Session, operador_id: int, usuario: str, ip: str, exito: bool) -> None:
-    db.add(IntentoLogin(operador_id=operador_id, usuario=usuario[:255], ip=ip[:64], exito=exito))
+    db.add(IntentoLogin(operador_id=operador_id, usuario=_usuario_bd(usuario), ip=ip[:64], exito=exito))
     db.commit()

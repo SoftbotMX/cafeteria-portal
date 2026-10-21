@@ -89,3 +89,21 @@ def test_exitos_no_cuentan_y_registrar(db):
     for _ in range(5):
         registrar_intento(db, op.id, "ana", "1.1.1.1", False)
     assert limite_excedido(db, op.id, "ana", "1.1.1.1") is True
+
+
+def test_telefono_digitos_no_ascii_se_rechaza():
+    assert normalizar_telefono("８３４１４４５８０７") is None
+    assert normalizar_telefono("٨٣٤١٤٤٥٨٠٧") is None
+
+
+def test_normalizar_usuario_recorta_siempre():
+    assert normalizar_usuario("  admin  ") == "admin"
+    assert normalizar_usuario(" 834 144 5807 ") == "8341445807"
+
+
+def test_limite_con_usuario_largo(db):
+    op = _operador(db)
+    largo = "x" * 300
+    for _ in range(5):
+        registrar_intento(db, op.id, largo, "1.1.1.1", False)
+    assert limite_excedido(db, op.id, largo, "9.9.9.9") is True
