@@ -1,11 +1,13 @@
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from portal.config import Settings, get_settings
 from portal.db import crear_engine
+from portal.sesiones import IrA
 
 BASE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE / "plantillas"))
@@ -20,6 +22,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.tpv_transport = None
     app.state.conduit_transport = None
     app.mount("/estatico", StaticFiles(directory=str(BASE / "estatico")), name="estatico")
+
+    @app.exception_handler(IrA)
+    def _ir_a(_: Request, exc: IrA) -> RedirectResponse:
+        return RedirectResponse(exc.url, status_code=303)
 
     @app.get("/salud")
     def salud() -> dict[str, bool]:
