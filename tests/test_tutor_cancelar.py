@@ -109,7 +109,7 @@ def test_pedidos_caidos_no_tumban_la_pantalla(hijo, c, tpv):
     _pedir(c, hijo)
     tpv.fallar_en = {"alumno/pedidos"}
     t = c.get(f"/hijos/{hijo['id']}").text
-    assert "Luis Pérez" in t and "$110.00" in t and "Pedido por recoger" in t  # saldo y movimientos
+    assert "Luis Pérez" in t and "$110.00" in t and "Saldo apartado" in t  # saldo y movimientos
     assert "No pudimos consultar los pedidos" in t and "PC-00001" not in t
 
 

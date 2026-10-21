@@ -13,6 +13,25 @@ ESTADOS_PEDIDO = {
 }
 TIPOS_CREDENCIAL = {"nfc": "Tarjeta", "qr": "Código QR"}
 
+# `tipo` REAL de un movimiento del TPV (sb.cafe.movimiento.TIPOS) -> texto para el papá. La
+# `descripcion` que manda el TPV es la etiqueta interna del tipo («Retención», «Cargo»…), pensada
+# para la cafetería, no para quien paga. Qué es cada uno según cómo lo escribe el TPV:
+#   recarga        saldo que entra (MercadoPago o caja).
+#   retencion      aparta saldo: un pedido hecho con fecha, y también cada compra en caja (que se
+#                  aparta y cobra al instante). No siempre es un pedido: «Saldo apartado».
+#   cargo          consume lo apartado: compra o pedido entregado.
+#   liberacion     devuelve lo apartado: pedido cancelado o no recogido, o la parte no consumida.
+#   transferencia  entre hijos del mismo tutor; con el signo se sabe si salió o llegó.
+#   ajuste         corrección de la gerencia, siempre con motivo.
+ETIQUETAS_MOVIMIENTO = {
+    "recarga": "Recarga",
+    "retencion": "Saldo apartado",
+    "cargo": "Compra",
+    "liberacion": "Saldo liberado",
+    "transferencia": "Transferencia",
+    "ajuste": "Ajuste de la cafetería",
+}
+
 
 SIN_DATO = "—"
 
@@ -60,7 +79,22 @@ def cambio(x) -> str:
     return ("+" if c > 0 else "-") + f"${abs(c):,.2f}"
 
 
-def fecha(d) -> str:
+def etiqueta_movimiento(m) -> str:
+    """Texto de un movimiento para el papá; un `tipo` desconocido cae a la `descripcion` del TPV."""
+    if not isinstance(m, dict):
+        return "Movimiento"
+    tipo = m.get("tipo")
+    etiqueta = ETIQUETAS_MOVIMIENTO.get(tipo) if isinstance(tipo, str) else None
+    if etiqueta is None:
+        return str(m.get("descripcion") or "Movimiento")
+    if tipo == "transferencia":
+        c = _cantidad(m.get("disponible"))
+        if c is not None and c != 0:
+            return "Transferencia recibida" if c > 0 else "Transferencia enviada"
+    return etiqueta
+
+
+def fecha(d, zona: ZoneInfo | None = None) -> str:
     # El TPV entrega las fechas-hora en UTC: se pasan a la zona local antes de tomar el día.
     if isinstance(d, str) and len(d) > 10:
         try:
@@ -70,7 +104,7 @@ def fecha(d) -> str:
     if isinstance(d, datetime):
         if d.tzinfo is None:
             d = d.replace(tzinfo=timezone.utc)
-        d = d.astimezone(ZONA).date()
+        d = d.astimezone(zona or ZONA).date()
     elif not isinstance(d, date):
         try:
             d = date.fromisoformat(str(d))
@@ -80,5 +114,6 @@ def fecha(d) -> str:
 
 
 def registrar(templates) -> None:
-    templates.env.filters.update(dinero=dinero, fecha=fecha, cambio=cambio)
+    templates.env.filters.update(dinero=dinero, fecha=fecha, cambio=cambio,
+                                 movimiento=etiqueta_movimiento)
     templates.env.globals.update(estados_pedido=ESTADOS_PEDIDO, tipos_credencial=TIPOS_CREDENCIAL)

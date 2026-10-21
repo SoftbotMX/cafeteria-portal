@@ -40,10 +40,11 @@ def inicio(request: Request, par: tuple[Sesion, Tutor] = Depends(tutor_listo),
     return templates.TemplateResponse(request, "tutor_inicio.html", ctx)
 
 
-def _contexto_movs(request, operador, tutor, alumno_id: int, pagina: int) -> dict:
+def _contexto_movs(request, operador, tutor, db, alumno_id: int, pagina: int) -> dict:
     datos = tutor_tpv.movimientos(request, operador, tutor, alumno_id, pagina, POR_PAGINA)
     return {"movs": datos["movimientos"], "alumno_id": alumno_id, "pagina": pagina,
-            "hay_mas": pagina * POR_PAGINA < datos["total"], "error_tpv": None}
+            "hay_mas": pagina * POR_PAGINA < datos["total"], "error_tpv": None,
+            "zona": cargar_reglas(db, operador.id).zona}
 
 
 def _contexto_pedidos(request, operador, tutor, db, alumno_id: int, ahora: datetime) -> dict:
@@ -63,7 +64,7 @@ def _contexto_pedidos(request, operador, tutor, db, alumno_id: int, ahora: datet
 
 
 @router.get("/hijos/{alumno_id}")
-def hijo(alumno_id: int, request: Request, par: tuple[Sesion, Tutor] = Depends(tutor_listo),
+def hijo(alumno_id: int, request: Request, pagina: int = Query(1, ge=1, le=10000), par: tuple[Sesion, Tutor] = Depends(tutor_listo),
          operador: Operador = Depends(operador_actual), db: Session = Depends(get_db),
          ahora: datetime = Depends(ahora_utc)):
     sesion, tutor = par
@@ -80,23 +81,24 @@ def hijo(alumno_id: int, request: Request, par: tuple[Sesion, Tutor] = Depends(t
     except SinTPV:
         ctx.update(pedidos=[], error_pedidos=MSG_SIN_PEDIDOS)
     try:
-        ctx.update(_contexto_movs(request, operador, tutor, alumno_id, 1))
+        ctx.update(_contexto_movs(request, operador, tutor, db, alumno_id, pagina))
     except SinTPV:
-        ctx.update(movs=[], hay_mas=False, error_mov=MSG_SIN_TPV, alumno_id=alumno_id, pagina=1)
+        ctx.update(movs=[], hay_mas=False, error_mov=MSG_SIN_TPV, alumno_id=alumno_id,
+                   pagina=pagina, zona=None)
     return templates.TemplateResponse(request, "tutor/hijo.html", ctx)
 
 
 @router.get("/hijos/{alumno_id}/movimientos")
 def movimientos(alumno_id: int, request: Request, pagina: int = Query(1, ge=1, le=10000),
                 par: tuple[Sesion, Tutor] = Depends(tutor_listo),
-                operador: Operador = Depends(operador_actual)):
+                operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
     _, tutor = par
     try:
         tutor_tpv.hijo_o_404(request, operador, tutor, alumno_id)
-        ctx = _contexto_movs(request, operador, tutor, alumno_id, pagina)
+        ctx = _contexto_movs(request, operador, tutor, db, alumno_id, pagina)
     except SinTPV:
         ctx = {"movs": [], "hay_mas": False, "alumno_id": alumno_id, "pagina": pagina,
-               "error_mov": MSG_SIN_TPV}
+               "error_mov": MSG_SIN_TPV, "zona": None}
     return templates.TemplateResponse(request, "tutor/_movimientos.html", ctx)
 
 

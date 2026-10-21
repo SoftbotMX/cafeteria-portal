@@ -95,7 +95,7 @@ def test_hijo_ajeno_404(db, op, tutor, tpv, c):
 def test_hijo_muestra_movimientos_con_signo(tutor, tpv, c):
     h = tpv.agregar_hijo(tutor.tutor_ref, "Luis Pérez", disponible=55)
     tpv.movimientos[h["id"]] = [
-        {"fecha": "2026-10-21 15:00:00", "tipo": "compra", "descripcion": "Compra",
+        {"fecha": "2026-10-21 15:00:00", "tipo": "cargo", "descripcion": "Cargo",
          "disponible": -45, "retenido": 0, "venta": "P1"},
         {"fecha": "2026-10-20 14:00:00", "tipo": "recarga", "descripcion": "Recarga",
          "disponible": 100, "retenido": 0, "venta": ""},
@@ -186,3 +186,57 @@ def test_ver_mas_fallido_ofrece_reintentar(tutor, tpv, c):
     tpv.fallar_en = {"alumno/movimientos"}
     t = c.get(f"/hijos/{h['id']}/movimientos?pagina=2").text
     assert MSG_SIN_TPV in t and "Reintentar" in t and "pagina=2" in t
+
+
+def test_movimientos_con_etiqueta_para_el_papa(tutor, tpv, c):
+    """El TPV manda su etiqueta interna («Retención»); el papá ve texto suyo, según el `tipo`."""
+    h = tpv.agregar_hijo(tutor.tutor_ref, "Luis Pérez")
+    tpv.movimientos[h["id"]] = [
+        {"fecha": "2026-10-21 15:00:00", "tipo": "ajuste", "descripcion": "Ajuste",
+         "disponible": 5, "retenido": 0, "venta": ""},
+        {"fecha": "2026-10-21 14:00:00", "tipo": "transferencia", "descripcion": "Transferencia",
+         "disponible": -20, "retenido": 0, "venta": ""},
+        {"fecha": "2026-10-21 13:00:00", "tipo": "liberacion", "descripcion": "Liberación",
+         "disponible": 30, "retenido": -30, "venta": ""},
+        {"fecha": "2026-10-21 12:00:00", "tipo": "retencion", "descripcion": "Retención",
+         "disponible": -30, "retenido": 30, "venta": ""},
+        {"fecha": "2026-10-21 11:00:00", "tipo": "futuro", "descripcion": "Algo nuevo",
+         "disponible": 1, "retenido": 0, "venta": ""},
+    ]
+    _entrar(c)
+    t = c.get(f"/hijos/{h['id']}").text
+    for esperado in ("Ajuste de la cafetería", "Transferencia enviada", "Saldo liberado",
+                     "Saldo apartado", "Algo nuevo"):
+        assert esperado in t
+    assert "Retención" not in t and "Liberación" not in t
+
+
+def test_ver_mas_es_enlace_y_la_pagina_completa_acepta_pagina(tutor, tpv, c):
+    h = tpv.agregar_hijo(tutor.tutor_ref, "Luis Pérez")
+    tpv.movimientos[h["id"]] = [
+        {"fecha": "2026-10-21 10:00:00", "tipo": "recarga", "descripcion": "Recarga",
+         "disponible": i + 1, "retenido": 0, "venta": ""} for i in range(45)]
+    _entrar(c)
+    p1 = c.get(f"/hijos/{h['id']}").text
+    assert f'href="/hijos/{h["id"]}?pagina=2"' in p1 and "hx-get" in p1
+    p2 = c.get(f"/hijos/{h['id']}?pagina=2")
+    assert p2.status_code == 200 and "Luis Pérez" in p2.text
+    assert p2.text.count('class="movimiento"') >= 20 and f'?pagina=3"' in p2.text
+    assert c.get(f"/hijos/{h['id']}?pagina=0").status_code == 422
+
+
+def test_fechas_de_movimientos_en_la_zona_del_operador(db, op, tutor, tpv, c):
+    from datetime import time
+
+    from portal.models import ConfigPedidos
+    h = tpv.agregar_hijo(tutor.tutor_ref, "Luis Pérez")
+    tpv.movimientos[h["id"]] = [{"fecha": "2026-10-21 05:30:00", "tipo": "recarga",
+                                 "descripcion": "Recarga", "disponible": 10, "retenido": 0,
+                                 "venta": ""}]
+    _entrar(c)
+    assert "mar 20/10/2026" in c.get(f"/hijos/{h['id']}").text  # México: UTC-6
+    db.add(ConfigPedidos(operador_id=op.id, hora_limite=time(9, 0), dias_servicio="01234",
+                         zona_horaria="America/Cancun", dias_anticipacion=14))
+    db.commit()
+    assert "mié 21/10/2026" in c.get(f"/hijos/{h['id']}").text  # Cancún: UTC-5
+    assert "mié 21/10/2026" in c.get(f"/hijos/{h['id']}/movimientos?pagina=1").text

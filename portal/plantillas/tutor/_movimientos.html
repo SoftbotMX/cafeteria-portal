@@ -1,15 +1,15 @@
 {% if error_mov and pagina > 1 %}
 <div id="mas-{{ pagina }}">
   <p class="aviso">{{ error_mov }}</p>
-  <button type="button" class="secundario"
-          hx-get="/hijos/{{ alumno_id }}/movimientos?pagina={{ pagina }}"
-          hx-target="#mas-{{ pagina }}" hx-swap="outerHTML">Reintentar</button>
+  <a class="boton secundario" href="/hijos/{{ alumno_id }}?pagina={{ pagina }}"
+     hx-get="/hijos/{{ alumno_id }}/movimientos?pagina={{ pagina }}"
+     hx-target="#mas-{{ pagina }}" hx-swap="outerHTML">Reintentar</a>
 </div>
 {% elif error_mov %}<p class="aviso">{{ error_mov }}</p>{% endif %}
 {% if not movs and not error_mov and pagina == 1 %}<p>Todavía no hay movimientos.</p>{% endif %}
 {% for m in movs %}
 <div class="movimiento">
-  <div><strong>{{ m.descripcion }}</strong><br><small>{{ m.fecha | fecha }}</small></div>
+  <div><strong>{{ m | movimiento }}</strong><br><small>{{ m.fecha | fecha(zona) }}</small></div>
   <div class="importe">
     {% set d = m.disponible | cambio %}{% set r = m.retenido | cambio %}
     {% if d %}<span class="{{ 'mas' if d[0] == '+' else ('menos' if d[0] == '-' else '') }}">{{ d }}</span>{% endif %}
@@ -19,8 +19,9 @@
 {% endfor %}
 {% if hay_mas %}
 <div id="mas-{{ pagina + 1 }}">
-  <button type="button" class="secundario"
-          hx-get="/hijos/{{ alumno_id }}/movimientos?pagina={{ pagina + 1 }}"
-          hx-target="#mas-{{ pagina + 1 }}" hx-swap="outerHTML">Ver más</button>
+  {# Sin JavaScript es un enlace a la página completa de esa tanda; con HTMX se inserta aquí. #}
+  <a class="boton secundario" href="/hijos/{{ alumno_id }}?pagina={{ pagina + 1 }}"
+     hx-get="/hijos/{{ alumno_id }}/movimientos?pagina={{ pagina + 1 }}"
+     hx-target="#mas-{{ pagina + 1 }}" hx-swap="outerHTML">Ver más</a>
 </div>
 {% endif %}

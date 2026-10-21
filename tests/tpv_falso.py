@@ -249,7 +249,7 @@ class TPVFalso:
         self.precompras[(t["tutor_ref"], llave)] = (contenido, pedido)  # el vivo, como el real
         self.movimientos[al["id"]].insert(0, {
             "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "tipo": "retencion",
-            "descripcion": "Pedido por recoger", "disponible": -total, "retenido": total,
+            "descripcion": "Retención", "disponible": -total, "retenido": total,
             "venta": ""})
         return httpx.Response(200, json={"ok": True, "pedido": copy.deepcopy(pedido),
                                          "alumno": copy.deepcopy(al)})
@@ -296,10 +296,10 @@ class TPVFalso:
             self.transferencias[(t["tutor_ref"], llave)] = contenido
             ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.movimientos[origen["id"]].insert(0, {
-                "fecha": ahora, "tipo": "transferencia", "descripcion": "Transferencia enviada",
+                "fecha": ahora, "tipo": "transferencia", "descripcion": "Transferencia",
                 "disponible": -importe, "retenido": 0, "venta": ""})
             self.movimientos[destino["id"]].insert(0, {
-                "fecha": ahora, "tipo": "transferencia", "descripcion": "Transferencia recibida",
+                "fecha": ahora, "tipo": "transferencia", "descripcion": "Transferencia",
                 "disponible": importe, "retenido": 0, "venta": ""})
         elif previo != contenido:
             return _err("rechazado", f"La operación portal:{t['tutor_ref']}:{llave} ya se "
@@ -349,7 +349,7 @@ class TPVFalso:
             pedido["estado"] = "cancelada"
             self.movimientos[al["id"]].insert(0, {
                 "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "tipo": "liberacion",
-                "descripcion": "Pedido cancelado", "disponible": pedido["total"],
+                "descripcion": "Liberación", "disponible": pedido["total"],
                 "retenido": -pedido["total"], "venta": ""})
         resp = {"ok": True, "pedido": copy.deepcopy(pedido), "alumno": copy.deepcopy(al)}
         self.cancelaciones[(t["tutor_ref"], llave)] = (huella, copy.deepcopy(resp))
