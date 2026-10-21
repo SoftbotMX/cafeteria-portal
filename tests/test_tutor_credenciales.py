@@ -149,7 +149,12 @@ def test_bloquear_la_ya_bloqueada_dice_ya_estaba_asi_sin_escribir(hijo, c, tpv):
     tpv.alumnos[hijo["id"]]["credenciales"][0]["bloqueada"] = True  # la bloqueó el otro tutor
     r = c.post(_url(hijo), data=o)
     assert "Ya estaba así" in r.text and BLOQUEAR_TARJETA in r.text
-    assert "credencial/bloquear" not in tpv.llamadas
+    # se escribió (no-op en el TPV) para consumir la llave: repetir tras un desbloqueo posterior
+    # no vuelve a bloquear ni desbloquear nada
+    assert tpv.llamadas["credencial/bloquear"] == 1
+    tpv.alumnos[hijo["id"]]["credenciales"][0]["bloqueada"] = False  # otro tutor la desbloqueó
+    c.post(_url(hijo), data=o)
+    assert tpv.alumnos[hijo["id"]]["credenciales"][0]["bloqueada"] is False
 
 
 def test_doble_toque_ve_el_resultado_no_ya_estaba_asi(hijo, c, tpv):

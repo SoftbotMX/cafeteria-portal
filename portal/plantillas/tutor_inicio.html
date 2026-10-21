@@ -19,6 +19,7 @@
     </li>
   {% endfor %}
   </ul>
+  {% if hijos|length >= 2 %}<p><a class="boton" href="/transferir">Transferir saldo</a></p>{% endif %}
 {% endif %}
 <form method="post" action="/salir">
   <input type="hidden" name="csrf" value="{{ csrf }}">

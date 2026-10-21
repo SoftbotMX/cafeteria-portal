@@ -1,4 +1,5 @@
 """Formato de dinero y fechas para las plantillas (español de México)."""
+import re
 from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
@@ -25,6 +26,21 @@ def _cantidad(x) -> Decimal | None:
         return c.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     except (InvalidOperation, ValueError, TypeError):
         return None
+
+
+# `150`, `150.5`, `150.50`, `$1,500.00`: signo de pesos y comas de millar opcionales, hasta 2
+# decimales, 9 enteros como tope (un error de dedo no mueve millones).
+_IMPORTE = re.compile(r"\$?\s*((?:[0-9]{1,3}(?:,[0-9]{3}){1,2}|[0-9]{1,9}))(\.[0-9]{1,2})?")
+
+
+def parse_importe(texto: str | None) -> Decimal | None:
+    """Lo que escribió el tutor como `Decimal` de EXACTAMENTE 2 decimales, o None si no es un
+    importe válido (vacío, texto, ≤ 0, más de 2 decimales: no se redondea en silencio)."""
+    m = _IMPORTE.fullmatch((texto or "").strip())
+    if m is None:
+        return None
+    importe = Decimal(m.group(1).replace(",", "") + (m.group(2) or "")).quantize(Decimal("0.01"))
+    return importe if importe > 0 else None
 
 
 def dinero(x) -> str:

@@ -6,6 +6,7 @@ import hmac
 import json
 import time
 from datetime import date, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -42,6 +43,8 @@ class TPVFalso:
         self.una_vez: dict[tuple, tuple] = {}  # (tutor_ref, llave) -> (huella, respuesta): _sb_una_vez
         self.cuerpos_permiso: list[dict] = []  # lo que el portal mandó a alumno/permiso
         self.cuerpos_credencial: list[tuple[str, dict]] = []  # (operación, cuerpo) de credencial/*
+        self.cuerpos_transferencia: list[dict] = []  # lo que el portal mandó a transferencia
+        self.transferencias: dict[tuple, tuple] = {}  # (tutor_ref, llave) -> (origen, destino, importe)
         self.hoy: date | None = None  # fija el «hoy» del TPV; por omisión, el de México
         self.transport = httpx.MockTransport(self._manejar)
 
@@ -251,6 +254,59 @@ class TPVFalso:
         return httpx.Response(200, json={"ok": True, "pedido": copy.deepcopy(pedido),
                                          "alumno": copy.deepcopy(al)})
 
+    def _transferencia(self, d: dict) -> httpx.Response:
+        """Imita op_transferencia + _sb_transferir del TPV real. Orden de comprobaciones como en
+        el real: tutor, origen y destino (ajeno = 404 `alumno_desconocido`), importe (400
+        `importe_invalido`), llave (400 `falta_llave`); luego el dominio, todo 409 `rechazado`:
+        origen == destino, repetir con otro contenido ("ya se registró con otros datos") y saldo
+        insuficiente. Repetir lo mismo NO re-aplica y devuelve los saldos ACTUALES (sin revisar
+        saldo). El importe se redondea a centavos (Odoo: half-up), no se rechaza."""
+        t = self.tutores.get(d.get("tutor_ref"))
+        if not t or not t["activo"]:
+            return _err("tutor_desconocido", "Tutor desconocido.", 404)
+        propios = {a["id"]: a for a in t["alumnos"]}
+        origen = propios.get(d.get("origen_id")) if isinstance(d.get("origen_id"), int) else None
+        destino = propios.get(d.get("destino_id")) if isinstance(d.get("destino_id"), int) else None
+        if origen is None or destino is None:
+            return _err("alumno_desconocido", "Alumno desconocido.", 404)
+        try:
+            importe = float(d.get("importe"))
+        except (TypeError, ValueError):
+            return _err("importe_invalido", "Importe no válido.", 400)
+        if importe != importe or importe in (float("inf"), float("-inf")) or importe <= 0:
+            return _err("importe_invalido", "El importe tiene que ser mayor que cero.", 400)
+        importe = float(Decimal(str(importe)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        if importe <= 0:
+            return _err("importe_invalido", "El importe tiene que ser mayor que cero.", 400)
+        llave = (d.get("llave") or "").strip() if isinstance(d.get("llave"), str) else ""
+        if not llave or len(llave) > 120:
+            return _err("falta_llave", "Toda escritura lleva su llave de idempotencia.", 400)
+        self.cuerpos_transferencia.append(copy.deepcopy(d))
+        if origen["id"] == destino["id"]:
+            return _err("rechazado", "Origen y destino son el mismo alumno.", 409)
+        contenido = (origen["id"], destino["id"], importe)
+        previo = self.transferencias.get((t["tutor_ref"], llave))
+        if previo is None:
+            if round(float(origen["disponible"]), 2) < importe:
+                return _err("rechazado", f"Saldo insuficiente de {origen['nombre']}: tiene "
+                            f"${origen['disponible']:,.2f} disponibles y se necesitan "
+                            f"${importe:,.2f}.", 409)
+            origen["disponible"] = round(float(origen["disponible"]) - importe, 2)
+            destino["disponible"] = round(float(destino["disponible"]) + importe, 2)
+            self.transferencias[(t["tutor_ref"], llave)] = contenido
+            ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.movimientos[origen["id"]].insert(0, {
+                "fecha": ahora, "tipo": "transferencia", "descripcion": "Transferencia enviada",
+                "disponible": -importe, "retenido": 0, "venta": ""})
+            self.movimientos[destino["id"]].insert(0, {
+                "fecha": ahora, "tipo": "transferencia", "descripcion": "Transferencia recibida",
+                "disponible": importe, "retenido": 0, "venta": ""})
+        elif previo != contenido:
+            return _err("rechazado", f"La operación portal:{t['tutor_ref']}:{llave} ya se "
+                        "registró con otros datos. No se aplica dos veces.", 409)
+        return httpx.Response(200, json={"ok": True, "alumnos": [self._ficha(origen),
+                                                                  self._ficha(destino)]})
+
     def _alumno_pedidos(self, d: dict) -> httpx.Response:
         """Como op_alumno_pedidos: los 50 más recientes del alumno (el real ordena `fecha desc,
         id desc`, es decir, por creación, no por día de entrega)."""
@@ -302,6 +358,8 @@ class TPVFalso:
     def _operar(self, op: str, d: dict) -> httpx.Response:
         if op in ("tutor/alumnos", "alumno/movimientos"):
             return self._lectura_tutor(op, d)
+        if op == "transferencia":
+            return self._transferencia(d)
         if op == "alumno/pedidos":
             return self._alumno_pedidos(d)
         if op == "precompra/cancelar":

@@ -135,7 +135,12 @@ def test_pedir_lo_que_ya_tiene_dice_ya_estaba_asi_sin_escribir(hijo, c, tpv):
     tpv.alumnos[hijo["id"]]["compra_sin_pedido"] = False  # el otro tutor ya lo quitó
     r = c.post(_url(hijo), data=o)
     assert "Ya estaba así" in r.text and NO_TXT in r.text
-    assert "alumno/permiso" not in tpv.llamadas
+    # se escribió (no-op en el TPV) para consumir la llave: una página vieja repetida después
+    # no deshace lo que otro tutor cambió
+    assert tpv.llamadas["alumno/permiso"] == 1
+    tpv.alumnos[hijo["id"]]["compra_sin_pedido"] = True  # otro tutor lo volvió a activar
+    c.post(_url(hijo), data=o)
+    assert tpv.alumnos[hijo["id"]]["compra_sin_pedido"] is True
 
 
 def test_doble_toque_ve_el_resultado_no_ya_estaba_asi(hijo, c, tpv):

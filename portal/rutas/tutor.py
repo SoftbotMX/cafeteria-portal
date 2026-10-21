@@ -104,7 +104,7 @@ def movimientos(alumno_id: int, request: Request, pagina: int = Query(1, ge=1, l
 # ------------------------------------------------- cambios de una sola escritura (Tasks 5 y 7)
 # Permiso de comprar sin pedido y bloqueo de credenciales siguen el mismo camino: página de
 # confirmación (con llave nueva) -> POST -> escritura al TPV con la misma llave si se reintenta.
-# Ninguna mueve dinero. Pedir lo que ya está así NO escribe y dice «Ya estaba así», salvo que esa
+# Ninguna mueve dinero. En la página de confirmación, pedir lo que ya está así no ofrece llave y dice «Ya estaba así», salvo que esa
 # misma llave ya haya entrado (o quedado sin respuesta): entonces se repite la escritura, el TPV
 # devuelve su respuesta guardada y el tutor ve el resultado en vez de un «ya estaba» engañoso.
 
@@ -165,8 +165,9 @@ def _hacer_cambio(request, sesion, tutor, operador, db, c: Cambio, hijo: dict, l
     # contestar con su respuesta GUARDADA sin aplicar nada, aunque otro tutor lo haya cambiado después.
     entro = ya_registrado(db, operador, tutor, llave, c.operacion) or intento_incierto(
         db, operador, tutor, llave, c.operacion)
-    if ya_esta and not entro:
-        return _resultado(request, c.titulo_listo, f"Ya estaba así: {c.texto}", volver)
+    # Aunque ya esté así se escribe igual (el TPV no cambia nada y GUARDA la respuesta): así la
+    # llave queda consumida y una página vieja repetida después no deshace un cambio posterior
+    # (p. ej. desbloquear una tarjeta que otro tutor bloqueó por pérdida). Hallazgo de Codex.
     estado, r = enviar_escritura(
         db, request, operador, tutor, c.operacion, {**c.cuerpo, "llave": llave}, llave, hijo,
         "volver a intentarlo", c.msg_cambio, "la ficha")
@@ -189,6 +190,8 @@ def _hacer_cambio(request, sesion, tutor, operador, db, c: Cambio, hijo: dict, l
                               "Tu cambio se registró, pero la ficha de "
                               f"{hijo['nombre']} ya no está así: puede que otro tutor lo haya cambiado. "
                               "Revísala.", volver)
+    if ya_esta and not entro:
+        return _resultado(request, c.titulo_listo, f"Ya estaba así: {c.texto}", volver)
     return _resultado(request, c.titulo_listo, c.texto, volver)
 
 
