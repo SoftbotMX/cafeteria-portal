@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block titulo %}Entrar · Portal de tutores{% endblock %}
+{% block contenido %}
+<h1>Entrar</h1>
+{% if aviso %}<p class="aviso" role="status">{{ aviso }}</p>{% endif %}
+{% if error %}<p class="aviso" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/entrar">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Teléfono o correo
+    <input name="usuario" value="{{ usuario }}" autocomplete="username" required autofocus>
+  </label>
+  <label>Contraseña
+    <input type="password" name="contrasena" autocomplete="current-password" required>
+  </label>
+  <button type="submit">Entrar</button>
+</form>
+<p><a href="/recuperar">¿Olvidaste tu contraseña?</a></p>
+{% endblock %}

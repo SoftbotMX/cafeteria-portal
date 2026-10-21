@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block titulo %}Inicio · Portal de tutores{% endblock %}
+{% block contenido %}
+<h1>Hola, {{ tutor.nombre }}</h1>
+<p>Aquí verás a tus hijos</p>
+<form method="post" action="/salir">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit" class="secundario">Salir</button>
+</form>
+{% endblock %}
