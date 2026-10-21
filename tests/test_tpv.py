@@ -205,3 +205,20 @@ def test_reintento_de_alumno_crear_devuelve_la_respuesta_original():
     al = c.llamar("admin/alumno/crear", cuerpo)["alumno"]
     f.alumnos[al["id"]]["disponible"] = 500  # estado vivo cambia después
     assert c.llamar("admin/alumno/crear", cuerpo)["alumno"]["disponible"] == 0
+
+
+def test_lecturas_llevan_nonce_y_escrituras_no():
+    import json
+    vistos = []
+
+    def manejar(req):
+        vistos.append((req.url.path, req.headers["X-SB-Cafe-Signature"], json.loads(req.content)))
+        return httpx.Response(200, json={"ok": True})
+
+    c = ClienteTPV("https://tpv.test", "s", transport=httpx.MockTransport(manejar))
+    c.leer("menu", {})
+    c.leer("menu", {})
+    c.llamar("admin/tutor/crear", {"nombre": "A", "llave": "k"})
+    (_, f1, b1), (_, f2, b2), (_, _, b3) = vistos
+    assert f1 != f2 and b1["_n"] != b2["_n"]
+    assert "_n" not in b3

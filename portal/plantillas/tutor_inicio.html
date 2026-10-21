@@ -2,7 +2,26 @@
 {% block titulo %}Inicio · Portal de tutores{% endblock %}
 {% block contenido %}
 <h1>Hola, {{ tutor.nombre }}</h1>
-<p>Aquí verás a tus hijos</p>
+{% if error_tpv %}
+  <p class="aviso">{{ error_tpv }}</p>
+{% elif not hijos %}
+  <p>Aún no tienes hijos vinculados. Pide a la cafetería que los dé de alta.</p>
+{% else %}
+  <ul class="tarjetas">
+  {% for h in hijos %}
+    <li class="tarjeta">
+      <a href="/hijos/{{ h.id }}"><strong>{{ h.nombre }}</strong></a>
+      <p class="saldo">{{ h.disponible | dinero }} <span>disponible</span></p>
+      <p class="apartado">{{ h.retenido | dinero }} apartado</p>
+      {% if h.compra_sin_pedido is sameas false %}<p class="apartado">Sólo puede recoger lo que pidas</p>{% endif %}
+      {% for c in h.credenciales if c.bloqueada %}
+        <p class="alerta">Bloqueada: {{ tipos_credencial.get(c.tipo, c.tipo) }}</p>
+      {% endfor %}
+    </li>
+  {% endfor %}
+  </ul>
+  {% if hijos|length >= 2 %}<p><a class="boton" href="/transferir">Transferir saldo</a></p>{% endif %}
+{% endif %}
 <form method="post" action="/salir">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <button type="submit" class="secundario">Salir</button>

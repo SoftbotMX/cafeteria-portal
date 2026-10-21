@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime, time
 
 from sqlalchemy import (
-    Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func, text,
+    Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Time, UniqueConstraint, func, text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -125,3 +125,26 @@ class Bitacora(Base):
     http_status: Mapped[int | None] = mapped_column(Integer)
     codigo_error: Mapped[str | None] = mapped_column(String(100))
     creado: Mapped[datetime] = _creado()
+
+
+class ConfigPedidos(Base):
+    __tablename__ = "config_pedidos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    operador_id: Mapped[int] = mapped_column(ForeignKey("operador.id"), unique=True)
+    hora_limite: Mapped[time | None] = mapped_column(Time)
+    # Dígitos de weekday(): lunes=0 ... domingo=6.
+    dias_servicio: Mapped[str] = mapped_column(String(7), default="01234", server_default="01234")
+    zona_horaria: Mapped[str] = mapped_column(
+        String(50), default="America/Mexico_City", server_default="America/Mexico_City")
+    dias_anticipacion: Mapped[int] = mapped_column(Integer, default=14, server_default=text("14"))
+
+
+class DiaSinServicio(Base):
+    __tablename__ = "dia_sin_servicio"
+    __table_args__ = (UniqueConstraint("operador_id", "fecha", name="uq_dia_sin_servicio"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    operador_id: Mapped[int] = mapped_column(ForeignKey("operador.id"))
+    fecha: Mapped[date] = mapped_column(Date)
+    motivo: Mapped[str] = mapped_column(String(200), default="", server_default="")

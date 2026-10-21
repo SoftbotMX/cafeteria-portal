@@ -1,9 +1,13 @@
 """TPV simulado: verifica la firma como el real (una sola vez por firma) y guarda por llave."""
 import copy
+from collections import defaultdict
 import hashlib
 import hmac
 import json
 import time
+from datetime import date, datetime
+from decimal import ROUND_HALF_UP, Decimal
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -29,6 +33,19 @@ class TPVFalso:
         self.guardado: dict[str, tuple[str, dict, dict]] = {}  # llave -> (operacion, cuerpo, respuesta)
         self.tutores: dict[str, dict] = {}
         self.alumnos: dict[int, dict] = {}
+        self.movimientos: dict[int, list[dict]] = defaultdict(list)  # más reciente primero, como el real
+        self.productos: list[dict] = []  # {id, nombre, categoria, precio}: lo que devuelve `menu`
+        self.pedidos: list[dict] = []
+        self.cuerpos_precompra: list[dict] = []  # lo que el portal mandó, tal cual
+        self.precompras: dict[tuple, tuple] = {}  # (tutor_ref, llave) -> (contenido, pedido)
+        self.cancelaciones: dict[tuple, tuple] = {}  # (tutor_ref, llave) -> (huella, respuesta)
+        self.cuerpos_cancelar: list[dict] = []  # lo que el portal mandó a precompra/cancelar
+        self.una_vez: dict[tuple, tuple] = {}  # (tutor_ref, llave) -> (huella, respuesta): _sb_una_vez
+        self.cuerpos_permiso: list[dict] = []  # lo que el portal mandó a alumno/permiso
+        self.cuerpos_credencial: list[tuple[str, dict]] = []  # (operación, cuerpo) de credencial/*
+        self.cuerpos_transferencia: list[dict] = []  # lo que el portal mandó a transferencia
+        self.transferencias: dict[tuple, tuple] = {}  # (tutor_ref, llave) -> (origen, destino, importe)
+        self.hoy: date | None = None  # fija el «hoy» del TPV; por omisión, el de México
         self.transport = httpx.MockTransport(self._manejar)
 
     def _manejar(self, req: httpx.Request) -> httpx.Response:
@@ -58,14 +75,308 @@ class TPVFalso:
             return _err("json_invalido", "El cuerpo no es JSON.", 400)
         return self._operar(op, datos)
 
+    def agregar_tutor(self, tutor_ref) -> dict:
+        return self.tutores.setdefault(tutor_ref, {
+            "tutor_ref": tutor_ref, "nombre": tutor_ref, "telefono": None, "correo": None,
+            "activo": True, "alumnos": []})
+
+    def agregar_hijo(self, tutor_ref, nombre, disponible=0, retenido=0, credenciales=None) -> dict:
+        t = self.agregar_tutor(tutor_ref)
+        aid = len(self.alumnos) + 1
+        al = {"id": aid, "nombre": nombre, "matricula": None, "codigo": f"C{aid:04d}",
+              "compra_sin_pedido": True, "disponible": disponible, "retenido": retenido,
+              "credenciales": credenciales or []}
+        self.alumnos[aid] = al
+        self.movimientos[aid] = []
+        t["alumnos"].append(al)
+        return al
+
+    @staticmethod
+    def _ficha(al: dict) -> dict:
+        """Como `_ficha` del TPV real: sólo las credenciales ACTIVAS (clave `activa` opcional en
+        el fake, ausente = activa) y de ellas sólo id, tipo y bloqueada."""
+        f = copy.deepcopy(al)
+        f["credenciales"] = [{"id": c["id"], "tipo": c["tipo"], "bloqueada": bool(c.get("bloqueada"))}
+                             for c in al["credenciales"] if c.get("activa", True)]
+        return f
+
+    def _una_vez(self, op: str, d: dict, autorizar, ejecutar) -> httpx.Response:
+        """Imita _sb_una_vez del TPV real (alumno/permiso y credencial/*): llave obligatoria; la
+        autorización se revisa SIEMPRE, también al repetir; repetir devuelve la respuesta GUARDADA
+        sin ejecutar; la misma llave con otro contenido (u otra operación: la llave guardada es de
+        todas) es 409 `llave_reutilizada`. Los errores de `ejecutar` no se guardan."""
+        t = self.tutores.get(d.get("tutor_ref"))
+        if not t or not t["activo"]:
+            return _err("tutor_desconocido", "Tutor desconocido.", 404)
+        llave = (d.get("llave") or "").strip() if isinstance(d.get("llave"), str) else ""
+        if not llave or len(llave) > 120:
+            return _err("falta_llave", "Toda escritura lleva su llave de idempotencia.", 400)
+        error = autorizar(t)
+        if error is not None:
+            return error
+        huella = json.dumps([op, d], sort_keys=True, default=str)
+        previa = self.una_vez.get((t["tutor_ref"], llave))
+        if previa:
+            if previa[0] != huella:
+                return _err("llave_reutilizada", "Esa llave ya se usó para otra operación.", 409)
+            return httpx.Response(200, json=copy.deepcopy(previa[1]))
+        resultado = ejecutar(t)
+        if isinstance(resultado, httpx.Response):
+            return resultado
+        resp = {"ok": True, **resultado}
+        self.una_vez[(t["tutor_ref"], llave)] = (huella, copy.deepcopy(resp))
+        return httpx.Response(200, json=resp)
+
+    def _permiso(self, d: dict) -> httpx.Response:
+        """Como op_alumno_permiso: alumno ajeno = desconocido; `compra_sin_pedido` ha de ser un
+        booleano estricto (nada de "no", 0 ni "false"), si no `dato_invalido`."""
+        def autorizar(t):
+            if d.get("alumno_id") not in [a["id"] for a in t["alumnos"]]:
+                return _err("alumno_desconocido", "Alumno desconocido.", 404)
+
+        def ejecutar(t):
+            valor = d.get("compra_sin_pedido")
+            if not isinstance(valor, bool):
+                return _err("dato_invalido", "compra_sin_pedido tiene que ser true o false.", 400)
+            al = self.alumnos[d["alumno_id"]]
+            al["compra_sin_pedido"] = valor
+            return {"alumno": self._ficha(al)}
+
+        self.cuerpos_permiso.append(copy.deepcopy(d))
+        return self._una_vez("alumno_permiso", d, autorizar, ejecutar)
+
+    def _credencial(self, op: str, d: dict) -> httpx.Response:
+        """Como op_credencial_bloquear/desbloquear: la credencial ha de ser de un alumno de este
+        tutor (aunque esté inactiva y no salga en la ficha), si no 404 `credencial_desconocida`.
+        Bloquear lo ya bloqueado no cambia nada y es OK."""
+        def buscar(t):
+            for a in t["alumnos"]:
+                for c in a["credenciales"]:
+                    if isinstance(d.get("credencial_id"), int) and c["id"] == d["credencial_id"]:
+                        return a, c
+            return None
+
+        def autorizar(t):
+            if buscar(t) is None:
+                return _err("credencial_desconocida", "Credencial desconocida.", 404)
+
+        def ejecutar(t):
+            alumno, cred = buscar(t)
+            cred["bloqueada"] = op == "credencial/bloquear"
+            return {"alumno": self._ficha(alumno)}
+
+        self.cuerpos_credencial.append((op, copy.deepcopy(d)))
+        return self._una_vez(op.replace("/", "_"), d, autorizar, ejecutar)
+
+    def _lectura_tutor(self, op: str, d: dict) -> httpx.Response | None:
+        t = self.tutores.get(d.get("tutor_ref"))
+        if not t or not t["activo"]:
+            return _err("tutor_desconocido", "Tutor desconocido.", 404)
+        if op == "tutor/alumnos":
+            return httpx.Response(200, json={"ok": True,
+                                             "alumnos": [self._ficha(a) for a in t["alumnos"]]})
+        # Un alumno ajeno responde igual que uno inexistente.
+        if d.get("alumno_id") not in [a["id"] for a in t["alumnos"]]:
+            return _err("alumno_desconocido", "Alumno desconocido.", 404)
+        try:
+            pagina = max(int(d.get("pagina") or 1), 1)
+            por = min(max(int(d.get("por_pagina") or 50), 1), 100)
+        except (TypeError, ValueError):
+            return _err("dato_invalido", "Página no válida.", 400)
+        movs = self.movimientos.get(d["alumno_id"], [])
+        return httpx.Response(200, json={
+            "ok": True, "total": len(movs), "pagina": pagina,
+            "movimientos": copy.deepcopy(movs[(pagina - 1) * por: pagina * por])})
+
+    def _precompra(self, d: dict) -> httpx.Response:
+        """Imita op_precompra + _sb_crear del TPV real: los rechazos del dominio (saldo, fecha,
+        cantidad, contenido distinto con la misma llave) son 409 `rechazado`, no códigos propios."""
+        t = self.tutores.get(d.get("tutor_ref"))
+        if not t or not t["activo"]:
+            return _err("tutor_desconocido", "Tutor desconocido.", 404)
+        al = next((a for a in t["alumnos"] if a["id"] == d.get("alumno_id")), None)
+        if al is None:
+            return _err("alumno_desconocido", "Alumno desconocido.", 404)
+        llave = (d.get("llave") or "").strip() if isinstance(d.get("llave"), str) else ""
+        if not llave or len(llave) > 120:
+            return _err("falta_llave", "Toda escritura lleva su llave de idempotencia.", 400)
+        por_id = {p["id"]: p for p in self.productos}
+        items = []
+        for it in d.get("items") or []:
+            try:
+                pid = int(it.get("producto_id") or 0)
+                cantidad = float(it.get("cantidad") or 0)
+            except (TypeError, ValueError, AttributeError):
+                return _err("dato_invalido", "Producto o cantidad no válidos.", 400)
+            if pid not in por_id:
+                return _err("producto_desconocido", "Producto desconocido.", 404)
+            items.append((pid, cantidad))
+        self.cuerpos_precompra.append(copy.deepcopy(d))
+        hoy = self.hoy or datetime.now(ZoneInfo("America/Mexico_City")).date()
+        try:
+            entrega = date.fromisoformat(d["fecha_entrega"]) if d.get("fecha_entrega") else hoy
+        except ValueError:
+            return _err("rechazado", "Fecha no válida.", 409)
+        if entrega < hoy:
+            return _err("rechazado", "El pedido no puede ser para un día que ya pasó.", 409)
+        contenido = (al["id"], t["tutor_ref"], sorted(items), entrega)
+        previo = self.precompras.get((t["tutor_ref"], llave))
+        if previo:
+            if previo[0] != contenido:
+                return _err("rechazado", f"La precompra {llave} ya se registró con otros datos.", 409)
+            # Repetir no vuelve a aplicar: devuelve el pedido con los saldos ACTUALES.
+            return httpx.Response(200, json={"ok": True, "pedido": copy.deepcopy(previo[1]),
+                                             "alumno": copy.deepcopy(al)})
+        lineas = []
+        for pid, cantidad in items:
+            if cantidad <= 0 or int(cantidad) != cantidad:
+                return _err("rechazado", "Cantidad no válida.", 409)
+            p = por_id[pid]
+            lineas.append({"producto_id": pid, "producto": p["nombre"], "cantidad": int(cantidad),
+                           "precio_unitario": p["precio"]})
+        if not lineas:
+            return _err("rechazado", "La precompra no tiene productos.", 409)
+        total = round(sum(l["precio_unitario"] * l["cantidad"] for l in lineas), 2)
+        if round(float(al["disponible"]), 2) < total:
+            return _err("rechazado", f"Saldo insuficiente de {al['nombre']}: tiene "
+                        f"${al['disponible']:,.2f} disponibles y se necesitan ${total:,.2f}.", 409)
+        al["disponible"] = round(float(al["disponible"]) - total, 2)
+        al["retenido"] = round(float(al["retenido"]) + total, 2)
+        pedido = {"id": len(self.pedidos) + 1, "nombre": f"PC-{len(self.pedidos) + 1:05d}",
+                  "alumno_id": al["id"], "fecha_entrega": entrega.isoformat(), "total": total,
+                  "estado": "retenida", "lineas": lineas}
+        self.pedidos.append(pedido)
+        self.precompras[(t["tutor_ref"], llave)] = (contenido, pedido)  # el vivo, como el real
+        self.movimientos[al["id"]].insert(0, {
+            "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "tipo": "retencion",
+            "descripcion": "Retención", "disponible": -total, "retenido": total,
+            "venta": ""})
+        return httpx.Response(200, json={"ok": True, "pedido": copy.deepcopy(pedido),
+                                         "alumno": copy.deepcopy(al)})
+
+    def _transferencia(self, d: dict) -> httpx.Response:
+        """Imita op_transferencia + _sb_transferir del TPV real. Orden de comprobaciones como en
+        el real: tutor, origen y destino (ajeno = 404 `alumno_desconocido`), importe (400
+        `importe_invalido`), llave (400 `falta_llave`); luego el dominio, todo 409 `rechazado`:
+        origen == destino, repetir con otro contenido ("ya se registró con otros datos") y saldo
+        insuficiente. Repetir lo mismo NO re-aplica y devuelve los saldos ACTUALES (sin revisar
+        saldo). El importe se redondea a centavos (Odoo: half-up), no se rechaza."""
+        t = self.tutores.get(d.get("tutor_ref"))
+        if not t or not t["activo"]:
+            return _err("tutor_desconocido", "Tutor desconocido.", 404)
+        propios = {a["id"]: a for a in t["alumnos"]}
+        origen = propios.get(d.get("origen_id")) if isinstance(d.get("origen_id"), int) else None
+        destino = propios.get(d.get("destino_id")) if isinstance(d.get("destino_id"), int) else None
+        if origen is None or destino is None:
+            return _err("alumno_desconocido", "Alumno desconocido.", 404)
+        try:
+            importe = float(d.get("importe"))
+        except (TypeError, ValueError):
+            return _err("importe_invalido", "Importe no válido.", 400)
+        if importe != importe or importe in (float("inf"), float("-inf")) or importe <= 0:
+            return _err("importe_invalido", "El importe tiene que ser mayor que cero.", 400)
+        importe = float(Decimal(str(importe)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        if importe <= 0:
+            return _err("importe_invalido", "El importe tiene que ser mayor que cero.", 400)
+        llave = (d.get("llave") or "").strip() if isinstance(d.get("llave"), str) else ""
+        if not llave or len(llave) > 120:
+            return _err("falta_llave", "Toda escritura lleva su llave de idempotencia.", 400)
+        self.cuerpos_transferencia.append(copy.deepcopy(d))
+        if origen["id"] == destino["id"]:
+            return _err("rechazado", "Origen y destino son el mismo alumno.", 409)
+        contenido = (origen["id"], destino["id"], importe)
+        previo = self.transferencias.get((t["tutor_ref"], llave))
+        if previo is None:
+            if round(float(origen["disponible"]), 2) < importe:
+                return _err("rechazado", f"Saldo insuficiente de {origen['nombre']}: tiene "
+                            f"${origen['disponible']:,.2f} disponibles y se necesitan "
+                            f"${importe:,.2f}.", 409)
+            origen["disponible"] = round(float(origen["disponible"]) - importe, 2)
+            destino["disponible"] = round(float(destino["disponible"]) + importe, 2)
+            self.transferencias[(t["tutor_ref"], llave)] = contenido
+            ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.movimientos[origen["id"]].insert(0, {
+                "fecha": ahora, "tipo": "transferencia", "descripcion": "Transferencia",
+                "disponible": -importe, "retenido": 0, "venta": ""})
+            self.movimientos[destino["id"]].insert(0, {
+                "fecha": ahora, "tipo": "transferencia", "descripcion": "Transferencia",
+                "disponible": importe, "retenido": 0, "venta": ""})
+        elif previo != contenido:
+            return _err("rechazado", f"La operación portal:{t['tutor_ref']}:{llave} ya se "
+                        "registró con otros datos. No se aplica dos veces.", 409)
+        return httpx.Response(200, json={"ok": True, "alumnos": [self._ficha(origen),
+                                                                  self._ficha(destino)]})
+
+    def _alumno_pedidos(self, d: dict) -> httpx.Response:
+        """Como op_alumno_pedidos: los 50 más recientes del alumno (el real ordena `fecha desc,
+        id desc`, es decir, por creación, no por día de entrega)."""
+        t = self.tutores.get(d.get("tutor_ref"))
+        if not t or not t["activo"]:
+            return _err("tutor_desconocido", "Tutor desconocido.", 404)
+        if d.get("alumno_id") not in [a["id"] for a in t["alumnos"]]:
+            return _err("alumno_desconocido", "Alumno desconocido.", 404)
+        suyos = [p for p in reversed(self.pedidos) if p["alumno_id"] == d["alumno_id"]][:50]
+        return httpx.Response(200, json={"ok": True, "pedidos": copy.deepcopy(suyos)})
+
+    def _cancelar(self, d: dict) -> httpx.Response:
+        """Imita op_precompra_cancelar envuelto en _sb_una_vez: la autorización se revisa SIEMPRE
+        (también al repetir), repetir devuelve la respuesta GUARDADA sin volver a ejecutar, la
+        misma llave con otro contenido es 409 `llave_reutilizada`, cancelar lo ya cancelado
+        es OK sin cambios y cualquier otro estado distinto de `retenida` es 409 `rechazado`
+        (que no se guarda)."""
+        t = self.tutores.get(d.get("tutor_ref"))
+        if not t or not t["activo"]:
+            return _err("tutor_desconocido", "Tutor desconocido.", 404)
+        llave = (d.get("llave") or "").strip() if isinstance(d.get("llave"), str) else ""
+        if not llave or len(llave) > 120:
+            return _err("falta_llave", "Toda escritura lleva su llave de idempotencia.", 400)
+        pedido = next((p for p in self.pedidos if p["id"] == d.get("pedido_id")), None)
+        if pedido is None or pedido["alumno_id"] not in [a["id"] for a in t["alumnos"]]:
+            return _err("pedido_desconocido", "Pedido desconocido.", 404)
+        self.cuerpos_cancelar.append(copy.deepcopy(d))
+        huella = json.dumps(["precompra_cancelar", d], sort_keys=True, default=str)
+        previa = self.cancelaciones.get((t["tutor_ref"], llave))
+        if previa:
+            if previa[0] != huella:
+                return _err("llave_reutilizada", "Esa llave ya se usó para otra operación.", 409)
+            return httpx.Response(200, json=copy.deepcopy(previa[1]))
+        al = self.alumnos[pedido["alumno_id"]]
+        if pedido["estado"] != "cancelada":
+            if pedido["estado"] != "retenida":
+                return _err("rechazado", f"El pedido {pedido['nombre']} ya no se puede cancelar.", 409)
+            al["disponible"] = round(float(al["disponible"]) + pedido["total"], 2)
+            al["retenido"] = round(float(al["retenido"]) - pedido["total"], 2)
+            pedido["estado"] = "cancelada"
+            self.movimientos[al["id"]].insert(0, {
+                "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "tipo": "liberacion",
+                "descripcion": "Liberación", "disponible": pedido["total"],
+                "retenido": -pedido["total"], "venta": ""})
+        resp = {"ok": True, "pedido": copy.deepcopy(pedido), "alumno": copy.deepcopy(al)}
+        self.cancelaciones[(t["tutor_ref"], llave)] = (huella, copy.deepcopy(resp))
+        return httpx.Response(200, json=resp)
+
     def _operar(self, op: str, d: dict) -> httpx.Response:
+        if op in ("tutor/alumnos", "alumno/movimientos"):
+            return self._lectura_tutor(op, d)
+        if op == "transferencia":
+            return self._transferencia(d)
+        if op == "alumno/pedidos":
+            return self._alumno_pedidos(d)
+        if op == "precompra/cancelar":
+            return self._cancelar(d)
+        if op == "alumno/permiso":
+            return self._permiso(d)
+        if op in ("credencial/bloquear", "credencial/desbloquear"):
+            return self._credencial(op, d)
         if op == "admin/tutor/detalle":
             t = self.tutores.get(d.get("tutor_ref"))
             if not t:
                 return _err("no_encontrado", "Tutor desconocido.", 404)
             return httpx.Response(200, json={"ok": True, "tutor": t})
         if op == "menu":
-            return httpx.Response(200, json={"ok": True, "productos": []})
+            return httpx.Response(200, json={"ok": True, "productos": copy.deepcopy(self.productos)})
+        if op == "precompra":
+            return self._precompra(d)
         if op not in ("admin/tutor/crear", "admin/alumno/crear", "admin/vincular"):
             return _err("no_encontrada", "Operación desconocida.", 404)
         llave = d.get("llave")

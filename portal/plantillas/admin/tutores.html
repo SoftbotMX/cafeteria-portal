@@ -2,6 +2,8 @@
 {% block titulo %}Tutores · Administración{% endblock %}
 {% block contenido %}
 <h1>Tutores</h1>
+{% if sin_horario %}<p class="aviso"><a href="/admin/pedidos">Horario de pedidos sin configurar</a></p>{% endif %}
+<p><a href="/admin/pedidos">Horario de pedidos</a></p>
 <p><a href="/admin/alta">Dar de alta un tutor</a></p>
 <table>
   <thead><tr><th>Nombre</th><th>Teléfono</th><th>Correo</th><th>Activo</th><th>Debe cambiar contraseña</th></tr></thead>

@@ -1,0 +1,28 @@
+{#- Contexto: hijos (fichas del TPV), csrf, error (opcional), origen, destino, importe (lo capturado). -#}
+{% extends "base.html" %}
+{% block titulo %}Transferir saldo · Portal de tutores{% endblock %}
+{% block contenido %}
+<h1>Transferir saldo</h1>
+<p>Pasa saldo disponible de un hijo a otro.</p>
+{% if error %}<p class="aviso">{{ error }}</p>{% endif %}
+<form method="post" action="/transferir/revisar">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>De
+    <select name="origen_id" required>
+      <option value="">Elige</option>
+      {% for h in hijos %}<option value="{{ h.id }}"{{ ' selected' if origen == h.id|string }}>{{ h.nombre }} — {{ h.disponible | dinero }} disponible</option>{% endfor %}
+    </select>
+  </label>
+  <label>Para
+    <select name="destino_id" required>
+      <option value="">Elige</option>
+      {% for h in hijos %}<option value="{{ h.id }}"{{ ' selected' if destino == h.id|string }}>{{ h.nombre }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Importe
+    <input type="text" name="importe" inputmode="decimal" autocomplete="off" required value="{{ importe }}" placeholder="150.00">
+  </label>
+  <button type="submit">Revisar</button>
+</form>
+<p><a href="/">&larr; Volver</a></p>
+{% endblock %}

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block titulo %}{{ hijo.nombre if hijo else "Hijo" }} · Portal de tutores{% endblock %}
+{% block contenido %}
+{% if hay_varios %}<p><a href="/">&larr; Mis hijos</a></p>{% endif %}
+{% if error_tpv %}
+  <p class="aviso">{{ error_tpv }}</p>
+{% else %}
+  <h1>{{ hijo.nombre }}</h1>
+  <p class="saldo">{{ hijo.disponible | dinero }} <span>disponible</span></p>
+  <p class="apartado">{{ hijo.retenido | dinero }} apartado</p>
+  {% if hijo.credenciales %}
+  <h2>Tarjeta y código QR</h2>
+  {% for c in hijo.credenciales if c.id is integer and c.bloqueada is boolean %}
+  <div class="movimiento">
+    <div><strong>{{ tipos_credencial.get(c.tipo, "Credencial") }}</strong><br>
+      <small class="{{ 'alerta' if c.bloqueada else '' }}">{{ "Bloqueada" if c.bloqueada else "Activa" }}</small></div>
+    <div class="importe">
+      <a class="boton secundario" href="/hijos/{{ hijo.id }}/credenciales/{{ c.id }}/{{ 'desbloquear' if c.bloqueada else 'bloquear' }}">{{ "Desbloquear" if c.bloqueada else "Bloquear" }}</a>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+  <p><a class="boton" href="/hijos/{{ hijo.id }}/pedir">Pedir</a></p>
+  {% if hijo.compra_sin_pedido is sameas true %}
+    <p>{{ hijo.nombre }} puede comprar sin pedido.
+      <a class="boton secundario" href="/hijos/{{ hijo.id }}/permiso?valor=no">Que sólo recoja lo que pida</a></p>
+  {% elif hijo.compra_sin_pedido is sameas false %}
+    <p>{{ hijo.nombre }} sólo puede recoger lo que pidas.
+      <a class="boton secundario" href="/hijos/{{ hijo.id }}/permiso?valor=si">Permitir que compre sin pedido</a></p>
+  {% endif %}
+  <h2>Pedidos</h2>
+  {% if error_pedidos %}<p class="aviso">{{ error_pedidos }}</p>
+  {% elif not pedidos %}<p>Todavía no hay pedidos.</p>{% endif %}
+  {% for p in pedidos %}
+  <div class="movimiento">
+    <div><strong>{{ p.nombre or "Pedido" }}</strong><br>
+      <small>{{ p.fecha_entrega | fecha }} · {{ estados_pedido.get(p.estado, "Desconocido") }}</small></div>
+    <div class="importe">
+      {% if p.total is defined %}<span>{{ p.total | dinero }}</span>{% endif %}
+      {% if p.cancelable %}<a class="boton secundario" href="/hijos/{{ hijo.id }}/pedidos/{{ p.id }}/cancelar">Cancelar</a>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  <h2>Movimientos</h2>
+  <div id="movimientos">
+    {% include "tutor/_movimientos.html" %}
+  </div>
+{% endif %}
+<form method="post" action="/salir">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit" class="secundario">Salir</button>
+</form>
+{% endblock %}

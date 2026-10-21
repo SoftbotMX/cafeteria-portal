@@ -1,11 +1,12 @@
 import re
 import secrets
 import uuid
-from datetime import timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import exists, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from portal.alta import DatosAlta, ErrorAlta, dar_de_alta, escribir_tpv, mensaje_tpv, tutor_por_llave
@@ -14,7 +15,8 @@ from portal.credenciales import (
     tutores_con_entrega, usuario_de,
 )
 from portal.db import get_db
-from portal.models import Admin, Bitacora, Operador, Sesion, Tutor
+from portal.models import Admin, Bitacora, ConfigPedidos, DiaSinServicio, Operador, Sesion, Tutor
+from portal.reglas import ZONAS, ahora_local, cargar_reglas
 from portal.rutas.acceso import (
     MSG_EXPIRO, MSG_LIMITE, MSG_MALO,
 )
@@ -111,7 +113,9 @@ def tutores(request: Request, par: tuple[Sesion, Admin] = Depends(sesion_admin),
     incompletas = {t.id for t in lista} - tutores_con_entrega(db, admin.operador_id)
     return templates.TemplateResponse(
         request, "admin/tutores.html",
-        {"csrf": sesion.csrf, "admin": admin, "tutores": lista, "incompletas": incompletas})
+        {"csrf": sesion.csrf, "admin": admin, "tutores": lista, "incompletas": incompletas,
+         "sin_horario": db.scalars(select(ConfigPedidos.id).where(
+             ConfigPedidos.operador_id == admin.operador_id)).first() is None})
 
 
 def _filas(nombres: list[str], matriculas: list[str]) -> list[dict]:
@@ -237,7 +241,7 @@ class _SinTPV(Exception):
 
 def _alumnos_del_tpv(cliente, tutor_ref: str) -> list[dict]:
     try:
-        alumnos = cliente.llamar("admin/tutor/detalle", {"tutor_ref": tutor_ref})["tutor"]["alumnos"]
+        alumnos = cliente.leer("admin/tutor/detalle", {"tutor_ref": tutor_ref})["tutor"]["alumnos"]
         if not isinstance(alumnos, list) or not all(
                 isinstance(a, dict) and isinstance(a.get("id"), int) for a in alumnos):
             raise TypeError
@@ -493,3 +497,124 @@ def activo(request: Request, tutor_id: int, activo: str = Form(""), csrf: str = 
     db.commit()
     return _ficha(request, sesion, admin, operador, db, tutor,
                   mensajes=["Tutor activado." if tutor.activo else "Tutor desactivado: sus sesiones se cerraron."])
+
+
+# --- Configuración de pedidos -------------------------------------------------------------
+
+DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+_HORA = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+
+def _pagina_pedidos(request: Request, sesion: Sesion, admin: Admin, db: Session, valores: dict | None = None,
+                    error: str | None = None, mensajes: list[str] | None = None, status: int = 200):
+    cfg = db.scalars(select(ConfigPedidos).where(ConfigPedidos.operador_id == admin.operador_id)).first()
+    if valores is None:
+        valores = {
+            "hora_limite": cfg.hora_limite.strftime("%H:%M") if cfg and cfg.hora_limite else "",
+            "dias": list(cfg.dias_servicio) if cfg else list("01234"),
+            "zona_horaria": cfg.zona_horaria if cfg else ZONAS[0],
+            "dias_anticipacion": str(cfg.dias_anticipacion if cfg else 14),
+        }
+    hoy = ahora_local(cargar_reglas(db, admin.operador_id), datetime.now(timezone.utc)).date()
+    dias = db.scalars(select(DiaSinServicio).where(DiaSinServicio.operador_id == admin.operador_id)
+                      .order_by(DiaSinServicio.fecha)).all()
+    resp = templates.TemplateResponse(
+        request, "admin/pedidos.html",
+        {"csrf": sesion.csrf, "admin": admin, "v": valores, "zonas": ZONAS, "error": error,
+         "dias_semana": list(enumerate(DIAS_SEMANA)), "mensajes": mensajes,
+         "proximos": [d for d in dias if d.fecha >= hoy],
+         "pasados": [d for d in reversed(dias) if d.fecha < hoy]},
+        status_code=status)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@router.get("/pedidos")
+def pedidos_form(request: Request, par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                 db: Session = Depends(get_db)):
+    return _pagina_pedidos(request, par[0], par[1], db)
+
+
+@router.post("/pedidos")
+def pedidos_guardar(request: Request, hora_limite: str = Form(""), dias: list[str] = Form([]),
+                    zona_horaria: str = Form(""), dias_anticipacion: str = Form(""),
+                    csrf: str = Form(""), par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                    db: Session = Depends(get_db)):
+    sesion, admin = par
+    exigir_csrf(csrf, sesion.csrf)
+    hora_limite = hora_limite.strip()
+    dias = sorted(set(dias))
+    valores = {"hora_limite": hora_limite, "dias": dias, "zona_horaria": zona_horaria,
+               "dias_anticipacion": dias_anticipacion.strip()}
+    error = None
+    m = _HORA.match(hora_limite)
+    if hora_limite and not m:
+        error = "La hora límite debe ser una hora como 09:30, o déjala vacía si no hay límite."
+    elif not dias or any(d not in "0123456" or len(d) != 1 for d in dias):
+        error = "Elige al menos un día de servicio."
+    elif zona_horaria not in ZONAS:
+        error = "Elige una zona horaria de la lista."
+    elif not (valores["dias_anticipacion"].isascii() and valores["dias_anticipacion"].isdigit()
+              and 1 <= int(valores["dias_anticipacion"]) <= 60):
+        error = "Los días de anticipación deben ser un número del 1 al 60."
+    if error:
+        return _pagina_pedidos(request, sesion, admin, db, valores=valores, error=error, status=400)
+    cfg = db.scalars(select(ConfigPedidos).where(ConfigPedidos.operador_id == admin.operador_id)
+                     .with_for_update()).first()
+    if cfg is None:
+        cfg = ConfigPedidos(operador_id=admin.operador_id)
+        db.add(cfg)
+    cfg.hora_limite = time(int(m.group(1)), int(m.group(2))) if m else None
+    cfg.dias_servicio = "".join(dias)
+    cfg.zona_horaria = zona_horaria
+    cfg.dias_anticipacion = int(valores["dias_anticipacion"])
+    try:
+        db.commit()
+    except IntegrityError:  # dos primeros guardados a la vez: gana uno, el otro reintenta
+        db.rollback()
+        return _pagina_pedidos(request, sesion, admin, db, valores=valores,
+                               error="Otra persona guardó al mismo tiempo. Vuelve a intentarlo.", status=409)
+    return _pagina_pedidos(request, sesion, admin, db, mensajes=["Guardado."])
+
+
+@router.post("/pedidos/sin-servicio")
+def sin_servicio_agregar(request: Request, fecha: str = Form(""), motivo: str = Form(""),
+                         csrf: str = Form(""), par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                         db: Session = Depends(get_db)):
+    sesion, admin = par
+    exigir_csrf(csrf, sesion.csrf)
+    try:
+        f = date.fromisoformat(fecha.strip())
+    except ValueError:
+        return _pagina_pedidos(request, sesion, admin, db, status=400,
+                               error="Elige una fecha válida para el día sin servicio.")
+    motivo = motivo.strip()
+    if len(motivo) > 200:
+        return _pagina_pedidos(request, sesion, admin, db, status=400,
+                               error="El motivo es demasiado largo (máximo 200 letras).")
+    ya = db.scalars(select(DiaSinServicio.id).where(
+        DiaSinServicio.operador_id == admin.operador_id, DiaSinServicio.fecha == f)).first()
+    if ya is not None:
+        return _pagina_pedidos(request, sesion, admin, db, status=400,
+                               error="Esa fecha ya está en la lista.")
+    db.add(DiaSinServicio(operador_id=admin.operador_id, fecha=f, motivo=motivo))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return _pagina_pedidos(request, sesion, admin, db, status=400, error="Esa fecha ya está en la lista.")
+    return _pagina_pedidos(request, sesion, admin, db, mensajes=["Día sin servicio agregado."])
+
+
+@router.post("/pedidos/sin-servicio/{dia_id}/borrar")
+def sin_servicio_borrar(request: Request, dia_id: int, csrf: str = Form(""),
+                        par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                        db: Session = Depends(get_db)):
+    sesion, admin = par
+    exigir_csrf(csrf, sesion.csrf)
+    dia = db.get(DiaSinServicio, dia_id)
+    if dia is None or dia.operador_id != admin.operador_id:
+        raise HTTPException(404)
+    db.delete(dia)
+    db.commit()
+    return _pagina_pedidos(request, sesion, admin, db, mensajes=["Día sin servicio quitado."])
