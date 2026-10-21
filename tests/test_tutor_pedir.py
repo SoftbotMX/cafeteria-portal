@@ -243,7 +243,7 @@ def test_saldo_insuficiente_mensaje_claro(db, hijo, c, tpv):
     tpv.alumnos[hijo["id"]]["disponible"] = 20
     o = _confirmacion(c, hijo, **{"10": "1"})
     r = _confirmar(c, hijo, o)
-    assert "No te alcanza el saldo de Luis Pérez para este pedido." in r.text
+    assert "Saldo insuficiente de Luis Pérez" in r.text and "rechazó la operación" not in r.text
     assert tpv.pedidos == [] and tpv.alumnos[hijo["id"]]["disponible"] == 20
     fila = db.query(Bitacora).filter_by(operacion="precompra").one()
     assert fila.http_status == 409
@@ -400,7 +400,7 @@ def test_rechazo_del_tpv_tras_intento_sin_respuesta_tambien_avisa(hijo, c, tpv):
     tpv.fallar_en = set()
     tpv.alumnos[hijo["id"]]["disponible"] = 1  # ahora el TPV lo rechaza por saldo
     t = _confirmar(c, hijo, o).text
-    assert "No te alcanza el saldo" in t and "puede haberse registrado" in t
+    assert "Saldo insuficiente" in t and "puede haberse registrado" in t
 
 
 def test_respuesta_200_ilegible_cuenta_como_intento_incierto(db, op, hijo, c, tpv, reloj):
@@ -416,3 +416,76 @@ def test_respuesta_200_ilegible_cuenta_como_intento_incierto(db, op, hijo, c, tp
     tpv._precompra = buena
     reloj["t"] = datetime(2026, 10, 21, 15, 5, tzinfo=timezone.utc)
     assert "puede haberse registrado" in _confirmar(c, hijo, o).text
+
+
+def test_doble_toque_concurrente_con_html_4xx_reintenta_con_la_misma_llave(hijo, c, tpv):
+    import httpx
+    o = _confirmacion(c, hijo, **{"10": "1"})
+    buena = tpv._precompra
+    assert "PC-00001" in _confirmar(c, hijo, o).text  # el primero entró
+    # el segundo, simultáneo, choca con la llave única y Odoo responde una página HTML 409
+    tpv._precompra = lambda d: httpx.Response(409, content=b"<html>IntegrityError</html>")
+    r = _confirmar(c, hijo, o)
+    assert "puede haberse registrado" in r.text and _ocultos(r)["llave"] == o["llave"]
+    tpv._precompra = buena
+    r2 = _confirmar(c, hijo, _ocultos(r))
+    assert "PC-00001" in r2.text and len(tpv.pedidos) == 1
+
+
+def test_llave_ya_registrada_cruzando_la_hora_limite_muestra_el_pedido(db, op, hijo, c, tpv, reloj):
+    db.add(ConfigPedidos(operador_id=op.id, hora_limite=time(9, 0), dias_servicio="0123456",
+                         dias_anticipacion=14))
+    db.commit()
+    reloj["t"] = datetime(2026, 10, 21, 14, 59, tzinfo=timezone.utc)
+    o = _confirmacion(c, hijo, fecha="2026-10-21", **{"10": "1"})
+    assert "PC-00001" in _confirmar(c, hijo, o).text
+    reloj["t"] = datetime(2026, 10, 21, 15, 30, tzinfo=timezone.utc)
+    t = _confirmar(c, hijo, o).text
+    assert "PC-00001" in t and "hora límite" not in t and len(tpv.pedidos) == 1
+
+
+def test_llave_con_otro_contenido_no_filtra_la_llave(hijo, c, tpv):
+    o = _confirmacion(c, hijo, **{"10": "1"})
+    _confirmar(c, hijo, o)
+    o["cantidad"] = ["2"]
+    t = _confirmar(c, hijo, o).text
+    assert "cambió desde que lo revisaste" in t and o["llave"][0] not in t
+    assert "rechazó la operación" not in t
+
+
+def test_revisar_con_error_no_se_cachea(hijo, c):
+    r = _revisar(c, hijo, **{"10": "x"})
+    assert "no-store" in r.headers["cache-control"]
+
+
+def test_confirmar_deshabilita_el_boton_al_enviar(hijo, c):
+    r = _revisar(c, hijo, **{"10": "1"})
+    assert "disabled=true" in r.text
+
+
+def test_movimientos_por_defecto_en_el_falso():
+    f = TPVFalso()
+    assert f.movimientos[99] == []
+
+
+def test_html_409_cuenta_como_intento_incierto_para_el_aviso(db, op, hijo, c, tpv, reloj):
+    import httpx
+    db.add(ConfigPedidos(operador_id=op.id, hora_limite=time(9, 0), dias_servicio="0123456",
+                         dias_anticipacion=14))
+    db.commit()
+    reloj["t"] = datetime(2026, 10, 21, 14, 59, tzinfo=timezone.utc)
+    o = _confirmacion(c, hijo, fecha="2026-10-21", **{"10": "1"})
+    tpv._precompra = lambda d: httpx.Response(409, content=b"<html>x</html>")
+    assert "puede haberse registrado" in _confirmar(c, hijo, o).text
+    reloj["t"] = datetime(2026, 10, 21, 15, 5, tzinfo=timezone.utc)
+    assert "puede haberse registrado" in _confirmar(c, hijo, o).text
+
+
+def test_reintento_con_producto_retirado_del_menu_no_da_500(hijo, c, tpv):
+    import httpx
+    o = _confirmacion(c, hijo, **{"10": "1"})
+    assert "PC-00001" in _confirmar(c, hijo, o).text
+    tpv.productos = [p for p in tpv.productos if p["id"] != 10]
+    tpv._precompra = lambda d: httpx.Response(503, content=b"")
+    r = _confirmar(c, hijo, o)
+    assert r.status_code == 200 and _ocultos(r)["llave"] == o["llave"]

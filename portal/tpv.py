@@ -1,5 +1,6 @@
 """Cliente firmado de la API del TPV (docs/API_TPV.md)."""
 import hashlib
+import secrets
 import hmac
 import json
 import threading
@@ -72,6 +73,13 @@ class ClienteTPV:
                 if e.codigo != "repetida" or intento == 2:
                     raise
         raise AssertionError("inalcanzable")
+
+    def leer(self, operacion: str, cuerpo: dict) -> dict:
+        """Lecturas: se les agrega un nonce para que dos lecturas idénticas en el mismo segundo no
+        compartan firma (se agotaría el adelanto de `_firma_unica` en la hora pico). Nunca en
+        escrituras: la huella de idempotencia del TPV cubre todo el cuerpo y rompería los
+        reintentos. El TPV real sólo lee sus campos con `datos.get(...)`: una clave extra se ignora."""
+        return self.llamar(operacion, {**cuerpo, "_n": secrets.token_hex(8)})
 
     def _una(self, operacion: str, cuerpo: dict) -> dict:
         crudo = json.dumps(cuerpo, separators=(",", ":"), ensure_ascii=False).encode()

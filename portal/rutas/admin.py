@@ -241,7 +241,7 @@ class _SinTPV(Exception):
 
 def _alumnos_del_tpv(cliente, tutor_ref: str) -> list[dict]:
     try:
-        alumnos = cliente.llamar("admin/tutor/detalle", {"tutor_ref": tutor_ref})["tutor"]["alumnos"]
+        alumnos = cliente.leer("admin/tutor/detalle", {"tutor_ref": tutor_ref})["tutor"]["alumnos"]
         if not isinstance(alumnos, list) or not all(
                 isinstance(a, dict) and isinstance(a.get("id"), int) for a in alumnos):
             raise TypeError

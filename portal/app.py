@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -19,6 +20,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Las pruebas sustituyen estos transportes por simulados.
     app.state.tpv_transport = None
     app.state.conduit_transport = None
+    app.state.cache_menu = {}  # operador.id -> (instante, productos); ver tutor_tpv.menu
+    app.state.cache_menu_candado = threading.Lock()
     app.mount("/estatico", StaticFiles(directory=str(BASE / "estatico")), name="estatico")
 
     @app.exception_handler(IrA)

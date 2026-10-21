@@ -1,5 +1,6 @@
 """TPV simulado: verifica la firma como el real (una sola vez por firma) y guarda por llave."""
 import copy
+from collections import defaultdict
 import hashlib
 import hmac
 import json
@@ -31,7 +32,7 @@ class TPVFalso:
         self.guardado: dict[str, tuple[str, dict, dict]] = {}  # llave -> (operacion, cuerpo, respuesta)
         self.tutores: dict[str, dict] = {}
         self.alumnos: dict[int, dict] = {}
-        self.movimientos: dict[int, list[dict]] = {}  # más reciente primero, como el real
+        self.movimientos: dict[int, list[dict]] = defaultdict(list)  # más reciente primero, como el real
         self.productos: list[dict] = []  # {id, nombre, categoria, precio}: lo que devuelve `menu`
         self.pedidos: list[dict] = []
         self.cuerpos_precompra: list[dict] = []  # lo que el portal mandó, tal cual

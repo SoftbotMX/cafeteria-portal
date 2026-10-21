@@ -9,18 +9,18 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, Form, Query, Request, Response
-from sqlalchemy import and_, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from portal import tutor_tpv
-from portal.alta import mensaje_tpv
 from portal.db import get_db
 from portal.formato import ESTADOS_PEDIDO, dinero, fecha as fmt_fecha
 from portal.models import Bitacora, Operador, Sesion, Tutor
 from portal.reglas import ahora_fresca, ahora_utc, cargar_reglas, fechas_disponibles, motivo_fecha_invalida
 from portal.sesiones import exigir_csrf, operador_actual, tutor_listo
 from portal.tpv import ErrorTPV
-from portal.tutor_tpv import MSG_SIN_MENU, MSG_SIN_TPV, SinTPV, escribir_tutor
+from portal.tutor_tpv import (
+    MSG_SIN_MENU, MSG_SIN_TPV, SinTPV, es_incierto, escribir_tutor, mensaje_para_tutor)
 from portal.web import templates
 
 router = APIRouter()
@@ -150,7 +150,7 @@ def _pagina_pedir(request, sesion, tutor, operador, db, hijo, ahora, fecha_txt, 
         else:
             ctx["grupos"] = _agrupar(menu)
             ctx["total"] = _total(menu, ctx["cantidades"])
-    return templates.TemplateResponse(request, "tutor/pedir.html", ctx)
+    return templates.TemplateResponse(request, "tutor/pedir.html", ctx, headers=SIN_CACHE)
 
 
 # --------------------------------------------------------------------- rutas
@@ -232,14 +232,21 @@ def revisar(alumno_id: int, request: Request, csrf: str = Form(""), fecha: str =
         "aviso": None if alcanza else f"No te alcanza el saldo de {hijo['nombre']} para este pedido."})
 
 
+def _ya_registrado(db: Session, operador: Operador, tutor: Tutor, llave: str) -> bool:
+    return db.scalars(select(Bitacora.id).where(
+        Bitacora.operador_id == operador.id, Bitacora.actor == f"tutor:{tutor.id}",
+        Bitacora.operacion == "precompra", Bitacora.llave == llave,
+        Bitacora.http_status == 200, Bitacora.codigo_error.is_(None))).first() is not None
+
+
 def _intento_incierto(db: Session, operador: Operador, tutor: Tutor, llave: str) -> bool:
     """¿Hubo ya un envío con esta llave que no obtuvo respuesta clara del TPV?"""
     return db.scalars(select(Bitacora.id).where(
         Bitacora.operador_id == operador.id, Bitacora.actor == f"tutor:{tutor.id}",
         Bitacora.operacion == "precompra", Bitacora.llave == llave,
         or_(Bitacora.http_status < 200, Bitacora.http_status >= 500,
-            # 200 con cuerpo ilegible: igual de incierto (misma regla que el reintento)
-            and_(Bitacora.http_status < 400, Bitacora.codigo_error.is_not(None))))).first() is not None
+            # misma regla que `es_incierto`: 4xx sin JSON reconocible, o 200 ilegible
+            Bitacora.codigo_error.in_(("respuesta_invalida", "repetida"))))).first() is not None
 
 
 def _con_aviso(db, operador, tutor, llave, hijo, mensaje: str) -> str:
@@ -249,14 +256,6 @@ def _con_aviso(db, operador, tutor, llave, hijo, mensaje: str) -> str:
         mensaje += (" Ojo: tu intento anterior no tuvo respuesta y puede haberse registrado. "
                     f"Revisa los movimientos de {hijo['nombre']} antes de volver a pedir.")
     return mensaje
-
-
-def _mensaje_error(e: ErrorTPV, nombre: str) -> str:
-    # El TPV real rechaza el saldo como 409 `rechazado` con «Saldo insuficiente de …» en el texto.
-    if e.codigo == "saldo_insuficiente" or (
-            e.codigo == "rechazado" and e.mensaje.startswith("Saldo insuficiente")):
-        return f"No te alcanza el saldo de {nombre} para este pedido."
-    return mensaje_tpv(e, "pedido")
 
 
 @router.post("/hijos/{alumno_id}/pedir/confirmar")
@@ -286,11 +285,16 @@ def confirmar(alumno_id: int, request: Request, csrf: str = Form(""), fecha: str
         return _error(request, MSG_LLAVE, volver)
     if len(producto_id) != len(cantidad):
         return _error(request, MSG_CANTIDAD, volver)
-    items, error = validar_lineas(list(zip(producto_id, cantidad)), menu, cero_omite=False)
+    # Si esta llave ya entró (200 en bitácora), un doble toque o una página vieja que cruza la hora
+    # límite o cambia el menú debe ver el pedido que ya existe: se deja que el TPV lo repita.
+    ya_entro = _ya_registrado(db, operador, tutor, llave)
+    items, error = validar_lineas(list(zip(producto_id, cantidad)),
+                                  [{"id": int(x)} for x in producto_id if _ENTERO.fullmatch(x.strip())]
+                                  if ya_entro else menu, cero_omite=False)
     dia = _fecha(fecha)
     if error is None and dia is None:
         error = MSG_FECHA
-    if error is None:
+    if error is None and not ya_entro:
         # Con la hora de AHORA (tras las lecturas), no la de la revisión.
         error = motivo_fecha_invalida(cargar_reglas(db, operador.id), dia, ahora_fresca(request))
     if error:
@@ -301,12 +305,12 @@ def confirmar(alumno_id: int, request: Request, csrf: str = Form(""), fecha: str
         r = escribir_tutor(db, request, operador, tutor, "precompra", cuerpo)
     except ErrorTPV as e:
         db.commit()  # la bitácora del intento fallido es verdad
-        if not 400 <= e.status < 500:
+        if es_incierto(e):
             # Sin respuesta clara: puede que sí entrara. Se reintenta con LA MISMA llave.
             return _pagina(request, "tutor/confirmar.html", _contexto_confirmar(
                 alumno_id, sesion, hijo, dia, items, menu, llave, MSG_SIN_RESPUESTA))
         return _error(request, _con_aviso(db, operador, tutor, llave, hijo,
-                                          _mensaje_error(e, hijo["nombre"])), volver)
+                                          mensaje_para_tutor(e)), volver)
     db.commit()
     pedido = r.get("pedido") if isinstance(r.get("pedido"), dict) else {}
     alumno = r.get("alumno") if isinstance(r.get("alumno"), dict) else {}
@@ -337,7 +341,7 @@ def _contexto_confirmar(alumno_id, sesion, hijo, dia, items, menu, llave, aviso)
     nombres = {p["id"]: p["nombre"] for p in menu}
     return {
         "titulo": f"Confirma el pedido de {hijo['nombre']}",
-        "lineas": [f"{n} × {nombres[pid]}" for pid, n in items] + [f"Para el día: {fmt_fecha(dia)}"],
+        "lineas": [f"{n} × {nombres.get(pid, f'Producto {pid}')}" for pid, n in items] + [f"Para el día: {fmt_fecha(dia)}"],
         "accion": f"/hijos/{alumno_id}/pedir/confirmar",
         "campos": {"fecha": dia.isoformat(), "producto_id": [str(pid) for pid, _ in items],
                    "cantidad": [str(n) for _, n in items], "llave": llave},

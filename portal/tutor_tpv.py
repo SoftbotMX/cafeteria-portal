@@ -22,7 +22,7 @@ def _cliente(request: Request, operador: Operador):
 
 def hijos(request: Request, operador: Operador, tutor: Tutor) -> list[dict]:
     try:
-        r = _cliente(request, operador).llamar("tutor/alumnos", {"tutor_ref": tutor.tutor_ref})
+        r = _cliente(request, operador).leer("tutor/alumnos", {"tutor_ref": tutor.tutor_ref})
         fichas = r["alumnos"]
         if not isinstance(fichas, list):
             raise TypeError
@@ -50,19 +50,21 @@ def menu(request: Request, operador: Operador, cacheado: bool = False) -> list[d
 
     `cacheado`: sólo para PINTAR (página de pedir, total en vivo): cada +/− sería otra llamada
     idéntica y firmada al TPV. Revisar y confirmar leen siempre el menú fresco."""
-    cache = request.app.state.__dict__.setdefault("cache_menu", {})
+    estado = request.app.state  # `cache_menu` y su candado nacen en create_app
     if cacheado:
-        hit = cache.get(operador.id)
+        with estado.cache_menu_candado:
+            hit = estado.cache_menu.get(operador.id)
         if hit and time.monotonic() - hit[0] < CACHE_MENU_SEGUNDOS:
             return hit[1]
     productos = _leer_menu(request, operador)
-    cache[operador.id] = (time.monotonic(), productos)
+    with estado.cache_menu_candado:
+        estado.cache_menu[operador.id] = (time.monotonic(), productos)
     return productos
 
 
 def _leer_menu(request: Request, operador: Operador) -> list[dict]:
     try:
-        crudo = _cliente(request, operador).llamar("menu", {})["productos"]
+        crudo = _cliente(request, operador).leer("menu", {})["productos"]
         if not isinstance(crudo, list):
             raise TypeError
     except (ErrorTPV, KeyError, TypeError):
@@ -85,12 +87,36 @@ def _leer_menu(request: Request, operador: Operador) -> list[dict]:
 def movimientos(request: Request, operador: Operador, tutor: Tutor, alumno_id: int,
                 pagina: int, por_pagina: int) -> dict:
     try:
-        r = _cliente(request, operador).llamar("alumno/movimientos", {
+        r = _cliente(request, operador).leer("alumno/movimientos", {
             "tutor_ref": tutor.tutor_ref, "alumno_id": alumno_id,
             "pagina": pagina, "por_pagina": por_pagina})
         return {"total": int(r["total"]), "movimientos": list(r["movimientos"])}
     except (ErrorTPV, KeyError, TypeError, ValueError):
         raise SinTPV from None
+
+
+def es_incierto(e: ErrorTPV) -> bool:
+    """¿No sabemos si la escritura entró? Sin respuesta, 5xx, cuerpo ilegible (`respuesta_invalida`,
+    p. ej. una página HTML de Odoo por la llave única en un doble toque) o firma repetida. Sólo un
+    4xx con un `codigo` JSON reconocible es un rechazo final."""
+    return (e.status <= 0 or e.status >= 500
+            or e.codigo in ("respuesta_invalida", "repetida") or not 400 <= e.status < 500)
+
+
+MSG_CAMBIO = "Este pedido cambió desde que lo revisaste; vuelve a armarlo."
+MSG_SIN_CONTACTO = "No se pudo contactar al TPV. Vuelve a intentar en un momento."
+
+
+def mensaje_para_tutor(e: ErrorTPV) -> str:
+    """Texto para un papá ante un rechazo del TPV (para las escrituras del tutor, Tasks 3–7).
+    El `mensaje` del TPV ya es español claro, se muestra tal cual; nunca el texto de
+    administración. Excepción: «ya se registró con otros datos» (llave con otro contenido) trae
+    la llave interna; se reconoce por esa frase conocida del TPV y se cambia por MSG_CAMBIO."""
+    if e.codigo == "llave_reutilizada" or "ya se registró con otros datos" in e.mensaje:
+        return MSG_CAMBIO
+    if es_incierto(e):
+        return MSG_SIN_CONTACTO
+    return e.mensaje or "No se pudo completar la operación."
 
 
 def escribir_tutor(db, request: Request, operador: Operador, tutor: Tutor, operacion: str,
