@@ -261,6 +261,8 @@ def test_lecturas_caidas_al_cancelar_conservan_la_llave(hijo, c, tpv):
     tpv.fallar_en = {"alumno/pedidos"}
     r = c.post(_url(hijo), data=o)
     assert "No pudimos consultar" in r.text and _ocultos(r)["llave"] == o["llave"]
+    # la página de reintento muestra el folio, no el id interno del pedido
+    assert "Pedido PC-00001" in r.text and _ocultos(r)["folio"] == ["PC-00001"]
     assert "precompra/cancelar" not in tpv.llamadas
     tpv.fallar_en = set()
     assert "Pedido PC-00001 cancelado" in c.post(_url(hijo), data=_ocultos(r)).text

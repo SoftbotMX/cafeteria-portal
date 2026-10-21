@@ -276,7 +276,6 @@ def test_alumno_ajeno_404_sin_precompra(db, op, tutor, hijo, c, tpv):
                   data={**datos, "cant_10": "1"}).status_code == 404
     assert c.post(f"/hijos/{otro['id']}/pedir/confirmar", data={
         **datos, "producto_id": ["10"], "cantidad": ["1"], "llave": "k" * 20}).status_code == 404
-    assert c.post(f"/hijos/{otro['id']}/pedir/total", data=datos).status_code == 404
     assert "precompra" not in tpv.llamadas and tpv.alumnos[otro["id"]]["disponible"] == 500
 
 
@@ -489,3 +488,20 @@ def test_reintento_con_producto_retirado_del_menu_no_da_500(hijo, c, tpv):
     tpv._precompra = lambda d: httpx.Response(503, content=b"")
     r = _confirmar(c, hijo, o)
     assert r.status_code == 200 and _ocultos(r)["llave"] == o["llave"]
+
+
+def test_total_en_vivo_no_lee_los_hijos(hijo, c, tpv):
+    """El total sale del menú (igual para todos) y no revela nada del hijo: ni lee `tutor/alumnos`
+    ni distingue hijos propios de ajenos; sí exige sesión y CSRF."""
+    pagina = c.get(f"/hijos/{hijo['id']}/pedir")
+    base = {"csrf": csrf_de(pagina), "fecha": MANANA}
+    antes = tpv.llamadas.get("tutor/alumnos", 0)
+    assert c.post(f"/hijos/{hijo['id']}/pedir/total", data={**base, "cant_10": "1"}).status_code == 200
+    assert c.post("/hijos/9999/pedir/total", data=base).status_code == 200
+    assert tpv.llamadas.get("tutor/alumnos", 0) == antes
+    assert c.post(f"/hijos/{hijo['id']}/pedir/total", data={"fecha": MANANA}).status_code == 403
+
+
+def test_pedir_muestra_el_disponible_junto_al_total(hijo, c):
+    t = c.get(f"/hijos/{hijo['id']}/pedir").text
+    assert f"Disponible de {hijo['nombre']}: $" in t

@@ -240,3 +240,38 @@ def test_fechas_de_movimientos_en_la_zona_del_operador(db, op, tutor, tpv, c):
     db.commit()
     assert "mié 21/10/2026" in c.get(f"/hijos/{h['id']}").text  # Cancún: UTC-5
     assert "mié 21/10/2026" in c.get(f"/hijos/{h['id']}/movimientos?pagina=1").text
+
+
+def test_inicio_avisa_cuando_solo_recoge_lo_que_pide(tutor, tpv, c):
+    tpv.agregar_hijo(tutor.tutor_ref, "Luis Pérez")["compra_sin_pedido"] = False
+    tpv.agregar_hijo(tutor.tutor_ref, "Sofía Pérez")
+    _entrar(c)
+    t = c.get("/").text
+    assert t.count("Sólo puede recoger lo que pidas") == 1
+
+
+def test_permiso_sin_copy_de_hoy(tutor, tpv, c):
+    h = tpv.agregar_hijo(tutor.tutor_ref, "Luis Pérez")
+    _entrar(c)
+    assert "Hoy Luis" not in c.get(f"/hijos/{h['id']}").text
+    h["compra_sin_pedido"] = False
+    assert "Hoy Luis" not in c.get(f"/hijos/{h['id']}").text
+
+
+def test_sesion_vencida_en_peticion_htmx_redirige_con_cabecera(tutor, tpv, c):
+    h = tpv.agregar_hijo(tutor.tutor_ref, "Luis Pérez")
+    normal = c.get(f"/hijos/{h['id']}/movimientos")
+    assert normal.status_code == 303 and normal.headers["location"] == "/entrar"
+    htmx = c.get(f"/hijos/{h['id']}/movimientos", headers={"HX-Request": "true"})
+    assert htmx.status_code == 200 and htmx.headers["HX-Redirect"] == "/entrar"
+    assert "location" not in htmx.headers
+
+
+def test_tutor_desconocido_en_lectura_deja_warning(tutor, tpv, c, caplog):
+    # el tutor existe en el portal pero el TPV no lo conoce
+    _entrar(c)
+    with caplog.at_level("WARNING", logger="portal.tutor_tpv"):
+        r = c.get("/")
+    assert MSG_SIN_TPV in r.text
+    assert any("tutor_desconocido" in m.getMessage() and str(tutor.id) in m.getMessage()
+               for m in caplog.records)

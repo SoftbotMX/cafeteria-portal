@@ -175,10 +175,11 @@ def total_en_vivo(alumno_id: int, request: Request, csrf: str = Form(""),
                   operador: Operador = Depends(operador_actual)):
     """Fragmento HTMX: sólo el total de lo que el formulario trae ahora. No guarda nada ni
     reemplaza los campos (los +/− viven en el navegador): una respuesta tardía no pisa nada."""
-    sesion, tutor = par
+    sesion, _ = par
     exigir_csrf(csrf, sesion.csrf)
+    # No se lee `tutor/alumnos` en cada +/−: el total sale del menú (igual para todos) y no revela
+    # nada del hijo; la propiedad del hijo se exige al revisar y al confirmar.
     try:
-        _hijo(request, operador, tutor, alumno_id)
         menu = tutor_tpv.menu(request, operador, cacheado=True)
     except SinTPV:
         # Un error HTTP no lo cambia HTMX en la página: el total anterior se queda.
@@ -369,7 +370,8 @@ def _contexto_cancelar(alumno_id, sesion, hijo, pedido, llave, aviso=None) -> di
     return {
         "titulo": f"Cancelar el pedido de {hijo['nombre']}", "lineas": lineas, "aviso": aviso,
         "accion": f"/hijos/{alumno_id}/pedidos/{pedido['id']}/cancelar", "csrf": sesion.csrf,
-        "campos": {"llave": llave}, "boton": "Cancelar pedido", "volver": f"/hijos/{alumno_id}"}
+        "campos": {"llave": llave, "folio": str(pedido.get("nombre") or "")}, "boton": "Cancelar pedido",
+        "volver": f"/hijos/{alumno_id}"}
 
 
 @router.get("/hijos/{alumno_id}/pedidos/{pedido_id}/cancelar")
@@ -394,7 +396,8 @@ def cancelar_confirmacion(alumno_id: int, pedido_id: int, request: Request,
 
 @router.post("/hijos/{alumno_id}/pedidos/{pedido_id}/cancelar")
 def cancelar(alumno_id: int, pedido_id: int, request: Request, csrf: str = Form(""),
-             llave: str = Form(""), par: tuple[Sesion, Tutor] = Depends(tutor_listo),
+             llave: str = Form(""), folio: str = Form("", max_length=40),
+             par: tuple[Sesion, Tutor] = Depends(tutor_listo),
              operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
     sesion, tutor = par
     exigir_csrf(csrf, sesion.csrf)
@@ -404,11 +407,16 @@ def cancelar(alumno_id: int, pedido_id: int, request: Request, csrf: str = Form(
         pedidos = tutor_tpv.pedidos(request, operador, tutor, alumno_id)
     except SinTPV:
         # Un intento anterior pudo quedar sin respuesta: se conserva la llave para repetirlo tal cual.
+        # El folio viaja en el formulario sólo para mostrarlo (sin la lista del TPV no se conoce);
+        # nunca decide nada.
         if LLAVE.fullmatch(llave):
+            folio = folio.strip()
             return _pagina(request, "tutor/confirmar.html", {
-                "titulo": "Cancelar pedido", "lineas": [f"Pedido {pedido_id}"], "aviso": MSG_SIN_PEDIDOS,
+                "titulo": "Cancelar pedido",
+                "lineas": [f"Pedido {folio}" if folio else "El pedido que ibas a cancelar"],
+                "aviso": MSG_SIN_PEDIDOS,
                 "accion": f"/hijos/{alumno_id}/pedidos/{pedido_id}/cancelar", "csrf": sesion.csrf,
-                "campos": {"llave": llave}, "boton": "Reintentar", "volver": volver})
+                "campos": {"llave": llave, "folio": folio}, "boton": "Reintentar", "volver": volver})
         return _error(request, MSG_SIN_PEDIDOS, volver, TIT_CANCELAR)
     pedido = _pedido_del_hijo(pedidos, pedido_id)
     if not LLAVE.fullmatch(llave):

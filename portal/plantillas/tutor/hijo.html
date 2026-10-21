@@ -22,10 +22,10 @@
   {% endif %}
   <p><a class="boton" href="/hijos/{{ hijo.id }}/pedir">Pedir</a></p>
   {% if hijo.compra_sin_pedido is sameas true %}
-    <p>Hoy {{ hijo.nombre }} puede comprar sin pedido.
+    <p>{{ hijo.nombre }} puede comprar sin pedido.
       <a class="boton secundario" href="/hijos/{{ hijo.id }}/permiso?valor=no">Que sólo recoja lo que pida</a></p>
   {% elif hijo.compra_sin_pedido is sameas false %}
-    <p>Hoy {{ hijo.nombre }} sólo recoge lo que pide.
+    <p>{{ hijo.nombre }} sólo puede recoger lo que pidas.
       <a class="boton secundario" href="/hijos/{{ hijo.id }}/permiso?valor=si">Permitir que compre sin pedido</a></p>
   {% endif %}
   <h2>Pedidos</h2>

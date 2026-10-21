@@ -79,7 +79,7 @@ def test_cambiar_permiso_a_no_y_a_si(db, tutor, hijo, c, tpv):
     assert fila.actor == f"tutor:{tutor.id}" and fila.http_status == 200
     # la ficha lo refleja y ofrece el botón contrario
     t = c.get(f"/hijos/{hijo['id']}").text
-    assert "sólo recoge lo que pide" in t and f"{_url(hijo)}?valor=si" in t
+    assert "sólo puede recoger lo que pidas" in t and f"{_url(hijo)}?valor=si" in t
     r2 = _cambiar(c, hijo, "si")
     assert SI_TXT in r2.text
     assert tpv.cuerpos_permiso[-1]["compra_sin_pedido"] is True
