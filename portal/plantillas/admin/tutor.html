@@ -8,6 +8,8 @@
    Teléfono: {{ tutor.telefono or "—" }} · Correo: {{ tutor.correo or "—" }}<br>
    Estado: {{ "Activo" if tutor.activo else "Desactivado" }}{% if tutor.debe_cambiar %} · debe cambiar su contraseña{% endif %}</p>
 
+{% if recuperacion_bloqueada %}<p class="aviso" role="status">Recuperación bloqueada por intentos fallidos (se libera sola en 24 h o al reenviar el acceso).</p>{% endif %}
+
 <h2>Hijos</h2>
 {% if error_tpv %}
 <p class="aviso" role="alert">{{ error_tpv }}</p>

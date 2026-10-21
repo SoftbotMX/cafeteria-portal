@@ -13,7 +13,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from portal.credenciales import enviar_al_tutor
+from portal.credenciales import enviar_al_tutor, recuperacion_bloqueada
 from portal.db import get_db
 from portal.models import CodigoRecuperacion, IntentoLogin, Operador, Tutor
 from portal.rutas.acceso import (
@@ -32,7 +32,6 @@ log = logging.getLogger(__name__)
 VIGENCIA = timedelta(minutes=15)
 MAX_SOLICITUDES = 3
 MAX_FALLOS_CODIGO = 5
-MAX_FALLOS_TUTOR_24H = 10  # suma de intentos fallidos de todos sus códigos en 24 h
 MENSAJE = "Si el usuario existe, te mandamos un código"
 MSG_CODIGO_MALO = "El código es incorrecto o ya venció."
 # Prefijos que el login nunca produce (sus claves son teléfono, correo o "invalido").
@@ -62,14 +61,6 @@ def _solicitudes_recientes(db: Session, operador_id: int, clave: str) -> int:
     return db.scalar(select(func.count()).select_from(IntentoLogin).where(
         IntentoLogin.operador_id == operador_id, IntentoLogin.usuario == P_SOLICITUD + clave,
         IntentoLogin.creado >= func.now() - VENTANA_INTENTOS)) or 0
-
-
-def _tutor_bloqueado(db: Session, tutor_id: int) -> bool:
-    """Tope por tutor: 10 intentos fallidos en 24 h entre todos sus códigos."""
-    total = db.scalar(select(func.coalesce(func.sum(CodigoRecuperacion.intentos), 0)).where(
-        CodigoRecuperacion.tutor_id == tutor_id,
-        CodigoRecuperacion.creado >= func.now() - timedelta(hours=24)))
-    return total >= MAX_FALLOS_TUTOR_24H
 
 
 def _enviar_codigo(app, operador_id: int, tutor_id: int, codigo: str, llave: str) -> None:
@@ -126,7 +117,11 @@ def pedir(request: Request, tareas: BackgroundTasks, usuario: str = Form(""), cs
     if tutor is not None and tutor.activo:
         # Serializa las emisiones del mismo tutor: queda un solo código vigente.
         db.refresh(tutor, with_for_update=True)
-        if tutor.activo and not _tutor_bloqueado(db, tutor.id):
+        bloqueado = tutor.activo and recuperacion_bloqueada(db, operador.id, tutor.id)
+        if bloqueado:
+            # Se avisa cada vez que se rechaza una solicitud por el tope (el personal lo ve en la ficha).
+            log.warning("Recuperación bloqueada por intentos fallidos: tutor=%s", tutor.id)
+        if tutor.activo and not bloqueado:
             codigo = f"{secrets.randbelow(10**6):06d}"
             invalidar_codigos(db, tutor.id)
             nuevo = CodigoRecuperacion(tutor_id=tutor.id, codigo_hash=_hash(codigo),
@@ -172,7 +167,7 @@ def codigo(request: Request, usuario: str = Form(""), codigo: str = Form(""),
     fila = None
     if tutor is not None and tutor.activo:
         db.refresh(tutor, with_for_update=True)  # mismo orden de bloqueos que pedir(): tutor, luego código
-        if not tutor.activo or _tutor_bloqueado(db, tutor.id):
+        if not tutor.activo or recuperacion_bloqueada(db, operador.id, tutor.id):
             tutor = None
     if tutor is not None and tutor.activo:
         # FOR UPDATE: dos envíos simultáneos no pueden usar el mismo código ni saltarse el conteo.
@@ -186,6 +181,10 @@ def codigo(request: Request, usuario: str = Form(""), codigo: str = Form(""),
             fila.intentos += 1
             if fila.intentos >= MAX_FALLOS_CODIGO:
                 fila.usado = True
+            db.flush()
+            if recuperacion_bloqueada(db, operador.id, tutor.id):
+                # Sólo este intento cruza el tope: después el código ni se consulta.
+                log.warning("Recuperación bloqueada por intentos fallidos: tutor=%s", tutor.id)
         registrar_intento(db, operador.id, clave_intento, ip, exito=False)
         db.commit()
         return _pagina_codigo(request, cookie, 400, MSG_CODIGO_MALO, usuario)

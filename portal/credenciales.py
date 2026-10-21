@@ -2,12 +2,14 @@
 from dataclasses import dataclass, field
 
 from cryptography.fernet import InvalidToken
-from sqlalchemy import select
+from datetime import timedelta
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from portal.conduit import ErrorEnvio, enviar_whatsapp
 from portal.correo import enviar_correo
-from portal.models import Bitacora, Operador, Tutor
+from portal.models import Bitacora, CodigoRecuperacion, Operador, Tutor
 from portal.seguridad import generar_temporal, hash_contrasena, invalidar_codigos
 from portal.sesiones import cerrar_sesiones
 
@@ -123,3 +125,21 @@ def entregar_credenciales(db: Session, app, operador: Operador, tutor: Tutor, in
         marca.codigo_error = estado
     db.flush()  # la ruta confirma al final
     return ResultadoEntrega(contrasena, canal, estado, detalle)
+
+
+MAX_FALLOS_TUTOR_24H = 10  # intentos fallidos de código por tutor, sumando todos sus códigos
+
+
+def recuperacion_bloqueada(db: Session, operador_id: int, tutor_id: int) -> bool:
+    """Tope por tutor: 10 intentos fallidos en 24 h. Sólo cuentan los códigos creados después del
+    último acceso entregado por la administración (alta o reenvío terminado): reenviar el acceso lo
+    desbloquea sin migración."""
+    ultima = select(func.max(Bitacora.creado)).where(
+        Bitacora.operador_id == operador_id, Bitacora.operacion.in_(OPERACIONES_ENTREGA),
+        Bitacora.llave.like(f"acceso:{tutor_id}:%"), Bitacora.http_status.is_not(None)
+    ).scalar_subquery()
+    desde = func.greatest(func.now() - timedelta(hours=24),
+                          func.coalesce(ultima, func.now() - timedelta(hours=24)))
+    total = db.scalar(select(func.coalesce(func.sum(CodigoRecuperacion.intentos), 0)).where(
+        CodigoRecuperacion.tutor_id == tutor_id, CodigoRecuperacion.creado >= desde))
+    return total >= MAX_FALLOS_TUTOR_24H

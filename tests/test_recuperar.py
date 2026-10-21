@@ -321,3 +321,16 @@ def test_reenvio_de_acceso_invalida_codigos(db, op, app, conduit):
     entregar_credenciales(db, app, op, t, 1)
     db.commit()
     assert db.query(CodigoRecuperacion).filter_by(usado=False).count() == 0
+
+
+def test_el_fallo_que_llega_al_tope_se_registra_una_vez(db, op, c, conduit, caplog):
+    t = crear_tutor(db, op)
+    _quemado(db, t, 5)
+    db.add(CodigoRecuperacion(tutor_id=t.id, codigo_hash=hashlib.sha256(b"123456").hexdigest(),
+                              expira=func.now() + timedelta(minutes=5)))
+    db.commit()
+    with caplog.at_level(logging.WARNING):
+        for _ in range(5):
+            assert _cambiar(c, "8341445807", "000000").status_code == 400
+    avisos = [r.getMessage() for r in caplog.records if "bloqueada" in r.getMessage()]
+    assert avisos == [f"Recuperación bloqueada por intentos fallidos: tutor={t.id}"]

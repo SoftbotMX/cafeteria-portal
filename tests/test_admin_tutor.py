@@ -451,3 +451,50 @@ def test_llave_reutilizada_en_la_ficha_no_manda_a_la_ficha(db, op, admin, tpv):
     admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombre": "Mateo", "matricula": ""})
     r = admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombre": "Otro", "matricula": ""})
     assert r.status_code == 400 and "desde la ficha" not in r.text and "Recarga la ficha" in r.text
+
+
+AVISO_BLOQUEO = "Recuperación bloqueada por intentos fallidos"
+
+
+def _quemar(db, tutor, veces=2):
+    from datetime import timedelta
+    from sqlalchemy import func
+    from portal.models import CodigoRecuperacion
+    for _ in range(veces):
+        db.add(CodigoRecuperacion(tutor_id=tutor.id, codigo_hash="x", intentos=5, usado=True,
+                                  expira=func.now() + timedelta(minutes=5)))
+    db.commit()
+
+
+def _pedir_codigo(app, usuario="8341445807"):
+    cl = tutor_nuevo_cliente(app)
+    return cl.post("/recuperar", data={"usuario": usuario, "csrf": csrf_de(cl.get("/recuperar"))})
+
+
+def test_tope_de_recuperacion_se_ve_en_la_ficha_y_el_reenvio_lo_libera(
+        db, op, admin, tpv, conduit, app, caplog):
+    import logging
+    from portal.models import CodigoRecuperacion
+    t = tutor_tpv(db, op, tpv)
+    assert AVISO_BLOQUEO not in admin.get(f"/admin/tutores/{t.id}").text
+    _quemar(db, t)
+    assert AVISO_BLOQUEO in admin.get(f"/admin/tutores/{t.id}").text
+    with caplog.at_level(logging.WARNING):
+        assert _pedir_codigo(app).status_code == 303
+    assert conduit.enviados == []
+    avisos = [r.getMessage() for r in caplog.records if "bloqueada" in r.getMessage()]
+    assert avisos == [f"Recuperación bloqueada por intentos fallidos: tutor={t.id}"]
+
+    campos = formulario(admin.get(f"/admin/tutores/{t.id}"), f"/admin/tutores/{t.id}/reenviar")
+    assert admin.post(f"/admin/tutores/{t.id}/reenviar", data=campos).status_code == 200
+    assert AVISO_BLOQUEO not in admin.get(f"/admin/tutores/{t.id}").text
+    n = len(conduit.enviados)
+    assert _pedir_codigo(app).status_code == 303
+    assert len(conduit.enviados) == n + 1
+    assert db.query(CodigoRecuperacion).filter_by(usado=False).count() == 1
+
+
+def test_el_tope_de_recuperacion_no_afecta_al_login(db, op, tpv, app):
+    t = tutor_tpv(db, op, tpv, debe_cambiar=False)
+    _quemar(db, t)
+    assert entrar_tutor(tutor_nuevo_cliente(app), "8341445807", "temporal123").headers["location"] == "/"

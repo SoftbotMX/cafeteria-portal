@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 
 from portal.alta import DatosAlta, ErrorAlta, dar_de_alta, escribir_tpv, mensaje_tpv, tutor_por_llave
 from portal.credenciales import (
-    ErrorEntrega, entregar_credenciales, entregas_de, siguiente_intento, tutores_con_entrega, usuario_de,
+    ErrorEntrega, entregar_credenciales, entregas_de, recuperacion_bloqueada, siguiente_intento,
+    tutores_con_entrega, usuario_de,
 )
 from portal.db import get_db
 from portal.models import Admin, Bitacora, Operador, Sesion, Tutor
@@ -303,6 +304,7 @@ def _ficha(request: Request, sesion: Sesion, admin: Admin, operador: Operador, d
         "hijo_form": hijo_form or {"llave": "", "nombre": "", "matricula": ""},
         "otros": otros, "otro_tutor": otro_tutor, "hijos_otro": hijos_otro,
         "ultima_entrega": ultima_entrega,
+        "recuperacion_bloqueada": recuperacion_bloqueada(db, operador.id, tutor.id),
         "incompleta": tutor.id not in tutores_con_entrega(db, operador.id),
         "intento": siguiente_intento(db, operador.id, tutor.id),
         "nueva_llave": lambda: str(uuid.uuid4())}, status_code=status)
