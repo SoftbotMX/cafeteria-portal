@@ -1,18 +1,20 @@
 {% extends "base.html" %}
 {% block titulo %}Acceso del tutor · Administración{% endblock %}
 {% block contenido %}
-<h1>Alta completada</h1>
+<h1>{{ titulo }}</h1>
 <p>Tutor: <strong>{{ tutor.nombre }}</strong></p>
 <p>Usuario: <code id="usuario">{{ usuario }}</code></p>
 <p>Contraseña temporal: <code id="contrasena">{{ res.contrasena }}</code></p>
 <p class="aviso">Esta contraseña solo se muestra ahora. Al entrar, el tutor deberá cambiarla.</p>
 <p>Envío: <span id="canal">{{ res.canal or "ninguno" }}</span> ·
    <span id="estado">{{ res.estado }}</span> — {{ res.detalle }}</p>
+{% if hijos %}
 <h2>Hijos</h2>
 <ul>
   {% for h in hijos %}
   <li>{{ h.nombre }} — código {{ h.codigo }}</li>
   {% endfor %}
 </ul>
-<p><a href="/admin">Ir a la lista de tutores</a> · <a href="/admin/alta">Dar de alta otro</a></p>
+{% endif %}
+<p><a href="/admin/tutores/{{ tutor.id }}">Volver a la ficha</a> · <a href="/admin">Ir a la lista de tutores</a> · <a href="/admin/alta">Dar de alta otro</a></p>
 {% endblock %}

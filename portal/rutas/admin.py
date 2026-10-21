@@ -1,14 +1,17 @@
 import re
 import secrets
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from portal.alta import DatosAlta, ErrorAlta, dar_de_alta, tutor_por_llave
-from portal.credenciales import ErrorEntrega, entregar_credenciales, usuario_de
+from portal.alta import DatosAlta, ErrorAlta, dar_de_alta, escribir_tpv, mensaje_tpv, tutor_por_llave
+from portal.credenciales import (
+    ErrorEntrega, entregar_credenciales, entregas_de, siguiente_intento, tutores_con_entrega, usuario_de,
+)
 from portal.db import get_db
 from portal.models import Admin, Bitacora, Operador, Sesion, Tutor
 from portal.rutas.acceso import (
@@ -19,9 +22,9 @@ from portal.seguridad import (
 )
 from portal.sesiones import (
     COOKIE, DURACION, borrar_cookie, cerrar_sesion, crear_sesion, exigir_csrf, operador_actual,
-    poner_cookie, sesion_admin,
+    poner_cookie, sesion_admin, cerrar_sesiones,
 )
-from portal.tpv import cliente_admin
+from portal.tpv import ErrorTPV, cliente_admin
 from portal.web import templates
 
 router = APIRouter(prefix="/admin")
@@ -102,11 +105,8 @@ def tutores(request: Request, par: tuple[Sesion, Admin] = Depends(sesion_admin),
     sesion, admin = par
     lista = db.scalars(select(Tutor).where(Tutor.operador_id == admin.operador_id)
                        .order_by(Tutor.nombre, Tutor.id)).all()
-    entregados = set(db.scalars(select(Bitacora.llave).where(
-        Bitacora.operador_id == admin.operador_id, Bitacora.operacion == "entregar_acceso")))
-    # Incompleta: nació de un alta (alta_llave) y nunca se entregó su acceso.
-    incompletas = {t.id for t in lista
-                   if t.alta_llave is not None and f"acceso:{t.id}:1" not in entregados}
+    # Incompleta: ninguna entrega de acceso terminada (alta o reenvío, cualquier intento).
+    incompletas = {t.id for t in lista} - tutores_con_entrega(db, admin.operador_id)
     return templates.TemplateResponse(
         request, "admin/tutores.html",
         {"csrf": sesion.csrf, "admin": admin, "tutores": lista, "incompletas": incompletas})
@@ -168,12 +168,6 @@ def _validar(nombre: str, telefono: str, correo: str, hijo_nombre: list[str],
     return DatosAlta(nombre, tel, mail, hijos, ""), None
 
 
-def _marca_entrega(db: Session, operador_id: int, tutor: Tutor) -> Bitacora | None:
-    return db.scalar(select(Bitacora).where(
-        Bitacora.operador_id == operador_id, Bitacora.operacion == "entregar_acceso",
-        Bitacora.llave == f"acceso:{tutor.id}:1"))
-
-
 @router.post("/alta")
 def alta(request: Request, nombre: str = Form(""), telefono: str = Form(""),
          correo: str = Form(""), hijo_nombre: list[str] = Form([]),
@@ -193,9 +187,10 @@ def alta(request: Request, nombre: str = Form(""), telefono: str = Form(""),
 
     previo = tutor_por_llave(db, operador.id, llave, bloquear=True)
     if previo is not None:
-        marca = _marca_entrega(db, operador.id, previo)
-        if marca is not None:
-            # Doble clic o reenvío de un alta terminada: no se genera otra contraseña.
+        entregas = entregas_de(db, operador.id, previo.id)
+        if entregas:
+            # Alta terminada o ya con acceso (alta o reenvío): no se genera otra contraseña.
+            marca = entregas[-1]
             if marca.http_status is None:
                 envio = "interrumpido: no se sabe si se envió"
             else:
@@ -227,6 +222,246 @@ def alta(request: Request, nombre: str = Form(""), telefono: str = Form(""),
     db.commit()
     resp = templates.TemplateResponse(request, "admin/credenciales.html", {
         "csrf": sesion.csrf, "tutor": tutor, "usuario": usuario_de(tutor), "res": res,
-        "hijos": tutor.hijos_creados, "admin": admin})
+        "hijos": tutor.hijos_creados, "admin": admin, "titulo": "Alta completada"})
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+# ---- ficha del tutor ----
+
+class _SinTPV(Exception):
+    """El detalle del TPV no se pudo leer; el texto es para la administración."""
+
+
+def _alumnos_del_tpv(cliente, tutor_ref: str) -> list[dict]:
+    try:
+        alumnos = cliente.llamar("admin/tutor/detalle", {"tutor_ref": tutor_ref})["tutor"]["alumnos"]
+        if not isinstance(alumnos, list) or not all(
+                isinstance(a, dict) and isinstance(a.get("id"), int) for a in alumnos):
+            raise TypeError
+    except ErrorTPV as e:
+        raise _SinTPV(mensaje_tpv(e, "consultar al tutor")) from None
+    except (KeyError, TypeError):
+        raise _SinTPV("El TPV respondió algo inesperado al consultar al tutor.") from None
+    return alumnos
+
+
+def _tutor_o_404(db: Session, admin: Admin, tutor_id: int, bloquear: bool = False) -> Tutor:
+    q = select(Tutor).where(Tutor.id == tutor_id, Tutor.operador_id == admin.operador_id)
+    tutor = db.scalar(q.with_for_update() if bloquear else q)
+    if tutor is None:
+        raise HTTPException(404)
+    return tutor
+
+
+def _otro_o_404(db: Session, admin: Admin, tutor: Tutor, otro_id: int) -> Tutor:
+    if otro_id == tutor.id:
+        raise HTTPException(404)
+    return _tutor_o_404(db, admin, otro_id)
+
+
+def _ficha(request: Request, sesion: Sesion, admin: Admin, operador: Operador, db: Session,
+           tutor: Tutor, *, otro: int | None = None, status: int = 200, error: str | None = None,
+           mensajes: list[str] | None = None, hijo_form: dict | None = None):
+    """Pinta la ficha. Si el TPV falla, la ficha sale igual con las acciones que no lo necesitan."""
+    cliente = cliente_admin(request.app, operador, request.app.state.settings.fernet_key)
+    hijos, error_tpv = None, None
+    try:
+        hijos = _alumnos_del_tpv(cliente, tutor.tutor_ref)
+    except _SinTPV:
+        error_tpv = "No se pudo consultar el TPV. Vuelve a intentar en un momento."
+    otros = db.scalars(select(Tutor).where(
+        Tutor.operador_id == operador.id, Tutor.id != tutor.id).order_by(Tutor.nombre, Tutor.id)).all()
+    otro_tutor, hijos_otro = None, []
+    if hijos is not None and otro is not None:
+        otro_tutor = next((o for o in otros if o.id == otro), None)
+        if otro_tutor is None:
+            raise HTTPException(404)
+        propios = {a["id"] for a in hijos}
+        try:
+            hijos_otro = [a for a in _alumnos_del_tpv(cliente, otro_tutor.tutor_ref)
+                          if a["id"] not in propios]
+        except _SinTPV:
+            error = error or "No se pudo consultar el TPV. Vuelve a intentar en un momento."
+    resp = templates.TemplateResponse(request, "admin/tutor.html", {
+        "csrf": sesion.csrf, "admin": admin, "tutor": tutor, "usuario": usuario_de(tutor),
+        "hijos": hijos, "error_tpv": error_tpv, "error": error, "mensajes": mensajes or [],
+        "hijo_form": hijo_form or {"llave": "", "nombre": "", "matricula": ""},
+        "otros": otros, "otro_tutor": otro_tutor, "hijos_otro": hijos_otro,
+        "incompleta": tutor.id not in tutores_con_entrega(db, operador.id),
+        "intento": siguiente_intento(db, operador.id, tutor.id),
+        "nueva_llave": lambda: str(uuid.uuid4())}, status_code=status)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+def _ctx(request, par, operador, db, tutor_id, bloquear=False):
+    sesion, admin = par
+    return sesion, admin, _tutor_o_404(db, admin, tutor_id, bloquear)
+
+
+ENVIO_EN_CURSO = timedelta(minutes=2)
+MSG_FORM_CADUCO = "El formulario caducó. Revisa los datos y envíalo de nuevo."
+
+
+@router.get("/tutores/{tutor_id}")
+def ficha(request: Request, tutor_id: int, otro: int | None = None,
+          par: tuple[Sesion, Admin] = Depends(sesion_admin),
+          operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
+    sesion, admin, tutor = _ctx(request, par, operador, db, tutor_id)
+    return _ficha(request, sesion, admin, operador, db, tutor, otro=otro)
+
+
+def _escribir(request, db, operador, admin, tutor, operacion, cuerpo, paso):
+    """Escribe en el TPV y confirma una vez. Devuelve el mensaje de error o None."""
+    cliente = cliente_admin(request.app, operador, request.app.state.settings.fernet_key)
+    try:
+        escribir_tpv(db, operador, cliente, f"admin:{admin.usuario}"[:50], operacion, cuerpo)
+    except ErrorTPV as e:
+        db.commit()  # la bitácora del intento fallido es verdad
+        return mensaje_tpv(e, paso)
+    db.commit()
+    return None
+
+
+@router.post("/tutores/{tutor_id}/hijos")
+def agregar_hijo(request: Request, tutor_id: int, nombre: str = Form(""), matricula: str = Form(""),
+                 llave: str = Form(""), csrf: str = Form(""),
+                 par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                 operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
+    sesion, admin, tutor = _ctx(request, par, operador, db, tutor_id)
+    exigir_csrf(csrf, sesion.csrf)
+    nombre, matricula = nombre.strip(), matricula.strip()
+    if not _LLAVE_OK.match(llave):
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_FORM_CADUCO,
+                      hijo_form={"llave": "", "nombre": nombre, "matricula": matricula})
+    # Se conservan llave y datos al fallar: si el TPV sí creó al hijo pero la respuesta se perdió,
+    # reintentar con la misma llave devuelve el original en vez de crear un duplicado.
+    hijo_form = {"llave": llave, "nombre": nombre, "matricula": matricula}
+    if not nombre or len(nombre) > 200 or len(matricula) > 50:
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, hijo_form=hijo_form,
+                      error="Escribe el nombre del hijo (máximo 200 caracteres) y una matrícula de hasta 50.")
+    cuerpo = {"nombre": nombre, "tutores": [tutor.tutor_ref], "llave": llave}
+    if matricula:
+        cuerpo["matricula"] = matricula
+    error = _escribir(request, db, operador, admin, tutor, "admin/alumno/crear", cuerpo,
+                      f"crear a {nombre}")
+    if error:
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=error,
+                      hijo_form=hijo_form)
+    return _ficha(request, sesion, admin, operador, db, tutor, mensajes=[f"Se agregó a {nombre}."])
+
+
+@router.post("/tutores/{tutor_id}/vincular")
+def vincular(request: Request, tutor_id: int, otro_tutor_id: int = Form(...), alumno_id: int = Form(...),
+             llave: str = Form(""), csrf: str = Form(""),
+             par: tuple[Sesion, Admin] = Depends(sesion_admin),
+             operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
+    sesion, admin, tutor = _ctx(request, par, operador, db, tutor_id)
+    exigir_csrf(csrf, sesion.csrf)
+    otro = _otro_o_404(db, admin, tutor, otro_tutor_id)
+    if not _LLAVE_OK.match(llave):
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_FORM_CADUCO)
+    cliente = cliente_admin(request.app, operador, request.app.state.settings.fernet_key)
+    try:
+        # El alumno_id del formulario no se cree: debe ser hijo del otro tutor según el TPV.
+        alumnos = _alumnos_del_tpv(cliente, otro.tutor_ref)
+    except _SinTPV as e:
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=str(e))
+    elegido = next((a for a in alumnos if a["id"] == alumno_id), None)
+    if elegido is None:
+        raise HTTPException(404)
+    error = _escribir(request, db, operador, admin, tutor, "admin/vincular",
+                      {"tutor_ref": tutor.tutor_ref, "alumno_id": alumno_id, "activo": True,
+                       "llave": llave}, "vincular al hijo")
+    if error:
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=error)
+    return _ficha(request, sesion, admin, operador, db, tutor,
+                  mensajes=[f"{elegido.get('nombre', 'El hijo')} quedó vinculado a {tutor.nombre}."])
+
+
+@router.post("/tutores/{tutor_id}/desvincular")
+def desvincular(request: Request, tutor_id: int, alumno_id: int = Form(...), llave: str = Form(""),
+                csrf: str = Form(""), par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
+    sesion, admin, tutor = _ctx(request, par, operador, db, tutor_id)
+    exigir_csrf(csrf, sesion.csrf)
+    if not _LLAVE_OK.match(llave):
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_FORM_CADUCO)
+    cliente = cliente_admin(request.app, operador, request.app.state.settings.fernet_key)
+    try:
+        alumnos = _alumnos_del_tpv(cliente, tutor.tutor_ref)
+    except _SinTPV as e:
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=str(e))
+    elegido = next((a for a in alumnos if a["id"] == alumno_id), None)
+    if elegido is None:
+        raise HTTPException(404)
+    error = _escribir(request, db, operador, admin, tutor, "admin/vincular",
+                      {"tutor_ref": tutor.tutor_ref, "alumno_id": alumno_id, "activo": False,
+                       "llave": llave}, "desvincular al hijo")
+    if error:
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=error)
+    return _ficha(request, sesion, admin, operador, db, tutor,
+                  mensajes=[f"{elegido.get('nombre', 'El hijo')} ya no está vinculado a {tutor.nombre}."])
+
+
+@router.post("/tutores/{tutor_id}/reenviar")
+def reenviar(request: Request, tutor_id: int, intento: int = Form(0), llave: str = Form(""),
+             csrf: str = Form(""), par: tuple[Sesion, Admin] = Depends(sesion_admin),
+             operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
+    sesion, admin = par
+    # Con candado: dos clics simultáneos se serializan y el segundo ya ve la fila del primero.
+    tutor = _tutor_o_404(db, admin, tutor_id, bloquear=True)
+    exigir_csrf(csrf, sesion.csrf)
+    if not _LLAVE_OK.match(llave):
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_FORM_CADUCO)
+    if not tutor.tutor_ref:
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400,
+                      error="El alta de este tutor no está completa en el TPV: no se generó ninguna contraseña.")
+    if not tutor.activo:
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400,
+                      error="El tutor está desactivado. Actívalo antes de reenviar su acceso.")
+    previas = entregas_de(db, operador.id, tutor.id)
+    if previas and previas[-1].http_status is None and \
+            datetime.now(timezone.utc) - previas[-1].creado < ENVIO_EN_CURSO:
+        # El candado se suelta al confirmar la contraseña, antes de enviar: otro reenvío ahora
+        # invalidaría la que aún está saliendo.
+        db.rollback()
+        return _ficha(request, sesion, admin, operador, db, tutor, status=409,
+                      error="Hay un envío de acceso en curso para este tutor. Espera un momento "
+                            "y revisa la ficha antes de generar otra contraseña.")
+    actual = len(previas) + 1
+    if intento != actual:
+        db.rollback()
+        return _ficha(request, sesion, admin, operador, db, tutor, status=409,
+                      error="El acceso de este tutor cambió desde que abriste la ficha (¿otro clic o "
+                            "otra persona?). Revisa el estado y vuelve a intentar si hace falta.")
+    try:
+        res = entregar_credenciales(db, request.app, operador, tutor, actual,
+                                    f"admin:{admin.usuario}"[:50], operacion="reenviar_acceso")
+    except ErrorEntrega as e:
+        db.rollback()
+        return _ficha(request, sesion, admin, operador, db, tutor, status=500, error=str(e))
+    db.commit()
+    resp = templates.TemplateResponse(request, "admin/credenciales.html", {
+        "csrf": sesion.csrf, "tutor": tutor, "usuario": usuario_de(tutor), "res": res,
+        "hijos": None, "admin": admin, "titulo": "Acceso reenviado"})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@router.post("/tutores/{tutor_id}/activo")
+def activo(request: Request, tutor_id: int, activo: str = Form(""), csrf: str = Form(""),
+           par: tuple[Sesion, Admin] = Depends(sesion_admin),
+           operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
+    sesion, admin = par
+    tutor = _tutor_o_404(db, admin, tutor_id, bloquear=True)
+    exigir_csrf(csrf, sesion.csrf)
+    if activo not in ("0", "1"):
+        raise HTTPException(400)
+    tutor.activo = activo == "1"
+    if not tutor.activo:
+        cerrar_sesiones(db, "tutor", tutor.id)  # misma transacción: no queda una sesión viva
+    db.commit()
+    return _ficha(request, sesion, admin, operador, db, tutor,
+                  mensajes=["Tutor activado." if tutor.activo else "Tutor desactivado: sus sesiones se cerraron."])

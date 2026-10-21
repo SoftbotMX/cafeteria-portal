@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 
 from cryptography.fernet import InvalidToken
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from portal.conduit import ErrorEnvio, enviar_whatsapp
@@ -71,8 +72,35 @@ def enviar_al_tutor(db: Session, app, operador: Operador, tutor: Tutor, texto: s
     return None, "sin_canal", SIN_CANAL
 
 
+OPERACIONES_ENTREGA = ("entregar_acceso", "reenviar_acceso")
+
+
+def entregas_de(db: Session, operador_id: int, tutor_id: int) -> list[Bitacora]:
+    """Filas de entrega de acceso (alta o reenvío) de un tutor, de la más vieja a la más nueva."""
+    return list(db.scalars(select(Bitacora).where(
+        Bitacora.operador_id == operador_id, Bitacora.operacion.in_(OPERACIONES_ENTREGA),
+        Bitacora.llave.like(f"acceso:{tutor_id}:%")).order_by(Bitacora.id)))
+
+
+def tutores_con_entrega(db: Session, operador_id: int) -> set[int]:
+    """Ids de tutores con al menos una entrega terminada (fila con http_status), de cualquier intento."""
+    ids = set()
+    for llave in db.scalars(select(Bitacora.llave).where(
+            Bitacora.operador_id == operador_id, Bitacora.operacion.in_(OPERACIONES_ENTREGA),
+            Bitacora.http_status.is_not(None))):
+        partes = llave.split(":")
+        if len(partes) == 3 and partes[0] == "acceso" and partes[1].isdigit():
+            ids.add(int(partes[1]))
+    return ids
+
+
+def siguiente_intento(db: Session, operador_id: int, tutor_id: int) -> int:
+    """Número de intento del próximo reenvío: filas previas + 1 (el alta usa el 1)."""
+    return len(entregas_de(db, operador_id, tutor_id)) + 1
+
+
 def entregar_credenciales(db: Session, app, operador: Operador, tutor: Tutor, intento: int,
-                          actor: str = "admin") -> ResultadoEntrega:
+                          actor: str = "admin", operacion: str = "entregar_acceso") -> ResultadoEntrega:
     # Antes de tocar la contraseña: si el secreto no se puede leer, no queda un acceso «entregado»
     # que nadie recibió.
     if tutor.telefono:
@@ -82,7 +110,7 @@ def entregar_credenciales(db: Session, app, operador: Operador, tutor: Tutor, in
     tutor.debe_cambiar = True
     cerrar_sesiones(db, "tutor", tutor.id)
     llave = f"acceso:{tutor.id}:{intento}"
-    marca = Bitacora(operador_id=operador.id, actor=actor[:50], operacion="entregar_acceso", llave=llave)
+    marca = Bitacora(operador_id=operador.id, actor=actor[:50], operacion=operacion, llave=llave)
     db.add(marca)
     # Se confirma ANTES de enviar: si el commit fallara después del envío, el tutor tendría una
     # contraseña que no existe en la BD. Así lo enviado y lo mostrado siempre es lo guardado.

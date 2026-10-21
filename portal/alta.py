@@ -41,7 +41,8 @@ def _choque(db: Session, operador: Operador, datos: DatosAlta, propio: Tutor | N
     return None
 
 
-def _llamar(db, operador, cliente, actor, operacion, cuerpo) -> dict:
+def escribir_tpv(db, operador, cliente, actor, operacion, cuerpo) -> dict:
+    """Llamada de escritura al TPV + fila de bitácora (flush). La ruta confirma."""
     try:
         r = cliente.llamar(operacion, cuerpo)
     except ErrorTPV as e:
@@ -51,7 +52,7 @@ def _llamar(db, operador, cliente, actor, operacion, cuerpo) -> dict:
     return r
 
 
-def _mensaje_tpv(e: ErrorTPV, paso: str) -> str:
+def mensaje_tpv(e: ErrorTPV, paso: str) -> str:
     if e.codigo == "llave_reutilizada":
         return ("Los datos cambiaron desde el primer intento. Reintenta con los datos originales "
                 "o corrige desde la ficha del tutor.")
@@ -81,10 +82,10 @@ def dar_de_alta(db: Session, operador: Operador, cliente: ClienteTPV, actor: str
         if datos.correo:
             cuerpo["correo"] = datos.correo
         try:
-            r = _llamar(db, operador, cliente, actor, "admin/tutor/crear", cuerpo)
+            r = escribir_tpv(db, operador, cliente, actor, "admin/tutor/crear", cuerpo)
             ref = r["tutor"]["tutor_ref"]
         except ErrorTPV as e:
-            raise ErrorAlta(_mensaje_tpv(e, "crear al tutor")) from None
+            raise ErrorAlta(mensaje_tpv(e, "crear al tutor")) from None
         except (KeyError, TypeError):
             raise ErrorAlta("El TPV respondió algo inesperado al crear al tutor.") from None
         tutor = Tutor(
@@ -107,10 +108,10 @@ def dar_de_alta(db: Session, operador: Operador, cliente: ClienteTPV, actor: str
         if matricula:
             cuerpo["matricula"] = matricula
         try:
-            r = _llamar(db, operador, cliente, actor, "admin/alumno/crear", cuerpo)
+            r = escribir_tpv(db, operador, cliente, actor, "admin/alumno/crear", cuerpo)
             creados.append(r["alumno"])
         except ErrorTPV as e:
-            raise ErrorAlta(_mensaje_tpv(e, f"crear a {nombre}")) from None
+            raise ErrorAlta(mensaje_tpv(e, f"crear a {nombre}")) from None
         except (KeyError, TypeError):
             raise ErrorAlta(f"El TPV respondió algo inesperado al crear a {nombre}.") from None
     tutor.hijos_creados = creados

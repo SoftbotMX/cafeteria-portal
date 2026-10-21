@@ -378,10 +378,11 @@ def test_lista_marca_alta_incompleta(db, op, admin, tpv, conduit):
     crear_tutor(db, op, telefono="8340000009", nombre="Sin alta web")
     _falla_en_hijo_2(admin, tpv)
     pagina = admin.get("/admin")
-    assert pagina.text.count("Alta incompleta") == 1
+    # sin entrega exitosa = incompleta, nazca o no de un alta web
+    assert pagina.text.count("Alta incompleta") == 2
     datos = datos_alta(admin.get("/admin/alta"))
     admin.post("/admin/alta", data=datos)  # alta nueva completa
-    assert admin.get("/admin").text.count("Alta incompleta") == 1
+    assert admin.get("/admin").text.count("Alta incompleta") == 2
 
 
 def test_carrera_de_telefono_no_pierde_la_bitacora_del_tpv(db, op, admin, tpv, monkeypatch):

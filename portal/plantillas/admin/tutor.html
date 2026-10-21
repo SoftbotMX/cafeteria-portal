@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block titulo %}{{ tutor.nombre }} · Administración{% endblock %}
+{% block contenido %}
+<p><a href="/admin">Volver a la lista</a></p>
+<h1>{{ tutor.nombre }}{% if incompleta %} <strong>Alta incompleta</strong>{% endif %}</h1>
+{% if error %}<p class="aviso" role="alert">{{ error }}</p>{% endif %}
+<p>Usuario: <code>{{ usuario or "—" }}</code><br>
+   Teléfono: {{ tutor.telefono or "—" }} · Correo: {{ tutor.correo or "—" }}<br>
+   Estado: {{ "Activo" if tutor.activo else "Desactivado" }}{% if tutor.debe_cambiar %} · debe cambiar su contraseña{% endif %}</p>
+
+<h2>Hijos</h2>
+{% if error_tpv %}
+<p class="aviso" role="alert">{{ error_tpv }}</p>
+{% else %}
+<ul>
+  {% for h in hijos %}
+  <li>{{ h.nombre }}{% if h.matricula %} ({{ h.matricula }}){% endif %} — código {{ h.codigo }}
+    <form method="post" action="/admin/tutores/{{ tutor.id }}/desvincular" onsubmit="return confirm('¿Quitar a este hijo de este tutor?')">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="llave" value="{{ nueva_llave() }}">
+      <input type="hidden" name="alumno_id" value="{{ h.id }}">
+      <button type="submit" class="secundario">Desvincular</button>
+    </form>
+  </li>
+  {% else %}
+  <li>Este tutor todavía no tiene hijos vinculados.</li>
+  {% endfor %}
+</ul>
+
+<h3>Agregar un hijo nuevo</h3>
+<form method="post" action="/admin/tutores/{{ tutor.id }}/hijos" onsubmit="this.querySelector('button[type=submit]').disabled=true">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="llave" value="{{ hijo_form.llave or nueva_llave() }}">
+  <label>Nombre <input name="nombre" value="{{ hijo_form.nombre }}" required maxlength="200"></label>
+  <label>Matrícula (opcional) <input name="matricula" value="{{ hijo_form.matricula }}" maxlength="50"></label>
+  <button type="submit">Agregar hijo</button>
+</form>
+
+<h3>Vincular un hijo que ya existe</h3>
+<p>Para el segundo papá o mamá: elige al tutor que ya tiene al hijo dado de alta.</p>
+<form method="get" action="/admin/tutores/{{ tutor.id }}">
+  <label>Tutor
+    <select name="otro" required>
+      <option value="">Elige un tutor</option>
+      {% for o in otros %}<option value="{{ o.id }}"{% if otro_tutor and otro_tutor.id == o.id %} selected{% endif %}>{{ o.nombre }} ({{ o.telefono or o.correo or "sin contacto" }})</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit" class="secundario">Ver sus hijos</button>
+</form>
+{% if otro_tutor %}
+<ul>
+  {% for h in hijos_otro %}
+  <li>{{ h.nombre }}{% if h.matricula %} ({{ h.matricula }}){% endif %} — código {{ h.codigo }}
+    <form method="post" action="/admin/tutores/{{ tutor.id }}/vincular">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="llave" value="{{ nueva_llave() }}">
+      <input type="hidden" name="otro_tutor_id" value="{{ otro_tutor.id }}">
+      <input type="hidden" name="alumno_id" value="{{ h.id }}">
+      <button type="submit">Vincular</button>
+    </form>
+  </li>
+  {% else %}
+  <li>{{ otro_tutor.nombre }} no tiene hijos que se puedan vincular aquí.</li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endif %}
+
+<h2>Acceso</h2>
+<form method="post" action="/admin/tutores/{{ tutor.id }}/reenviar" onsubmit="this.querySelector('button[type=submit]').disabled=true">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="llave" value="{{ nueva_llave() }}">
+  <input type="hidden" name="intento" value="{{ intento }}">
+  <p>Genera una contraseña nueva, la envía al tutor y cierra sus sesiones. La contraseña se muestra una sola vez.</p>
+  <button type="submit">Reenviar acceso</button>
+</form>
+<form method="post" action="/admin/tutores/{{ tutor.id }}/activo">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="activo" value="{{ '0' if tutor.activo else '1' }}">
+  <button type="submit" class="secundario">{{ "Desactivar tutor" if tutor.activo else "Activar tutor" }}</button>
+</form>
+{% endblock %}
