@@ -53,7 +53,9 @@ def app(engine):
     settings = Settings(
         database_url=URL_PRUEBAS, fernet_key=FERNET_PRUEBAS, cookie_secure=True
     )
-    return create_app(settings)
+    app = create_app(settings)
+    yield app
+    app.state.engine.dispose()
 
 
 @pytest.fixture
