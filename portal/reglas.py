@@ -1,6 +1,6 @@
 """Reglas de cuándo se puede pedir y cancelar. Puras: reciben `ahora_utc` (datetime con zona)."""
 from dataclasses import dataclass, replace
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -42,7 +42,26 @@ def cargar_reglas(db: Session, operador_id: int) -> Reglas:
     )
 
 
+def ahora_utc() -> datetime:
+    """La hora de las reglas. Las rutas la piden como dependencia: las pruebas la sustituyen."""
+    return datetime.now(timezone.utc)
+
+
+def ahora_fresca(request) -> datetime:
+    """La hora de ESTE instante, respetando la sustitución de `ahora_utc` que hagan las pruebas.
+    Una escritura la pide justo antes de validar: la dependencia se resolvió antes de las
+    lecturas al TPV, que pueden tardar, y la hora límite no puede quedarse atrás."""
+    return request.app.dependency_overrides.get(ahora_utc, ahora_utc)()
+
+
+def _exigir_aware(ahora: datetime) -> None:
+    # Una hora sin zona se tomaría como local del servidor y movería la hora límite en silencio.
+    if ahora.tzinfo is None or ahora.utcoffset() is None:
+        raise ValueError("ahora_utc debe traer zona horaria")
+
+
 def ahora_local(reglas: Reglas, ahora_utc: datetime) -> datetime:
+    _exigir_aware(ahora_utc)
     return ahora_utc.astimezone(reglas.zona)
 
 

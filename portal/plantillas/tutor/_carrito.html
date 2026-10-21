@@ -1,0 +1,17 @@
+{% for categoria, productos in grupos %}
+<h2>{{ categoria }}</h2>
+{% for p in productos %}
+<div class="producto">
+  <div><strong>{{ p.nombre }}</strong><br><small>{{ p.precio | dinero }}</small></div>
+  <div class="cantidad">
+    <button type="button" class="paso secundario" aria-label="Quitar uno: {{ p.nombre }}"
+            onclick="paso(this, -1)">&minus;</button>
+    <input type="number" name="cant_{{ p.id }}" min="0" max="20" step="1" inputmode="numeric"
+           value="{{ cantidades.get(p.id, 0) }}" aria-label="Cantidad: {{ p.nombre }}">
+    <button type="button" class="paso secundario" aria-label="Agregar uno: {{ p.nombre }}"
+            onclick="paso(this, 1)">+</button>
+  </div>
+</div>
+{% endfor %}
+{% endfor %}
+{% include "tutor/_total.html" %}

@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block titulo %}{{ titulo }} · Portal de tutores{% endblock %}
+{% block contenido %}
+<h1>{{ titulo }}</h1>
+<p class="{{ 'aviso' if error else 'listo' }}">{{ mensaje }}</p>
+{% if detalles %}<ul class="resumen">{% for d in detalles %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+<p><a class="boton" href="{{ volver }}">Volver</a></p>
+{% endblock %}

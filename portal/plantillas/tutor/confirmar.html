@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titulo %}{{ titulo }} · Portal de tutores{% endblock %}
+{% block contenido %}
+<h1>{{ titulo }}</h1>
+{% if aviso %}<p class="aviso">{{ aviso }}</p>{% endif %}
+{% block resumen %}
+<ul class="resumen">
+  {% for l in lineas %}<li>{{ l }}</li>{% endfor %}
+</ul>
+{% endblock %}
+<form method="post" action="{{ accion }}">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% for nombre, valor in campos.items() %}
+    {% if valor is string %}
+      <input type="hidden" name="{{ nombre }}" value="{{ valor }}">
+    {% else %}
+      {% for v in valor %}<input type="hidden" name="{{ nombre }}" value="{{ v }}">{% endfor %}
+    {% endif %}
+  {% endfor %}
+  <button type="submit">{{ boton }}</button>
+</form>
+<p><a href="{{ volver }}">&larr; Cambiar</a></p>
+{% endblock %}

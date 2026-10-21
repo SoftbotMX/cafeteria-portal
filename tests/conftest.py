@@ -36,6 +36,14 @@ def _sin_env_local(monkeypatch):
     monkeypatch.setitem(Settings.model_config, "env_file", None)
 
 
+@pytest.fixture(autouse=True)
+def _firmas_limpias():
+    """Las firmas emitidas viven en el proceso; las pruebas hacen decenas de llamadas idénticas
+    por segundo (p. ej. `menu`, sin cuerpo) y agotarían el adelanto de 60 s."""
+    from portal import tpv
+    tpv._emitidas.clear()
+
+
 @pytest.fixture(scope="session")
 def engine():
     _crear_bd_si_falta(URL_PRUEBAS)

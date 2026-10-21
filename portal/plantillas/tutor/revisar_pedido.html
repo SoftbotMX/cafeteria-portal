@@ -1,0 +1,9 @@
+{% extends "tutor/confirmar.html" %}
+{% block resumen %}
+<p>Para <strong>{{ para }}</strong>, el día <strong>{{ dia | fecha }}</strong>:</p>
+<ul class="resumen">
+  {% for l in lineas %}<li>{{ l }}</li>{% endfor %}
+</ul>
+<p class="saldo">{{ total | dinero }} <span>total estimado</span></p>
+<p class="apartado">{{ disponible | dinero }} disponible de {{ para }}. El total final lo fija la cafetería.</p>
+{% endblock %}

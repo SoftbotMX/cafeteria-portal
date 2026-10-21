@@ -18,3 +18,14 @@ button.secundario { background: #e5e7eb; color: #222; }
 .movimiento .importe { text-align: right; display: grid; }
 .mas { color: #15803d; font-weight: 600; }
 .menos { color: #b91c1c; font-weight: 600; }
+.boton { display: inline-block; padding: .7rem 1rem; border-radius: .4rem; background: #2563eb; color: #fff; text-decoration: none; }
+.dias { display: flex; flex-wrap: wrap; gap: .4rem; margin: .8rem 0; }
+.dias a { padding: .4rem .7rem; border-radius: 1rem; background: #e5e7eb; color: #222; text-decoration: none; font-size: .9rem; }
+.dias a.activo { background: #2563eb; color: #fff; }
+.producto { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .6rem 0; border-bottom: 1px solid #e5e5e0; }
+.cantidad { display: flex; align-items: center; gap: .3rem; }
+.cantidad input { width: 3.5rem; text-align: center; }
+.paso { display: none; }
+.js .paso { display: inline-block; min-width: 2.5rem; }
+.resumen { padding-left: 1.2rem; }
+.listo { background: #dcfce7; padding: .6rem .8rem; border-radius: .4rem; }

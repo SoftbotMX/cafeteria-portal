@@ -1,4 +1,7 @@
 """Lecturas (y escrituras) del tutor al TPV. El `tutor_ref` sale siempre de la sesión."""
+import time
+from decimal import Decimal, InvalidOperation
+
 from fastapi import HTTPException, Request
 
 from portal.alta import escribir_tpv
@@ -6,6 +9,7 @@ from portal.models import Operador, Tutor
 from portal.tpv import ErrorTPV, cliente_tutor
 
 MSG_SIN_TPV = "No pudimos consultar el saldo, intenta en un momento."
+MSG_SIN_MENU = "No pudimos consultar el menú, intenta en un momento."
 
 
 class SinTPV(Exception):
@@ -35,6 +39,47 @@ def hijo_o_404(request: Request, operador: Operador, tutor: Tutor,
         if isinstance(h, dict) and h.get("id") == alumno_id:
             return h, todos
     raise HTTPException(404)
+
+
+CACHE_MENU_SEGUNDOS = 30
+
+
+def menu(request: Request, operador: Operador, cacheado: bool = False) -> list[dict]:
+    """Productos con `id` (int), `nombre`, `categoria` y `precio` (Decimal). Lo que el TPV
+    mande mal formado se descarta: un producto sin precio claro no se ofrece.
+
+    `cacheado`: sólo para PINTAR (página de pedir, total en vivo): cada +/− sería otra llamada
+    idéntica y firmada al TPV. Revisar y confirmar leen siempre el menú fresco."""
+    cache = request.app.state.__dict__.setdefault("cache_menu", {})
+    if cacheado:
+        hit = cache.get(operador.id)
+        if hit and time.monotonic() - hit[0] < CACHE_MENU_SEGUNDOS:
+            return hit[1]
+    productos = _leer_menu(request, operador)
+    cache[operador.id] = (time.monotonic(), productos)
+    return productos
+
+
+def _leer_menu(request: Request, operador: Operador) -> list[dict]:
+    try:
+        crudo = _cliente(request, operador).llamar("menu", {})["productos"]
+        if not isinstance(crudo, list):
+            raise TypeError
+    except (ErrorTPV, KeyError, TypeError):
+        raise SinTPV from None
+    productos = []
+    for p in crudo:
+        if not isinstance(p, dict) or not isinstance(p.get("id"), int) or isinstance(p["id"], bool):
+            continue
+        try:
+            precio = Decimal(str(p["precio"]))
+        except (InvalidOperation, KeyError, ValueError):
+            continue
+        if not precio.is_finite() or precio < 0:
+            continue
+        productos.append({"id": p["id"], "nombre": str(p.get("nombre") or ""),
+                          "categoria": str(p.get("categoria") or ""), "precio": precio})
+    return productos
 
 
 def movimientos(request: Request, operador: Operador, tutor: Tutor, alumno_id: int,

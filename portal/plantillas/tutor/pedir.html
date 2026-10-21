@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block titulo %}Pedir · {{ hijo.nombre }}{% endblock %}
+{% block contenido %}
+<script>
+document.documentElement.classList.add("js");
+// El +/− cambia el campo aquí mismo y avisa con «change»: HTMX sólo recalcula el total.
+function paso(boton, delta) {
+  var campo = boton.parentNode.querySelector("input");
+  if (delta > 0) { campo.stepUp(); } else { campo.stepDown(); }
+  campo.dispatchEvent(new Event("change", {bubbles: true}));
+}
+</script>
+<p><a href="/hijos/{{ alumno_id }}">&larr; {{ hijo.nombre }}</a></p>
+<h1>Pedir para {{ hijo.nombre }}</h1>
+{% if error %}<p class="aviso">{{ error }}</p>{% endif %}
+{% if not fechas %}
+  <p>No hay días disponibles para pedir.</p>
+{% else %}
+  <nav class="dias" aria-label="Día de entrega">
+    {% for f in fechas %}
+      <a href="/hijos/{{ alumno_id }}/pedir?fecha={{ f.isoformat() }}"
+         {% if f == fecha %}class="activo" aria-current="date"{% endif %}>{{ f | fecha }}</a>
+    {% endfor %}
+  </nav>
+  {% if error_tpv %}
+    <p class="aviso">{{ error_tpv }}</p>
+  {% elif not grupos %}
+    <p>El menú no tiene productos por ahora.</p>
+  {% else %}
+  <form method="post" action="/hijos/{{ alumno_id }}/pedir/revisar"
+        hx-post="/hijos/{{ alumno_id }}/pedir/total" hx-trigger="change" hx-target="#total"
+        hx-swap="outerHTML" hx-sync="this:replace">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="fecha" value="{{ fecha.isoformat() }}">
+    {% include "tutor/_carrito.html" %}
+    <button type="submit">Revisar pedido</button>
+  </form>
+  {% endif %}
+{% endif %}
+{% endblock %}

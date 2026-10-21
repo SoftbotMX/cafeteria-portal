@@ -80,3 +80,19 @@ def test_puede_cancelar():
     assert puede_cancelar(r, MIE, utc(2026, 10, 21, 15, 0)) is False
     assert puede_cancelar(r, date(2026, 10, 22), utc(2026, 10, 21, 20, 0)) is True
     assert puede_cancelar(SIN_CONFIG, MIE, utc(2026, 10, 21, 23, 0)) is True
+
+
+def test_hora_ingenua_se_rechaza():
+    from datetime import datetime, date
+    import pytest
+    from portal.reglas import SIN_CONFIG, motivo_fecha_invalida, puede_cancelar
+    ingenua = datetime(2026, 10, 21, 12, 0)
+    with pytest.raises(ValueError):
+        motivo_fecha_invalida(SIN_CONFIG, date(2026, 10, 22), ingenua)
+    with pytest.raises(ValueError):
+        puede_cancelar(SIN_CONFIG, date(2026, 10, 22), ingenua)
+
+
+def test_ahora_utc_es_aware():
+    from portal.reglas import ahora_utc
+    assert ahora_utc().utcoffset().total_seconds() == 0

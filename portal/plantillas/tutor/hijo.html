@@ -11,6 +11,7 @@
   {% for c in hijo.credenciales if c.bloqueada %}
     <p class="alerta">Bloqueada: {{ tipos_credencial.get(c.tipo, c.tipo) }}</p>
   {% endfor %}
+  <p><a class="boton" href="/hijos/{{ hijo.id }}/pedir">Pedir</a></p>
   <h2>Movimientos</h2>
   <div id="movimientos">
     {% include "tutor/_movimientos.html" %}

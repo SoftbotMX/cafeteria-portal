@@ -4,6 +4,8 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -30,6 +32,11 @@ class TPVFalso:
         self.tutores: dict[str, dict] = {}
         self.alumnos: dict[int, dict] = {}
         self.movimientos: dict[int, list[dict]] = {}  # más reciente primero, como el real
+        self.productos: list[dict] = []  # {id, nombre, categoria, precio}: lo que devuelve `menu`
+        self.pedidos: list[dict] = []
+        self.cuerpos_precompra: list[dict] = []  # lo que el portal mandó, tal cual
+        self.precompras: dict[tuple, tuple] = {}  # (tutor_ref, llave) -> (contenido, pedido)
+        self.hoy: date | None = None  # fija el «hoy» del TPV; por omisión, el de México
         self.transport = httpx.MockTransport(self._manejar)
 
     def _manejar(self, req: httpx.Request) -> httpx.Response:
@@ -94,6 +101,72 @@ class TPVFalso:
             "ok": True, "total": len(movs), "pagina": pagina,
             "movimientos": copy.deepcopy(movs[(pagina - 1) * por: pagina * por])})
 
+    def _precompra(self, d: dict) -> httpx.Response:
+        """Imita op_precompra + _sb_crear del TPV real: los rechazos del dominio (saldo, fecha,
+        cantidad, contenido distinto con la misma llave) son 409 `rechazado`, no códigos propios."""
+        t = self.tutores.get(d.get("tutor_ref"))
+        if not t or not t["activo"]:
+            return _err("tutor_desconocido", "Tutor desconocido.", 404)
+        al = next((a for a in t["alumnos"] if a["id"] == d.get("alumno_id")), None)
+        if al is None:
+            return _err("alumno_desconocido", "Alumno desconocido.", 404)
+        llave = (d.get("llave") or "").strip() if isinstance(d.get("llave"), str) else ""
+        if not llave or len(llave) > 120:
+            return _err("falta_llave", "Toda escritura lleva su llave de idempotencia.", 400)
+        por_id = {p["id"]: p for p in self.productos}
+        items = []
+        for it in d.get("items") or []:
+            try:
+                pid = int(it.get("producto_id") or 0)
+                cantidad = float(it.get("cantidad") or 0)
+            except (TypeError, ValueError, AttributeError):
+                return _err("dato_invalido", "Producto o cantidad no válidos.", 400)
+            if pid not in por_id:
+                return _err("producto_desconocido", "Producto desconocido.", 404)
+            items.append((pid, cantidad))
+        self.cuerpos_precompra.append(copy.deepcopy(d))
+        hoy = self.hoy or datetime.now(ZoneInfo("America/Mexico_City")).date()
+        try:
+            entrega = date.fromisoformat(d["fecha_entrega"]) if d.get("fecha_entrega") else hoy
+        except ValueError:
+            return _err("rechazado", "Fecha no válida.", 409)
+        if entrega < hoy:
+            return _err("rechazado", "El pedido no puede ser para un día que ya pasó.", 409)
+        contenido = (al["id"], t["tutor_ref"], sorted(items), entrega)
+        previo = self.precompras.get((t["tutor_ref"], llave))
+        if previo:
+            if previo[0] != contenido:
+                return _err("rechazado", f"La precompra {llave} ya se registró con otros datos.", 409)
+            # Repetir no vuelve a aplicar: devuelve el pedido con los saldos ACTUALES.
+            return httpx.Response(200, json={"ok": True, "pedido": copy.deepcopy(previo[1]),
+                                             "alumno": copy.deepcopy(al)})
+        lineas = []
+        for pid, cantidad in items:
+            if cantidad <= 0 or int(cantidad) != cantidad:
+                return _err("rechazado", "Cantidad no válida.", 409)
+            p = por_id[pid]
+            lineas.append({"producto_id": pid, "producto": p["nombre"], "cantidad": int(cantidad),
+                           "precio_unitario": p["precio"]})
+        if not lineas:
+            return _err("rechazado", "La precompra no tiene productos.", 409)
+        total = round(sum(l["precio_unitario"] * l["cantidad"] for l in lineas), 2)
+        if round(float(al["disponible"]), 2) < total:
+            return _err("rechazado", f"Saldo insuficiente de {al['nombre']}: tiene "
+                        f"${al['disponible']:,.2f} disponibles y se necesitan ${total:,.2f}.", 409)
+        al["disponible"] = round(float(al["disponible"]) - total, 2)
+        al["retenido"] = round(float(al["retenido"]) + total, 2)
+        pedido = {"id": len(self.pedidos) + 1, "nombre": f"PC-{len(self.pedidos) + 1:05d}",
+                  "alumno_id": al["id"], "fecha_entrega": entrega.isoformat(), "total": total,
+                  "estado": "retenida", "lineas": lineas}
+        self.pedidos.append(pedido)
+        self.precompras[(t["tutor_ref"], llave)] = (contenido, pedido)  # el vivo, como el real
+        self.movimientos[al["id"]].insert(0, {
+            "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "tipo": "retencion",
+            "descripcion": "Pedido por recoger", "disponible": -total, "retenido": total,
+            "venta": ""})
+        return httpx.Response(200, json={"ok": True, "pedido": copy.deepcopy(pedido),
+                                         "alumno": copy.deepcopy(al)})
+
     def _operar(self, op: str, d: dict) -> httpx.Response:
         if op in ("tutor/alumnos", "alumno/movimientos"):
             return self._lectura_tutor(op, d)
@@ -103,7 +176,9 @@ class TPVFalso:
                 return _err("no_encontrado", "Tutor desconocido.", 404)
             return httpx.Response(200, json={"ok": True, "tutor": t})
         if op == "menu":
-            return httpx.Response(200, json={"ok": True, "productos": []})
+            return httpx.Response(200, json={"ok": True, "productos": copy.deepcopy(self.productos)})
+        if op == "precompra":
+            return self._precompra(d)
         if op not in ("admin/tutor/crear", "admin/alumno/crear", "admin/vincular"):
             return _err("no_encontrada", "Operación desconocida.", 404)
         llave = d.get("llave")
