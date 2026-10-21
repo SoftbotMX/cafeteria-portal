@@ -187,3 +187,109 @@ def test_host_desconocido_404(op, app):
     otro = TestClient(app, base_url="https://otro.test", follow_redirects=False)
     assert otro.get("/entrar").status_code == 404
     assert otro.post("/entrar", data={}).status_code == 404
+
+
+def test_cambio_es_atomico_si_falla_cerrar_sesiones(db, op, app, monkeypatch):
+    t = crear_tutor(db, op)
+    c = TestClient(app, base_url="https://cafeteria.test", follow_redirects=False,
+                   raise_server_exceptions=False)
+    entrar_tutor(c, "8341445807", "temporal123")
+
+    def falla(*a, **kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("portal.rutas.acceso.cerrar_sesiones", falla)
+    assert _cambiar(c, "temporal123", "nueva-clave-1", "nueva-clave-1").status_code == 500
+    db.refresh(t)
+    assert t.debe_cambiar is True
+    assert verificar_contrasena(t.contrasena_hash, "temporal123")
+
+
+def test_csrf_no_ascii_es_403_no_500(db, op, c):
+    crear_tutor(db, op, debe_cambiar=False)
+    c.get("/entrar")
+    r = c.post("/entrar", data={"usuario": "8341445807", "contrasena": "temporal123",
+                                "csrf": "ñandú✓"})
+    assert r.status_code == 403
+    entrar_tutor(c, "8341445807", "temporal123")
+    assert c.post("/salir", data={"csrf": "ñandú✓"}).status_code == 403
+    r = c.post("/cambiar-contrasena", data={"actual": "x", "nueva": "y", "confirmar": "y",
+                                            "csrf": "ñandú✓"})
+    assert r.status_code == 403
+
+
+def test_usuario_invalido_no_escribe_clave_arbitraria(db, op, c):
+    t = crear_tutor(db, op)
+    entrar_tutor(c, "8341445807", "temporal123")
+    for _ in range(6):
+        r = entrar_tutor(_c2(c.app), f"cambio:{t.id}", "x")
+        assert r.status_code in (200, 429)
+    claves = {i.usuario for i in db.query(IntentoLogin).all()}
+    assert f"cambio:{t.id}" not in claves
+    # el formulario de cambio sigue disponible para ese tutor
+    pagina = c.get("/cambiar-contrasena")
+    r = c.post("/cambiar-contrasena", data={"actual": "temporal123", "nueva": "nueva-clave-1",
+                                            "confirmar": "nueva-clave-1", "csrf": csrf_de(pagina)})
+    assert r.status_code == 303
+
+
+def test_usuario_invalido_cuenta_por_ip(db, op, c):
+    from portal.seguridad import registrar_intento
+    for i in range(20):  # claves distintas: solo la IP puede disparar el límite
+        registrar_intento(db, op.id, "invalido" if i == 0 else f"x{i}", "testclient", exito=False)
+    db.commit()
+    r = entrar_tutor(c, "8341445807", "x")
+    assert r.status_code == 429
+
+
+def test_login_sin_csrf_vuelve_a_mostrar_formulario(db, op, c):
+    r = c.post("/entrar", data={"usuario": "8341445807", "contrasena": "x", "csrf": "viejo"})
+    assert r.status_code == 403
+    assert "Tu sesión expiró, vuelve a intentarlo." in r.text
+    nuevo = csrf_de(r)
+    assert nuevo != "viejo" and c.cookies.get("sb_csrf_login") == nuevo
+
+
+def test_cambio_con_csrf_vencido_muestra_formulario(db, op, c):
+    crear_tutor(db, op)
+    entrar_tutor(c, "8341445807", "temporal123")
+    r = c.post("/cambiar-contrasena", data={"actual": "temporal123", "nueva": "nueva-clave-1",
+                                            "confirmar": "nueva-clave-1", "csrf": "viejo"})
+    assert r.status_code == 403
+    assert "Tu sesión expiró, vuelve a intentarlo." in r.text and 'name="csrf"' in r.text
+
+
+# Rutas que no exigen tutor_listo: por ruta exacta o por prefijo.
+EXENTAS = {"/entrar", "/salir", "/cambiar-contrasena", "/salud", "/openapi.json", "/docs",
+           "/docs/oauth2-redirect", "/redoc"}
+PREFIJOS_EXENTOS = ("/estatico", "/admin", "/recuperar")
+
+
+def _depende_de(dependant, objetivo) -> bool:
+    return any(d.call is objetivo or _depende_de(d, objetivo) for d in dependant.dependencies)
+
+
+def _rutas_api(rutas, prefijo=""):
+    """Aplana las rutas; FastAPI nuevo envuelve los routers incluidos."""
+    from fastapi.routing import APIRoute
+
+    for r in rutas:
+        if isinstance(r, APIRoute):
+            yield prefijo + r.path, r
+        elif hasattr(r, "original_router"):
+            ctx = getattr(r, "include_context", None)
+            yield from _rutas_api(r.original_router.routes, prefijo + (getattr(ctx, "prefix", "") or ""))
+
+
+def test_toda_ruta_de_tutor_exige_tutor_listo(app):
+    from portal.sesiones import tutor_listo
+
+    revisadas = []
+    for path, r in _rutas_api(app.routes):
+        if not ({"GET", "POST"} & r.methods):
+            continue
+        if path in EXENTAS or path.startswith(PREFIJOS_EXENTOS):
+            continue
+        revisadas.append(path)
+        assert _depende_de(r.dependant, tutor_listo), f"{path} no usa tutor_listo"
+    assert "/" in revisadas

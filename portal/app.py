@@ -7,7 +7,6 @@ from fastapi.staticfiles import StaticFiles
 from portal.config import Settings, get_settings
 from portal.db import crear_engine
 from portal.sesiones import IrA
-from portal.web import templates  # noqa: F401
 
 BASE = Path(__file__).parent
 

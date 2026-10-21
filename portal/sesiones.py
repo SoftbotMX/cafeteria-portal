@@ -33,21 +33,22 @@ def crear_sesion(db: Session, tipo: str, usuario_id: int, operador_id: int) -> s
         token_hash=_hash(token), tipo=tipo, usuario_id=usuario_id, operador_id=operador_id,
         csrf=secrets.token_urlsafe(32), expira=datetime.now(timezone.utc) + DURACION[tipo],
     ))
-    db.commit()
+    db.flush()
     return token
 
 
+# Estas funciones solo hacen flush: la ruta confirma la transacción una vez al final.
 def cerrar_sesiones(db: Session, tipo: str, usuario_id: int, excepto_token: str | None = None) -> None:
     q = delete(Sesion).where(Sesion.tipo == tipo, Sesion.usuario_id == usuario_id)
     if excepto_token:
         q = q.where(Sesion.token_hash != _hash(excepto_token))
     db.execute(q)
-    db.commit()
+    db.flush()
 
 
 def cerrar_sesion(db: Session, token: str) -> None:
     db.execute(delete(Sesion).where(Sesion.token_hash == _hash(token)))
-    db.commit()
+    db.flush()
 
 
 def poner_cookie(resp: Response, token: str, settings: Settings, max_age: int) -> None:
@@ -100,8 +101,13 @@ def sesion_admin(request: Request, operador: Operador = Depends(operador_actual)
     return s, admin
 
 
+def exigir_csrf(enviado: str | None, esperado: str) -> None:
+    # Bytes: compare_digest con str no ASCII lanza TypeError (500).
+    if not isinstance(enviado, str) or not esperado or not hmac.compare_digest(
+            enviado.encode(), esperado.encode()):
+        raise HTTPException(403, "Solicitud no válida. Recarga la página e inténtalo de nuevo.")
+
+
 async def verificar_csrf(request: Request, sesion: Sesion) -> None:
     form = await request.form()
-    enviado = form.get("csrf")
-    if not isinstance(enviado, str) or not hmac.compare_digest(enviado, sesion.csrf):
-        raise HTTPException(403, "Solicitud no válida. Recarga la página e inténtalo de nuevo.")
+    exigir_csrf(form.get("csrf"), sesion.csrf)

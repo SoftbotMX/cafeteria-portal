@@ -13,8 +13,8 @@ from portal.seguridad import (
     validar_contrasena_nueva, verificar_contrasena,
 )
 from portal.sesiones import (
-    COOKIE, DURACION, IrA, borrar_cookie, cerrar_sesion, cerrar_sesiones, crear_sesion,
-    operador_actual, poner_cookie, sesion_tutor,
+    COOKIE, DURACION, borrar_cookie, cerrar_sesion, cerrar_sesiones, crear_sesion,
+    exigir_csrf, operador_actual, poner_cookie, sesion_tutor,
 )
 from portal.web import templates
 
@@ -22,9 +22,17 @@ router = APIRouter()
 
 COOKIE_CSRF_LOGIN = "sb_csrf_login"
 MSG_MALO = "Usuario o contraseña incorrectos"
+MSG_EXPIRO = "Tu sesión expiró, vuelve a intentarlo."
+# Clave de intentos para usuarios que no son teléfono ni correo. Las del cambio de
+# contraseña ("cambio:<id>") nunca se pueden producir desde el login.
+CLAVE_INVALIDA = "invalido"
 MSG_LIMITE = "Demasiados intentos. Espera 15 minutos."
 # Verificar contra un hash falso cuando el usuario no existe: mismo tiempo que con uno real.
 _HASH_FALSO = hash_contrasena("sin-usuario-" + secrets.token_hex(8))
+
+
+def _usuario_valido(clave: str) -> bool:
+    return "@" in clave or (len(clave) == 10 and clave.isascii() and clave.isdigit())
 
 
 def _ip(request: Request) -> str:
@@ -52,18 +60,26 @@ def entrar(request: Request, usuario: str = Form(""), contrasena: str = Form("")
            db: Session = Depends(get_db)):
     # Doble envío: sin sesión previa, la cookie y el campo oculto deben coincidir.
     cookie = request.cookies.get(COOKIE_CSRF_LOGIN, "")
-    if not cookie or not hmac.compare_digest(csrf.encode(), cookie.encode()):
-        raise HTTPException(403, "Solicitud no válida. Recarga la página e inténtalo de nuevo.")
+    try:
+        exigir_csrf(csrf, cookie)
+    except HTTPException:
+        return _pagina_entrar(request, secrets.token_urlsafe(32), 403, MSG_EXPIRO, usuario)
     ip = _ip(request)
     clave = normalizar_usuario(usuario)
-    if limite_excedido(db, operador.id, clave, ip):
+    valido = _usuario_valido(clave)
+    # Un usuario inválido no escribe intentos bajo una clave arbitraria; cuenta solo por IP.
+    clave_intento = clave if valido else CLAVE_INVALIDA
+    if limite_excedido(db, operador.id, clave_intento, ip):
         return _pagina_entrar(request, cookie, 429, MSG_LIMITE, usuario)
 
-    campo = Tutor.correo if "@" in clave else Tutor.telefono
-    tutor = db.scalar(select(Tutor).where(Tutor.operador_id == operador.id, campo == clave))
+    tutor = None
+    if valido:
+        campo = Tutor.correo if "@" in clave else Tutor.telefono
+        tutor = db.scalar(select(Tutor).where(Tutor.operador_id == operador.id, campo == clave))
     ok = verificar_contrasena(tutor.contrasena_hash if tutor else _HASH_FALSO, contrasena)
     if tutor is None or not ok or not tutor.activo:
-        registrar_intento(db, operador.id, clave, ip, exito=False)
+        registrar_intento(db, operador.id, clave_intento, ip, exito=False)
+        db.commit()
         return _pagina_entrar(request, cookie, 200, MSG_MALO, usuario)
 
     registrar_intento(db, operador.id, clave, ip, exito=True)
@@ -71,6 +87,7 @@ def entrar(request: Request, usuario: str = Form(""), contrasena: str = Form("")
     if viejo:
         cerrar_sesion(db, viejo)
     token = crear_sesion(db, "tutor", tutor.id, operador.id)
+    db.commit()
     resp = RedirectResponse("/cambiar-contrasena" if tutor.debe_cambiar else "/", status_code=303)
     poner_cookie(resp, token, request.app.state.settings,
                  int(DURACION["tutor"].total_seconds()))
@@ -78,17 +95,12 @@ def entrar(request: Request, usuario: str = Form(""), contrasena: str = Form("")
     return resp
 
 
-def _exigir_csrf(enviado: str, sesion: Sesion) -> None:
-    # verificar_csrf es async; estas rutas son síncronas (hash y BD fuera del event loop).
-    if not hmac.compare_digest(enviado.encode(), sesion.csrf.encode()):
-        raise HTTPException(403, "Solicitud no válida. Recarga la página e inténtalo de nuevo.")
-
-
 @router.post("/salir")
 def salir(request: Request, csrf: str = Form(""),
           par: tuple[Sesion, Tutor] = Depends(sesion_tutor), db: Session = Depends(get_db)):
-    _exigir_csrf(csrf, par[0])
+    exigir_csrf(csrf, par[0].csrf)
     cerrar_sesion(db, request.cookies[COOKIE])
+    db.commit()
     resp = RedirectResponse("/entrar", status_code=303)
     borrar_cookie(resp)
     return resp
@@ -112,7 +124,10 @@ def cambiar(request: Request, actual: str = Form(""), nueva: str = Form(""),
             confirmar: str = Form(""), csrf: str = Form(""),
             par: tuple[Sesion, Tutor] = Depends(sesion_tutor), db: Session = Depends(get_db)):
     sesion, tutor = par
-    _exigir_csrf(csrf, sesion)
+    try:
+        exigir_csrf(csrf, sesion.csrf)
+    except HTTPException:
+        return _pagina_cambio(request, sesion, tutor, 403, MSG_EXPIRO)
 
     # La contraseña actual es adivinable con una sesión robada: mismo límite que el login.
     clave = f"cambio:{tutor.id}"
@@ -120,6 +135,7 @@ def cambiar(request: Request, actual: str = Form(""), nueva: str = Form(""),
         return _pagina_cambio(request, sesion, tutor, 429, MSG_LIMITE)
     if not verificar_contrasena(tutor.contrasena_hash, actual):
         registrar_intento(db, tutor.operador_id, clave, _ip(request), exito=False)
+        db.commit()
         return _pagina_cambio(request, sesion, tutor, 400, "La contraseña actual no es correcta.")
     error = validar_contrasena_nueva(nueva)
     if error is None and nueva != confirmar:
@@ -131,6 +147,6 @@ def cambiar(request: Request, actual: str = Form(""), nueva: str = Form(""),
 
     tutor.contrasena_hash = hash_contrasena(nueva)
     tutor.debe_cambiar = False
-    db.commit()
     cerrar_sesiones(db, "tutor", tutor.id, excepto_token=request.cookies[COOKIE])
+    db.commit()  # una sola transacción: o cambia la contraseña y se cierran las demás, o nada
     return RedirectResponse("/", status_code=303)

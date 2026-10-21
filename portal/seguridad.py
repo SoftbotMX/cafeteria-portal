@@ -79,4 +79,4 @@ def limite_excedido(db: Session, operador_id: int, usuario: str, ip: str) -> boo
 
 def registrar_intento(db: Session, operador_id: int, usuario: str, ip: str, exito: bool) -> None:
     db.add(IntentoLogin(operador_id=operador_id, usuario=_usuario_bd(usuario), ip=ip[:64], exito=exito))
-    db.commit()
+    db.flush()

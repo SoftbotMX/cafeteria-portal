@@ -66,6 +66,7 @@ def test_duraciones():
 def test_token_se_guarda_hasheado(db):
     op = _operador(db)
     tok = crear_sesion(db, "tutor", _tutor(db, op).id, op.id)
+    db.commit()
     s = db.query(Sesion).one()
     assert s.token_hash != tok and len(s.token_hash) == 64 and len(s.csrf) >= 32
 
@@ -74,6 +75,7 @@ def test_sesion_valida(db, cliente):
     op = _operador(db)
     t = _tutor(db, op)
     cliente.cookies.set("sb_sesion", crear_sesion(db, "tutor", t.id, op.id))
+    db.commit()
     r = cliente.get("/_t")
     assert r.status_code == 200 and r.json() == {"tutor": t.id}
 
@@ -94,6 +96,7 @@ def test_sesion_de_otro_operador_no_vale(db, cliente):
     otro = _operador(db, host="otro.test")
     t = _tutor(db, otro)
     cliente.cookies.set("sb_sesion", crear_sesion(db, "tutor", t.id, otro.id))
+    db.commit()
     assert cliente.get("/_t").status_code == 303
 
 
@@ -101,6 +104,7 @@ def test_sesion_expirada_redirige(db, cliente):
     op = _operador(db)
     t = _tutor(db, op)
     cliente.cookies.set("sb_sesion", crear_sesion(db, "tutor", t.id, op.id))
+    db.commit()
     db.query(Sesion).update({"expira": datetime.now(timezone.utc) - timedelta(seconds=1)})
     db.commit()
     assert cliente.get("/_t").status_code == 303
@@ -110,6 +114,7 @@ def test_tipo_equivocado_no_vale(db, cliente):
     op = _operador(db)
     a = _admin(db, op)
     cliente.cookies.set("sb_sesion", crear_sesion(db, "admin", a.id, op.id))
+    db.commit()
     assert cliente.get("/_t").status_code == 303
     assert cliente.get("/_a").status_code == 200
 
@@ -118,6 +123,7 @@ def test_tutor_inactivo_no_vale(db, cliente):
     op = _operador(db)
     t = _tutor(db, op)
     cliente.cookies.set("sb_sesion", crear_sesion(db, "tutor", t.id, op.id))
+    db.commit()
     t.activo = False
     db.commit()
     assert cliente.get("/_t").status_code == 303
@@ -128,6 +134,7 @@ def test_cerrar_sesiones_respeta_la_actual(db):
     t = _tutor(db, op)
     a = crear_sesion(db, "tutor", t.id, op.id)
     crear_sesion(db, "tutor", t.id, op.id)
+    db.commit()
     cerrar_sesiones(db, "tutor", t.id, excepto_token=a)
     restantes = db.query(Sesion).all()
     assert len(restantes) == 1
@@ -139,6 +146,7 @@ def test_csrf(db, cliente):
     op = _operador(db)
     t = _tutor(db, op)
     cliente.cookies.set("sb_sesion", crear_sesion(db, "tutor", t.id, op.id))
+    db.commit()
     csrf = db.query(Sesion).one().csrf
     assert cliente.post("/_p", data={"csrf": "mal"}).status_code == 403
     assert cliente.post("/_p", data={}).status_code == 403
