@@ -10,13 +10,14 @@
   <ul class="tarjetas">
   {% for h in hijos %}
     <li class="tarjeta">
-      <a href="/hijos/{{ h.id }}"><strong>{{ h.nombre }}</strong></a>
+      <strong>{{ h.nombre }}</strong>
       <p class="saldo">{{ h.disponible | dinero }} <span>disponible</span></p>
       <p class="apartado">{{ h.retenido | dinero }} apartado</p>
       {% if h.compra_sin_pedido is sameas false %}<p class="apartado">Sólo puede recoger lo que pidas</p>{% endif %}
       {% for c in h.credenciales if c.bloqueada %}
         <p class="alerta">Bloqueada: {{ tipos_credencial.get(c.tipo, c.tipo) }}</p>
       {% endfor %}
+      <p class="acciones"><a class="boton" href="/hijos/{{ h.id }}/pedir">Pedir</a> <a class="boton secundario" href="/hijos/{{ h.id }}">Ver detalle</a></p>
     </li>
   {% endfor %}
   </ul>

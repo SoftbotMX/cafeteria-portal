@@ -9,7 +9,9 @@ button { font: inherit; padding: .7rem 1rem; border: 0; border-radius: .4rem; ba
 button.secundario { background: #e5e7eb; color: #222; }
 .tarjetas { list-style: none; padding: 0; display: grid; gap: .8rem; }
 .tarjeta { background: #fff; border-radius: .6rem; padding: .8rem 1rem; box-shadow: 0 1px 2px #0002; }
-.tarjeta a { color: inherit; text-decoration: none; font-size: 1.1rem; }
+.tarjeta strong { font-size: 1.1rem; }
+.acciones { display: flex; gap: .5rem; margin: .6rem 0 0; }
+.acciones .boton { flex: 1; text-align: center; }
 .saldo { font-size: 1.6rem; font-weight: 600; margin: .3rem 0 0; }
 .saldo span { font-size: .9rem; font-weight: 400; color: #666; }
 .apartado { margin: 0 0 .4rem; color: #666; }
@@ -18,6 +20,7 @@ button.secundario { background: #e5e7eb; color: #222; }
 .movimiento .importe { text-align: right; display: grid; }
 .mas { color: #15803d; font-weight: 600; }
 .menos { color: #b91c1c; font-weight: 600; }
+.boton.secundario { background: #e5e7eb; color: #222; }
 .boton { display: inline-block; padding: .7rem 1rem; border-radius: .4rem; background: #2563eb; color: #fff; text-decoration: none; }
 .dias { display: flex; flex-wrap: wrap; gap: .4rem; margin: .8rem 0; }
 .dias a { padding: .4rem .7rem; border-radius: 1rem; background: #e5e7eb; color: #222; text-decoration: none; font-size: .9rem; }

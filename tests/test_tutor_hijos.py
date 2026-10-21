@@ -42,6 +42,18 @@ def test_inicio_muestra_tarjetas_con_saldo(tutor, tpv, c):
     assert "$150.00" in r.text and "$30.00" in r.text and "$1,234.50" in r.text
 
 
+def test_tarjeta_con_botones_pedir_y_detalle(tutor, tpv, c):
+    h1 = tpv.agregar_hijo(tutor.tutor_ref, "Luis Pérez")
+    h2 = tpv.agregar_hijo(tutor.tutor_ref, "Sofía Pérez")
+    _entrar(c)
+    r = c.get("/")
+    for h in (h1, h2):
+        assert f'<a class="boton" href="/hijos/{h["id"]}/pedir">Pedir</a>' in r.text
+        assert f'<a class="boton secundario" href="/hijos/{h["id"]}">Ver detalle</a>' in r.text
+    # El nombre ya no es el enlace: los botones son la forma de entrar.
+    assert f'<a href="/hijos/{h1["id"]}"><strong>' not in r.text
+
+
 def test_un_solo_hijo_redirige_a_su_pantalla(tutor, tpv, c):
     h = tpv.agregar_hijo(tutor.tutor_ref, "Luis Pérez")
     _entrar(c)
