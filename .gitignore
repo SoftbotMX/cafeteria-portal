@@ -9,3 +9,4 @@ __pycache__/
 .superpowers/
 # Documentos de trabajo de los agentes (specs/plans) — no versionar en el remoto
 docs/superpowers/
+*.egg-info/

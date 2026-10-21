@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "portal"
+version = "0.1.0"
+description = "Portal de tutores - cafeteria escolar (Softbot)"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "jinja2",
+  "sqlalchemy>=2",
+  "psycopg[binary]",
+  "alembic",
+  "argon2-cffi",
+  "cryptography",
+  "httpx",
+  "python-multipart",
+  "pydantic-settings",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["portal*"]
+
+[tool.setuptools.package-data]
+portal = ["plantillas/*", "estatico/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
