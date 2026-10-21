@@ -30,6 +30,12 @@ def _crear_bd_si_falta(url: str) -> None:
     admin.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _sin_env_local(monkeypatch):
+    """Las pruebas no leen el `.env` del desarrollador (PORTAL_INSTANCIA, etc.)."""
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+
+
 @pytest.fixture(scope="session")
 def engine():
     _crear_bd_si_falta(URL_PRUEBAS)

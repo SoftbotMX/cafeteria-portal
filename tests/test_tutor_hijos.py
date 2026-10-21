@@ -141,3 +141,48 @@ def test_formato():
     assert fecha(date(2026, 10, 22)) == "jue 22/10/2026"
     assert fecha("2026-10-21 15:00:00") == "mié 21/10/2026"
     assert fecha("2026-10-22 01:00:00") == "mié 21/10/2026"  # UTC -> hora local
+
+
+def test_escribir_tutor_usa_el_tutor_ref_de_la_sesion(db, op, tutor, tpv, app):
+    from fastapi import Request
+    from portal.models import Bitacora
+    from portal.tutor_tpv import escribir_tutor
+
+    visto = {}
+    original = tpv._operar
+
+    def espia(opn, d):
+        visto.update(d)
+        return original(opn, d)
+
+    tpv._operar = espia
+    scope = {"type": "http", "app": app, "headers": [], "method": "POST", "path": "/"}
+    # La operación no existe en el falso (404): lo que importa es lo que viajó y la bitácora.
+    from portal.tpv import ErrorTPV
+    with pytest.raises(ErrorTPV):
+        escribir_tutor(db, Request(scope), op, tutor, "alumno/permiso",
+                       {"llave": "k", "tutor_ref": "EVIL"})
+    db.commit()
+    assert visto["tutor_ref"] == tutor.tutor_ref != "EVIL"
+    fila = db.query(Bitacora).one()
+    assert fila.actor == f"tutor:{tutor.id}" and fila.llave == "k"
+
+
+def test_valores_raros_del_tpv_no_dan_500(tutor, tpv, c):
+    from portal.formato import cambio, dinero
+    for malo in ("abc", None, "NaN", "Infinity"):
+        assert dinero(malo) == "—" == cambio(malo)
+    h = tpv.agregar_hijo(tutor.tutor_ref, "Luis Pérez", disponible="abc", retenido=None)
+    tpv.movimientos[h["id"]] = [{"fecha": "basura", "tipo": "x", "descripcion": "Raro",
+                                 "disponible": "NaN", "retenido": None, "venta": ""}]
+    _entrar(c)
+    r = c.get(f"/hijos/{h['id']}")
+    assert r.status_code == 200 and "Raro" in r.text
+
+
+def test_ver_mas_fallido_ofrece_reintentar(tutor, tpv, c):
+    h = tpv.agregar_hijo(tutor.tutor_ref, "Luis Pérez")
+    _entrar(c)
+    tpv.fallar_en = {"alumno/movimientos"}
+    t = c.get(f"/hijos/{h['id']}/movimientos?pagina=2").text
+    assert MSG_SIN_TPV in t and "Reintentar" in t and "pagina=2" in t

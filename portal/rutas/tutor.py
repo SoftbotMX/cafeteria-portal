@@ -43,7 +43,7 @@ def hijo(alumno_id: int, request: Request, par: tuple[Sesion, Tutor] = Depends(t
     except SinTPV:
         return templates.TemplateResponse(request, "tutor/hijo.html", {
             "tutor": tutor, "csrf": sesion.csrf, "hijo": None, "error_tpv": MSG_SIN_TPV,
-            "hay_varios": True})
+            "hay_varios": False})
     ctx = {"tutor": tutor, "csrf": sesion.csrf, "hijo": ficha, "hay_varios": len(todos) > 1,
            "error_tpv": None}
     try:
