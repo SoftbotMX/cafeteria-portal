@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block titulo %}Horario de pedidos · Administración{% endblock %}
+{% block contenido %}
+<h1>Horario de pedidos</h1>
+<p><a href="/admin">Volver a tutores</a></p>
+{% if error %}<p class="alerta" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/admin/pedidos">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Hora límite para pedir para el mismo día
+    <input type="time" name="hora_limite" value="{{ v.hora_limite }}">
+    <small>Déjala vacía si no hay hora límite. A partir de esa hora ya no se pide ni se cancela para hoy.</small>
+  </label>
+  <fieldset>
+    <legend>Días con servicio</legend>
+    {% for n, nombre in dias_semana %}
+    <label><span><input type="checkbox" name="dias" value="{{ n }}"{% if n|string in v.dias %} checked{% endif %}> {{ nombre }}</span></label>
+    {% endfor %}
+  </fieldset>
+  <label>Zona horaria
+    <select name="zona_horaria">
+      {% for z in zonas %}<option value="{{ z }}"{% if z == v.zona_horaria %} selected{% endif %}>{{ z }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Días de anticipación (1 a 60)
+    <input type="number" name="dias_anticipacion" min="1" max="60" value="{{ v.dias_anticipacion }}" required>
+  </label>
+  <button type="submit">Guardar</button>
+</form>
+
+<h2>Días sin servicio</h2>
+<form method="post" action="/admin/pedidos/sin-servicio">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Fecha <input type="date" name="fecha" required></label>
+  <label>Motivo (opcional) <input type="text" name="motivo" maxlength="200"></label>
+  <button type="submit">Agregar</button>
+</form>
+{% macro fila(d, pasado) %}
+  <li class="movimiento"{% if pasado %} style="opacity:.55"{% endif %}>
+    <span>{{ d.fecha.strftime("%d/%m/%Y") }}{% if d.motivo %} · {{ d.motivo }}{% endif %}</span>
+    <form method="post" action="/admin/pedidos/sin-servicio/{{ d.id }}/borrar">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="secundario">Quitar</button>
+    </form>
+  </li>
+{% endmacro %}
+<ul class="tarjetas">
+  {% for d in proximos %}{{ fila(d, false) }}{% else %}<li>No hay días sin servicio próximos.</li>{% endfor %}
+</ul>
+{% if pasados %}<h3>Pasados</h3><ul class="tarjetas">{% for d in pasados %}{{ fila(d, true) }}{% endfor %}</ul>{% endif %}
+{% endblock %}
