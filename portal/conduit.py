@@ -13,6 +13,8 @@ class ErrorEnvio(Exception):
 
 def enviar_whatsapp(url: str, client_id: str, secreto: str, telefono10: str, texto: str, llave: str,
                     *, transport: httpx.BaseTransport | None = None) -> str:
+    if not (len(telefono10) == 10 and telefono10.isascii() and telefono10.isdigit()):
+        raise ErrorEnvio("El teléfono debe tener exactamente 10 dígitos.")
     cuerpo = json.dumps({
         "client_id": client_id, "recipient": "52" + telefono10, "channel": "whatsapp",
         "text": texto, "idempotency_key": llave,

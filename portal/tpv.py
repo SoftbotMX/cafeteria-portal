@@ -23,7 +23,7 @@ _ADELANTO_MAX = 60
 def _firma_unica(secreto: str, ruta: str, cuerpo: bytes) -> tuple[str, str]:
     ahora = int(time.time())
     with _candado:
-        for k in [k for k, t in _emitidas.items() if t < ahora - 600]:
+        for k in [k for k, t in _emitidas.items() if t < ahora]:
             del _emitidas[k]
         ts = ahora
         while True:
@@ -33,7 +33,8 @@ def _firma_unica(secreto: str, ruta: str, cuerpo: bytes) -> tuple[str, str]:
                 return str(ts), firma
             ts += 1
             if ts - ahora > _ADELANTO_MAX:
-                raise ErrorTPV(0, "demasiadas_llamadas", "Demasiadas llamadas idénticas seguidas.")
+                # status -1: esta petición nunca se envió
+                raise ErrorTPV(-1, "demasiadas_llamadas", "Demasiadas llamadas idénticas seguidas.")
 
 
 class ErrorTPV(Exception):
@@ -114,4 +115,4 @@ def registrar_escritura(db: Session, operador_id: int, actor: str, operacion: st
     db.add(Bitacora(operador_id=operador_id, actor=actor, operacion=operacion, llave=llave,
                     http_status=error.status if error else 200,
                     codigo_error=error.codigo if error else None))
-    db.commit()
+    db.flush()  # la transacción es de quien llama

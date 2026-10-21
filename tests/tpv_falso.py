@@ -1,4 +1,5 @@
 """TPV simulado: verifica la firma como el real (una sola vez por firma) y guarda por llave."""
+import copy
 import hashlib
 import hmac
 import json
@@ -74,7 +75,7 @@ class TPVFalso:
         if previo:
             if previo[0] != op or previo[1] != d:
                 return _err("llave_reutilizada", "Llave usada con otro contenido.", 409)
-            return httpx.Response(200, json=previo[2])
+            return httpx.Response(200, json=copy.deepcopy(previo[2]))
         if op == "admin/tutor/crear":
             ref = f"T{len(self.tutores) + 1}"
             self.tutores[ref] = {"tutor_ref": ref, "nombre": d["nombre"], "telefono": d.get("telefono"),
@@ -102,5 +103,5 @@ class TPVFalso:
             if activo:
                 t["alumnos"].append(al)
             resp = {"ok": True, "tutor": t}
-        self.guardado[llave] = (op, d, resp)
+        self.guardado[llave] = (op, d, copy.deepcopy(resp))  # instantánea: no comparte estado vivo
         return httpx.Response(200, json=resp)

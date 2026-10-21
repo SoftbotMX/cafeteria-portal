@@ -77,3 +77,11 @@ def test_correo_falla_lanza(monkeypatch):
     monkeypatch.setattr(smtplib, "SMTP", S)
     with pytest.raises(ErrorEnvio):
         enviar_correo(_settings(smtp_host="h"), "a@b.mx", "a", "t")
+
+
+@pytest.mark.parametrize("tel", ["834144580", "83414458070", "83414458０7", "834-144-58", "", "+528341445"])
+def test_conduit_telefono_invalido_no_envia(tel):
+    f = ConduitFalso()
+    with pytest.raises(ErrorEnvio):
+        enviar_whatsapp(URL, "c", "cond-s", tel, "x", "k", transport=f.transport)
+    assert f.enviados == []

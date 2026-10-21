@@ -14,6 +14,14 @@ from tests.tpv_falso import TPVFalso
 URL = "https://tpv.test"
 
 
+@pytest.fixture(autouse=True)
+def _limpiar_firmas_emitidas():
+    import portal.tpv as m
+    m._emitidas.clear()
+    yield
+    m._emitidas.clear()
+
+
 def test_firma_tpv_coincide_con_el_contrato():
     esperado = hmac.new(b"s", b"1700000000./sb_cafe/api/v1/menu.{}", hashlib.sha256).hexdigest()
     assert firmar_tpv("s", "1700000000", "/sb_cafe/api/v1/menu", b"{}") == esperado
@@ -134,6 +142,10 @@ def test_registrar_escritura(db):
     op = _operador(db)
     registrar_escritura(db, op.id, "admin:1", "admin/tutor/crear", "k1", None)
     registrar_escritura(db, op.id, "admin:1", "admin/tutor/crear", "k2", ErrorTPV(409, "llave_reutilizada", "x"))
+    db.rollback()  # flush, no commit: la transacción es de quien llama
+    assert db.query(Bitacora).count() == 0
+    registrar_escritura(db, op.id, "admin:1", "admin/tutor/crear", "k1", None)
+    registrar_escritura(db, op.id, "admin:1", "admin/tutor/crear", "k2", ErrorTPV(409, "llave_reutilizada", "x"))
     filas = db.query(Bitacora).order_by(Bitacora.id).all()
     assert [(b.http_status, b.codigo_error) for b in filas] == [(200, None), (409, "llave_reutilizada")]
 
@@ -170,3 +182,26 @@ def test_repetida_por_otro_worker_se_reintenta_firmando_de_nuevo(monkeypatch):
     m._emitidas.clear()
     r = ClienteTPV(URL, "s-multi", transport=f.transport).llamar("menu", {})
     assert r["ok"] and f.llamadas["menu"] == 1
+
+
+def _alta_tutor(c, llave="kt"):
+    return c.llamar("admin/tutor/crear", {"nombre": "A", "llave": llave})
+
+
+def test_reintento_de_tutor_crear_devuelve_la_respuesta_original():
+    f = TPVFalso()
+    c = ClienteTPV(URL, "admin-s", transport=f.transport)
+    ref = _alta_tutor(c)["tutor"]["tutor_ref"]
+    c.llamar("admin/alumno/crear", {"nombre": "H", "tutores": [ref], "llave": "ka"})
+    assert f.tutores[ref]["alumnos"]
+    assert _alta_tutor(c)["tutor"]["alumnos"] == []
+
+
+def test_reintento_de_alumno_crear_devuelve_la_respuesta_original():
+    f = TPVFalso()
+    c = ClienteTPV(URL, "admin-s", transport=f.transport)
+    ref = _alta_tutor(c)["tutor"]["tutor_ref"]
+    cuerpo = {"nombre": "H", "tutores": [ref], "llave": "ka"}
+    al = c.llamar("admin/alumno/crear", cuerpo)["alumno"]
+    f.alumnos[al["id"]]["disponible"] = 500  # estado vivo cambia después
+    assert c.llamar("admin/alumno/crear", cuerpo)["alumno"]["disponible"] == 0
