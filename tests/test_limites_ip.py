@@ -157,3 +157,48 @@ def test_usuario_con_dos_puntos_no_fabrica_prefijos(db, op, c):
         entrar_tutor(c, u, "mala-mala")
     usuarios = {i.usuario for i in db.query(IntentoLogin).all()}
     assert usuarios == {"invalido"}
+
+
+def test_solicitudes_de_correo_largo_respetan_el_tope_de_3(db, op, c):
+    correo = "a" * 240 + "@mail.com"  # 249 caracteres: con el prefijo, rebasa los 255 de la columna
+    crear_tutor(db, op, telefono=None, correo=correo)
+    codigos = []
+    for _ in range(4):
+        pagina = c.get("/recuperar")
+        codigos.append(c.post("/recuperar", data={"usuario": correo, "csrf": csrf_de(pagina)}).status_code)
+    assert codigos == [303, 303, 303, 429]
+
+
+def test_login_concurrente_con_recuperacion_no_crea_sesion(db, op, c, monkeypatch, engine):
+    from sqlalchemy.orm import Session
+    from portal.models import Sesion, Tutor
+    from portal.rutas import acceso
+    t = crear_tutor(db, op)
+    real = acceso.verificar_contrasena
+
+    def verificar_y_cambiar(h, contrasena):
+        ok = real(h, contrasena)
+        # Entre verificar y crear la sesión, otra solicitud cambia la contraseña (recuperación).
+        with Session(engine) as otra:
+            otro = otra.get(Tutor, t.id)
+            otro.contrasena_hash = seguridad.hash_contrasena("nueva-clave-1")
+            otra.commit()
+        return ok
+
+    monkeypatch.setattr(acceso, "verificar_contrasena", verificar_y_cambiar)
+    r = entrar_tutor(c, "8341445807", "temporal123")
+    assert r.status_code == 200 and "Usuario o contraseña incorrectos" in r.text
+    assert db.query(Sesion).count() == 0
+
+
+def test_rafaga_de_logins_no_verifica_mas_de_5_contrasenas(db, op, app):
+    from concurrent.futures import ThreadPoolExecutor
+    crear_tutor(db, op)
+
+    def intento(_):
+        cl = TestClient(app, base_url="https://cafeteria.test", follow_redirects=False)
+        return entrar_tutor(cl, "8341445807", "mala-mala").status_code
+
+    with ThreadPoolExecutor(8) as pool:
+        codigos = list(pool.map(intento, range(8)))
+    assert codigos.count(200) == 5 and codigos.count(429) == 3

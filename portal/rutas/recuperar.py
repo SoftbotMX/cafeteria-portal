@@ -21,7 +21,7 @@ from portal.rutas.acceso import (
     csrf_prelogin_valido, pagina_prelogin,
 )
 from portal.seguridad import (
-    P_SOLICITUD, VENTANA_INTENTOS, bloquear_limites, hash_contrasena, invalidar_codigos, ip_cliente, limite_excedido, normalizar_usuario,
+    P_SOLICITUD, VENTANA_INTENTOS, _usuario_bd, bloquear_limites, hash_contrasena, invalidar_codigos, ip_cliente, limite_excedido, normalizar_usuario,
     registrar_intento, solicitudes_ip_excedidas, validar_contrasena_nueva,
 )
 from portal.sesiones import cerrar_sesiones, cookie_csrf_login, operador_actual
@@ -58,7 +58,7 @@ def _pagina_codigo(request, csrf, status=200, error=None, usuario=""):
 
 def _solicitudes_recientes(db: Session, operador_id: int, clave: str) -> int:
     return db.scalar(select(func.count()).select_from(IntentoLogin).where(
-        IntentoLogin.operador_id == operador_id, IntentoLogin.usuario == P_SOLICITUD + clave,
+        IntentoLogin.operador_id == operador_id, IntentoLogin.usuario == _usuario_bd(P_SOLICITUD + clave),
         IntentoLogin.creado >= func.now() - VENTANA_INTENTOS)) or 0
 
 

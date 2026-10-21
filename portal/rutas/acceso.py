@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from portal.db import get_db
 from portal.models import Operador, Sesion, Tutor
 from portal.seguridad import (
-    HASH_FALSO, hash_contrasena, invalidar_codigos, ip_cliente, limite_excedido, normalizar_usuario, registrar_intento,
+    HASH_FALSO, bloquear_limites, hash_contrasena, invalidar_codigos, ip_cliente, limite_excedido, normalizar_usuario, registrar_intento,
     validar_contrasena_nueva, verificar_contrasena,
 )
 from portal.sesiones import (
@@ -77,14 +77,24 @@ def entrar(request: Request, usuario: str = Form(""), contrasena: str = Form("")
     valido = _usuario_valido(clave)
     # Un usuario inválido no escribe intentos bajo una clave arbitraria; cuenta solo por IP.
     clave_intento = clave if valido else CLAVE_INVALIDA
+    # Contar, verificar y registrar es atómico por usuario: una ráfaga no verifica más de 5 contraseñas.
+    # (El tope por IP queda blando ante la concurrencia; bloquear la IP serializaría el wifi de la escuela.)
+    bloquear_limites(db, operador.id, clave_intento)
     if limite_excedido(db, operador.id, clave_intento, ip):
+        db.rollback()
         return _pagina_entrar(request, cookie, 429, MSG_LIMITE, usuario)
 
     tutor = None
     if valido:
         campo = Tutor.correo if "@" in clave else Tutor.telefono
         tutor = db.scalar(select(Tutor).where(Tutor.operador_id == operador.id, campo == clave))
-    ok = verificar_contrasena(tutor.contrasena_hash if tutor else HASH_FALSO, contrasena)
+    hash_visto = tutor.contrasena_hash if tutor else HASH_FALSO
+    ok = verificar_contrasena(hash_visto, contrasena)
+    if ok and tutor is not None:
+        # Candado del tutor y relectura: si una recuperación o un reenvío cambió la contraseña (y cerró
+        # sus sesiones) mientras se verificaba, esta verificación ya no vale y no se crea sesión.
+        db.refresh(tutor, with_for_update=True)
+        ok = tutor.contrasena_hash == hash_visto
     if tutor is None or not ok or not tutor.activo:
         registrar_intento(db, operador.id, clave_intento, ip, exito=False)
         db.commit()
@@ -139,7 +149,9 @@ def cambiar(request: Request, actual: str = Form(""), nueva: str = Form(""),
 
     # La contraseña actual es adivinable con una sesión robada: mismo límite que el login.
     clave = f"cambio:{tutor.id}"
+    bloquear_limites(db, tutor.operador_id, clave)
     if limite_excedido(db, tutor.operador_id, clave, ip_cliente(request)):
+        db.rollback()
         return _pagina_cambio(request, sesion, tutor, 429, MSG_LIMITE)
     if not verificar_contrasena(tutor.contrasena_hash, actual):
         registrar_intento(db, tutor.operador_id, clave, ip_cliente(request), exito=False)

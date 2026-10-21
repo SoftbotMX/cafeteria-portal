@@ -19,7 +19,7 @@ from portal.rutas.acceso import (
     MSG_EXPIRO, MSG_LIMITE, MSG_MALO,
 )
 from portal.seguridad import (
-    HASH_FALSO, ip_cliente, limite_excedido, normalizar_telefono, registrar_intento, verificar_contrasena,
+    HASH_FALSO, bloquear_limites, ip_cliente, limite_excedido, normalizar_telefono, registrar_intento, verificar_contrasena,
 )
 from portal.sesiones import (
     COOKIE, DURACION, borrar_cookie, cerrar_sesion, crear_sesion, exigir_csrf, operador_actual,
@@ -65,7 +65,9 @@ def entrar(request: Request, usuario: str = Form(""), contrasena: str = Form("")
     ip = ip_cliente(request)
     usuario = usuario.strip()
     clave = _clave_intento(usuario)
+    bloquear_limites(db, operador.id, clave)  # contar, verificar y registrar, atómico por usuario
     if limite_excedido(db, operador.id, clave, ip):
+        db.rollback()
         return _pagina_entrar(request, cookie, 429, MSG_LIMITE, usuario)
 
     admin = db.scalar(select(Admin).where(
