@@ -29,8 +29,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def salud() -> dict[str, bool]:
         return {"ok": True}
 
-    from portal.rutas import acceso, tutor
+    from portal.rutas import acceso, admin, tutor
 
     app.include_router(acceso.router)
+    app.include_router(admin.router)
     app.include_router(tutor.router)
     return app

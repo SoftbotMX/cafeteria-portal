@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block titulo %}Alta de tutor · Administración{% endblock %}
+{% block contenido %}
+<h1>Alta de tutor e hijos</h1>
+{% if error %}<p class="aviso" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/admin/alta">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="llave" value="{{ llave }}">
+  <label>Nombre del tutor
+    <input name="nombre" value="{{ nombre }}" required maxlength="200">
+  </label>
+  <label>Teléfono (10 dígitos)
+    <input name="telefono" value="{{ telefono }}" inputmode="tel" autocomplete="off">
+  </label>
+  <label>Correo
+    <input name="correo" value="{{ correo }}" type="email" autocomplete="off">
+  </label>
+  <p>Escribe al menos un teléfono o un correo: es el usuario con el que entrará.</p>
+  <h2>Hijos</h2>
+  {% for f in filas %}
+  <fieldset>
+    <legend>Hijo {{ loop.index }}</legend>
+    <label>Nombre <input name="hijo_nombre" value="{{ f.nombre }}" maxlength="200"></label>
+    <label>Matrícula (opcional) <input name="hijo_matricula" value="{{ f.matricula }}" maxlength="50"></label>
+  </fieldset>
+  {% endfor %}
+  <button type="submit">Dar de alta</button>
+</form>
+<p><a href="/admin">Volver a la lista</a></p>
+{% endblock %}
