@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     database_url: str
     fernet_key: str
     cookie_secure: bool = True
+    instancia: str = "portal"  # única por instalación: prefija las llaves de idempotencia hacia Conduit
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_usuario: str | None = None

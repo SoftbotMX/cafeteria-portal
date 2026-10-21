@@ -152,7 +152,7 @@ def test_cookie_httponly_secure_samesite(db, op, c):
     crear_tutor(db, op)
     pagina = c.get("/entrar")
     csrf_cookie = pagina.headers["set-cookie"].lower()
-    assert "sb_csrf_login=" in csrf_cookie
+    assert "__host-sb_csrf_login=" in csrf_cookie
     for bandera in ("httponly", "secure", "samesite=lax"):
         assert bandera in csrf_cookie
     r = c.post("/entrar", data={"usuario": "8341445807", "contrasena": "temporal123",
@@ -161,7 +161,7 @@ def test_cookie_httponly_secure_samesite(db, op, c):
     ses = next(h for h in cookies if h.startswith("sb_sesion="))
     for bandera in ("httponly", "secure", "samesite=lax"):
         assert bandera in ses
-    assert any(h.startswith("sb_csrf_login=") and "max-age=0" in h for h in cookies)
+    assert any(h.startswith("__host-sb_csrf_login=") and "max-age=0" in h for h in cookies)
 
 
 def test_login_rota_la_sesion(db, op, c):
@@ -235,7 +235,7 @@ def test_usuario_invalido_no_escribe_clave_arbitraria(db, op, c):
 
 def test_usuario_invalido_cuenta_por_ip(db, op, c):
     from portal.seguridad import registrar_intento
-    for i in range(20):  # claves distintas: solo la IP puede disparar el límite
+    for i in range(50):  # claves distintas: solo la IP puede disparar el límite
         registrar_intento(db, op.id, "invalido" if i == 0 else f"x{i}", "testclient", exito=False)
     db.commit()
     r = entrar_tutor(c, "8341445807", "x")
@@ -247,7 +247,7 @@ def test_login_sin_csrf_vuelve_a_mostrar_formulario(db, op, c):
     assert r.status_code == 403
     assert "Tu sesión expiró, vuelve a intentarlo." in r.text
     nuevo = csrf_de(r)
-    assert nuevo != "viejo" and c.cookies.get("sb_csrf_login") == nuevo
+    assert nuevo != "viejo" and c.cookies.get("__Host-sb_csrf_login") == nuevo
 
 
 def test_cambio_con_csrf_vencido_muestra_formulario(db, op, c):

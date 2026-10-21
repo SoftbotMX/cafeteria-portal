@@ -1,6 +1,6 @@
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
@@ -18,6 +18,15 @@ def hash_contrasena(c: str) -> str:
 
 
 def verificar_contrasena(hash: str, c: str) -> bool:
+    if not hash.startswith("$argon2"):
+        # Hash inválido (p. ej. "!" de un alta incompleta): se verifica contra el falso para que
+        # el costo sea el mismo que con un hash real y no se note por tiempo.
+        hash = HASH_FALSO
+        try:
+            _hasher.verify(hash, c)
+        except (VerifyMismatchError, InvalidHashError):
+            pass
+        return False
     try:
         return _hasher.verify(hash, c)
     except (VerifyMismatchError, InvalidHashError):
@@ -27,7 +36,11 @@ def verificar_contrasena(hash: str, c: str) -> bool:
 _SIN_AMBIGUOS = "abcdefghjkmnpqrstuvwxyz23456789"
 VENTANA_INTENTOS = timedelta(minutes=15)
 MAX_FALLOS_USUARIO = 5
-MAX_FALLOS_IP = 20
+MAX_FALLOS_IP = 50        # tutores: alto por CGNAT y wifi de la escuela
+MAX_FALLOS_IP_ADMIN = 20  # contador propio de la administración (claves "admin:")
+MAX_SOLICITUDES_IP = 30   # solicitudes de código de recuperación por IP
+P_ADMIN = "admin:"
+P_SOLICITUD = "recuperar:"
 
 
 def _usuario_bd(usuario: str) -> str:
@@ -40,7 +53,9 @@ def generar_temporal() -> str:
 
 
 def normalizar_telefono(t: str) -> str | None:
-    # Solo 0-9 ASCII: isdigit() acepta dígitos de ancho completo/árabes; esos se descartan y el número se rechaza.
+    # Cualquier dígito no ASCII (ancho completo, árabe...) invalida la entrada completa.
+    if any(c.isdigit() and not c.isascii() for c in t):
+        return None
     d = re.sub(r"[^0-9]", "", t)
     if len(d) == 12 and d.startswith("52"):
         d = d[-10:]
@@ -63,8 +78,10 @@ def validar_contrasena_nueva(c: str) -> str | None:
 
 
 def limite_excedido(db: Session, operador_id: int, usuario: str, ip: str) -> bool:
-    """5 fallos por usuario o 20 por IP en 15 min. La IP es request.client.host:
-    en P4 uvicorn debe correr con --proxy-headers tras nginx, o todos serían la IP del proxy."""
+    """5 fallos por usuario, y por IP 50 (tutores) o 20 (administración, claves "admin:"), en 15 min.
+    Los contadores de IP están separados: los papás no pueden bloquear al personal. Las solicitudes
+    de código (prefijo "recuperar:") no cuentan aquí; tienen su tope en solicitudes_ip_excedidas.
+    La IP es request.client.host: en P4 uvicorn debe correr con --proxy-headers tras nginx."""
     desde = func.now() - VENTANA_INTENTOS  # reloj de la BD, el mismo que llena `creado`
     base = select(func.count()).select_from(IntentoLogin).where(
         IntentoLogin.operador_id == operador_id,
@@ -74,7 +91,19 @@ def limite_excedido(db: Session, operador_id: int, usuario: str, ip: str) -> boo
     por_usuario = db.scalar(base.where(IntentoLogin.usuario == _usuario_bd(usuario)))
     if por_usuario >= MAX_FALLOS_USUARIO:
         return True
-    return db.scalar(base.where(IntentoLogin.ip == ip)) >= MAX_FALLOS_IP
+    por_ip = base.where(IntentoLogin.ip == ip)
+    if usuario.startswith(P_ADMIN):
+        return db.scalar(por_ip.where(IntentoLogin.usuario.like(P_ADMIN + "%"))) >= MAX_FALLOS_IP_ADMIN
+    return db.scalar(por_ip.where(~IntentoLogin.usuario.like(P_ADMIN + "%"),
+                                  ~IntentoLogin.usuario.like(P_SOLICITUD + "%"))) >= MAX_FALLOS_IP
+
+
+def solicitudes_ip_excedidas(db: Session, operador_id: int, ip: str) -> bool:
+    """Tope de solicitudes de código por IP (30 en 15 min): un solo origen no puede spamear WhatsApp."""
+    return (db.scalar(select(func.count()).select_from(IntentoLogin).where(
+        IntentoLogin.operador_id == operador_id, IntentoLogin.ip == ip,
+        IntentoLogin.usuario.like(P_SOLICITUD + "%"),
+        IntentoLogin.creado >= func.now() - VENTANA_INTENTOS)) or 0) >= MAX_SOLICITUDES_IP
 
 
 def bloquear_limites(db: Session, operador_id: int, *claves: str) -> None:

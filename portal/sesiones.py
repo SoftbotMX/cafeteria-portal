@@ -56,6 +56,21 @@ def poner_cookie(resp: Response, token: str, settings: Settings, max_age: int) -
                     secure=settings.cookie_secure, samesite="lax", path="/")
 
 
+def cookie_csrf_login(settings: Settings) -> str:
+    """Nombre de la cookie CSRF previa al login. Con https lleva __Host- (Secure, path=/, sin Domain)."""
+    return ("__Host-" if settings.cookie_secure else "") + "sb_csrf_login"
+
+
+def poner_csrf_login(resp: Response, csrf: str, settings: Settings) -> None:
+    resp.set_cookie(cookie_csrf_login(settings), csrf, max_age=3600, httponly=True,
+                    secure=settings.cookie_secure, samesite="lax", path="/")
+
+
+def borrar_csrf_login(resp: Response, settings: Settings) -> None:
+    resp.delete_cookie(cookie_csrf_login(settings), path="/", secure=settings.cookie_secure,
+                       httponly=True, samesite="lax")
+
+
 def borrar_cookie(resp: Response) -> None:
     resp.delete_cookie(COOKIE, path="/")
 

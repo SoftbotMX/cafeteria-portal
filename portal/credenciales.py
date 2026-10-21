@@ -60,7 +60,7 @@ def enviar_al_tutor(db: Session, app, operador: Operador, tutor: Tutor, texto: s
         try:
             estado = enviar_whatsapp(
                 operador.conduit_url, operador.conduit_client_id, secreto, tutor.telefono, texto,
-                llave, transport=app.state.conduit_transport)
+                f"{settings.instancia}:{llave}", transport=app.state.conduit_transport)
         except ErrorEnvio as e:
             return "whatsapp", "error", str(e)
         return "whatsapp", estado, ("Conduit lo está procesando." if estado == "en_curso"

@@ -82,7 +82,7 @@ def test_recuperar_envia_codigo_por_whatsapp(db, op, c, conduit):
     fila = db.query(CodigoRecuperacion).one()
     assert fila.tutor_id == t.id and fila.codigo_hash == hashlib.sha256(cod.encode()).hexdigest()
     assert cod not in c.get(r.headers["location"]).text
-    assert conduit.enviados[0]["idempotency_key"] == f"recuperar:{fila.id}"
+    assert conduit.enviados[0]["idempotency_key"] == f"portal:recuperar:{fila.id}"
 
 
 def test_codigo_nuevo_invalida_el_anterior(db, op, c, conduit):

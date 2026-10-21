@@ -74,7 +74,7 @@ def test_fallos_viejos_no_cuentan(db):
 
 def test_limite_por_ip(db):
     op = _operador(db)
-    for i in range(19):
+    for i in range(49):
         _fallos(db, op, f"u{i}", "3.3.3.3", 1)
     assert limite_excedido(db, op.id, "nuevo", "3.3.3.3") is False
     _fallos(db, op, "u99", "3.3.3.3", 1)

@@ -16,14 +16,14 @@ from portal.credenciales import (
 from portal.db import get_db
 from portal.models import Admin, Bitacora, Operador, Sesion, Tutor
 from portal.rutas.acceso import (
-    COOKIE_CSRF_LOGIN, MSG_EXPIRO, MSG_LIMITE, MSG_MALO,
+    MSG_EXPIRO, MSG_LIMITE, MSG_MALO,
 )
 from portal.seguridad import (
     HASH_FALSO, ip_cliente, limite_excedido, normalizar_telefono, registrar_intento, verificar_contrasena,
 )
 from portal.sesiones import (
     COOKIE, DURACION, borrar_cookie, cerrar_sesion, crear_sesion, exigir_csrf, operador_actual,
-    poner_cookie, sesion_admin, cerrar_sesiones,
+    poner_cookie, sesion_admin, cerrar_sesiones, borrar_csrf_login, cookie_csrf_login, poner_csrf_login,
 )
 from portal.tpv import ErrorTPV, cliente_admin
 from portal.web import templates
@@ -44,21 +44,20 @@ def _pagina_entrar(request: Request, csrf: str, status: int = 200, error: str | 
     resp = templates.TemplateResponse(
         request, "admin/entrar.html", {"csrf": csrf, "error": error, "usuario": usuario},
         status_code=status)
-    resp.set_cookie(COOKIE_CSRF_LOGIN, csrf, max_age=3600, httponly=True,
-                    secure=request.app.state.settings.cookie_secure, samesite="lax", path="/")
+    poner_csrf_login(resp, csrf, request.app.state.settings)
     return resp
 
 
 @router.get("/entrar")
 def entrar_form(request: Request, _: Operador = Depends(operador_actual)):
-    return _pagina_entrar(request, request.cookies.get(COOKIE_CSRF_LOGIN) or secrets.token_urlsafe(32))
+    return _pagina_entrar(request, request.cookies.get(cookie_csrf_login(request.app.state.settings)) or secrets.token_urlsafe(32))
 
 
 @router.post("/entrar")
 def entrar(request: Request, usuario: str = Form(""), contrasena: str = Form(""),
            csrf: str = Form(""), operador: Operador = Depends(operador_actual),
            db: Session = Depends(get_db)):
-    cookie = request.cookies.get(COOKIE_CSRF_LOGIN, "")
+    cookie = request.cookies.get(cookie_csrf_login(request.app.state.settings), "")
     try:
         exigir_csrf(csrf, cookie)
     except HTTPException:
@@ -85,7 +84,7 @@ def entrar(request: Request, usuario: str = Form(""), contrasena: str = Form("")
     db.commit()
     resp = RedirectResponse("/admin", status_code=303)
     poner_cookie(resp, token, request.app.state.settings, int(DURACION["admin"].total_seconds()))
-    resp.delete_cookie(COOKIE_CSRF_LOGIN, path="/")
+    borrar_csrf_login(resp, request.app.state.settings)
     return resp
 
 

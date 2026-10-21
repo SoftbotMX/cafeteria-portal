@@ -17,14 +17,14 @@ from portal.credenciales import enviar_al_tutor, recuperacion_bloqueada
 from portal.db import get_db
 from portal.models import CodigoRecuperacion, IntentoLogin, Operador, Tutor
 from portal.rutas.acceso import (
-    COOKIE_CSRF_LOGIN, CLAVE_INVALIDA, MSG_EXPIRO, MSG_LIMITE, _usuario_valido,
+    CLAVE_INVALIDA, MSG_EXPIRO, MSG_LIMITE, _usuario_valido,
     csrf_prelogin_valido, pagina_prelogin,
 )
 from portal.seguridad import (
-    VENTANA_INTENTOS, bloquear_limites, hash_contrasena, invalidar_codigos, ip_cliente, limite_excedido, normalizar_usuario,
-    registrar_intento, validar_contrasena_nueva,
+    P_SOLICITUD, VENTANA_INTENTOS, bloquear_limites, hash_contrasena, invalidar_codigos, ip_cliente, limite_excedido, normalizar_usuario,
+    registrar_intento, solicitudes_ip_excedidas, validar_contrasena_nueva,
 )
-from portal.sesiones import cerrar_sesiones, operador_actual
+from portal.sesiones import cerrar_sesiones, cookie_csrf_login, operador_actual
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -34,8 +34,7 @@ MAX_SOLICITUDES = 3
 MAX_FALLOS_CODIGO = 5
 MENSAJE = "Si el usuario existe, te mandamos un código"
 MSG_CODIGO_MALO = "El código es incorrecto o ya venció."
-# Prefijos que el login nunca produce (sus claves son teléfono, correo o "invalido").
-P_SOLICITUD = "recuperar:"
+# Prefijo que el login nunca produce (sus claves son teléfono, correo o "invalido"); P_SOLICITUD vive en seguridad.
 P_CODIGO = "recuperar-codigo:"
 
 
@@ -44,7 +43,7 @@ def _hash(codigo: str) -> str:
 
 
 def _csrf(request: Request) -> str:
-    return request.cookies.get(COOKIE_CSRF_LOGIN) or secrets.token_urlsafe(32)
+    return request.cookies.get(cookie_csrf_login(request.app.state.settings)) or secrets.token_urlsafe(32)
 
 
 def _pagina_pedir(request, csrf, status=200, error=None, usuario=""):
@@ -97,16 +96,17 @@ def pedir(request: Request, tareas: BackgroundTasks, usuario: str = Form(""), cs
           operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
     if not csrf_prelogin_valido(request, csrf):
         return _pagina_pedir(request, secrets.token_urlsafe(32), 403, MSG_EXPIRO, usuario)
-    cookie = request.cookies[COOKIE_CSRF_LOGIN]
+    cookie = request.cookies[cookie_csrf_login(request.app.state.settings)]
     ip = ip_cliente(request)
     clave = normalizar_usuario(usuario)
     valido = _usuario_valido(clave)
     clave_intento = P_SOLICITUD + (clave if valido else CLAVE_INVALIDA)
     # Contar y registrar es atómico: solicitudes simultáneas se turnan por clave y por IP.
     bloquear_limites(db, operador.id, clave_intento, "ip:" + ip)
-    # Umbral propio (3), aparte del 5 del login; la IP sí comparte su límite de 20.
+    # Topes propios: 3 por usuario y 30 por IP. Las solicitudes legítimas no cuentan en el límite
+    # de fallos de login por IP (prefijo P_SOLICITUD).
     if (valido and _solicitudes_recientes(db, operador.id, clave) >= MAX_SOLICITUDES) \
-            or limite_excedido(db, operador.id, clave_intento, ip):
+            or solicitudes_ip_excedidas(db, operador.id, ip):
         db.rollback()
         return _pagina_pedir(request, cookie, 429, MSG_LIMITE, usuario)
     registrar_intento(db, operador.id, clave_intento, ip, exito=False)
@@ -147,7 +147,7 @@ def codigo(request: Request, usuario: str = Form(""), codigo: str = Form(""),
            operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
     if not csrf_prelogin_valido(request, csrf):
         return _pagina_codigo(request, secrets.token_urlsafe(32), 403, MSG_EXPIRO, usuario)
-    cookie = request.cookies[COOKIE_CSRF_LOGIN]
+    cookie = request.cookies[cookie_csrf_login(request.app.state.settings)]
     ip = ip_cliente(request)
     clave = normalizar_usuario(usuario)
     clave_intento = P_CODIGO + (clave if _usuario_valido(clave) else CLAVE_INVALIDA)

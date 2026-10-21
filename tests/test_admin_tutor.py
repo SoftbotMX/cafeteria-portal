@@ -239,7 +239,7 @@ def test_reenviar_cambia_contrasena_y_cierra_sesiones(db, op, admin, tpv, condui
     assert entrar_tutor(tutor_nuevo_cliente(app), "8341445807", vieja).status_code != 303
     assert entrar_tutor(tutor_nuevo_cliente(app), "8341445807", nueva).status_code == 303
     # Conduit: llave distinta a la del alta
-    assert [e["idempotency_key"] for e in conduit.enviados] == [f"acceso:{t.id}:1", f"acceso:{t.id}:2"]
+    assert [e["idempotency_key"] for e in conduit.enviados] == [f"portal:acceso:{t.id}:1", f"portal:acceso:{t.id}:2"]
     assert nueva in conduit.enviados[1]["text"]
     fila = db.query(Bitacora).filter_by(operacion="reenviar_acceso").one()
     assert fila.llave == f"acceso:{t.id}:2" and fila.http_status == 200
@@ -251,7 +251,7 @@ def test_segundo_reenvio_usa_el_intento_siguiente(db, op, admin, tpv, conduit):
     for esperado in (2, 3):
         campos = formulario(admin.get(f"/admin/tutores/{t.id}"), f"/admin/tutores/{t.id}/reenviar")
         assert admin.post(f"/admin/tutores/{t.id}/reenviar", data=campos).status_code == 200
-        assert conduit.enviados[-1]["idempotency_key"] == f"acceso:{t.id}:{esperado}"
+        assert conduit.enviados[-1]["idempotency_key"] == f"portal:acceso:{t.id}:{esperado}"
     assert db.query(Bitacora).filter_by(operacion="reenviar_acceso").count() == 2
 
 

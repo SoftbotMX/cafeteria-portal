@@ -1,4 +1,3 @@
-import hmac
 import secrets
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -13,14 +12,13 @@ from portal.seguridad import (
     validar_contrasena_nueva, verificar_contrasena,
 )
 from portal.sesiones import (
-    COOKIE, DURACION, borrar_cookie, cerrar_sesion, cerrar_sesiones, crear_sesion,
+    COOKIE, DURACION, borrar_cookie, borrar_csrf_login, cookie_csrf_login, poner_csrf_login, cerrar_sesion, cerrar_sesiones, crear_sesion,
     exigir_csrf, operador_actual, poner_cookie, sesion_tutor,
 )
 from portal.web import templates
 
 router = APIRouter()
 
-COOKIE_CSRF_LOGIN = "sb_csrf_login"
 MSG_MALO = "Usuario o contraseña incorrectos"
 MSG_EXPIRO = "Tu sesión expiró, vuelve a intentarlo."
 # Clave de intentos para usuarios que no son teléfono ni correo. Las del cambio de
@@ -30,6 +28,10 @@ MSG_LIMITE = "Demasiados intentos. Espera 15 minutos."
 
 
 def _usuario_valido(clave: str) -> bool:
+    # Sin ":" en el correo: las claves de intentos usan prefijos "admin:", "recuperar:", "cambio:"
+    # y un usuario no puede fabricarlos.
+    if ":" in clave:
+        return False
     return "@" in clave or (len(clave) == 10 and clave.isascii() and clave.isdigit())
 
 
@@ -37,14 +39,13 @@ def pagina_prelogin(request: Request, plantilla: str, csrf: str, status: int = 2
     """Página previa a la sesión: lleva el CSRF de doble envío (campo oculto + cookie)."""
     resp = templates.TemplateResponse(
         request, plantilla, {"csrf": csrf, **contexto}, status_code=status)
-    resp.set_cookie(COOKIE_CSRF_LOGIN, csrf, max_age=3600, httponly=True,
-                    secure=request.app.state.settings.cookie_secure, samesite="lax", path="/")
+    poner_csrf_login(resp, csrf, request.app.state.settings)
     return resp
 
 
 def csrf_prelogin_valido(request: Request, enviado: str) -> bool:
     try:
-        exigir_csrf(enviado, request.cookies.get(COOKIE_CSRF_LOGIN, ""))
+        exigir_csrf(enviado, request.cookies.get(cookie_csrf_login(request.app.state.settings), ""))
     except HTTPException:
         return False
     return True
@@ -59,7 +60,7 @@ def _pagina_entrar(request: Request, csrf: str, status: int = 200, error: str | 
 @router.get("/entrar")
 def entrar_form(request: Request, cambiada: str = "", _: Operador = Depends(operador_actual)):
     aviso = "Tu contraseña cambió. Ya puedes entrar." if cambiada == "1" else None
-    return _pagina_entrar(request, request.cookies.get(COOKIE_CSRF_LOGIN) or secrets.token_urlsafe(32),
+    return _pagina_entrar(request, request.cookies.get(cookie_csrf_login(request.app.state.settings)) or secrets.token_urlsafe(32),
                           aviso=aviso)
 
 
@@ -68,7 +69,7 @@ def entrar(request: Request, usuario: str = Form(""), contrasena: str = Form("")
            csrf: str = Form(""), operador: Operador = Depends(operador_actual),
            db: Session = Depends(get_db)):
     # Doble envío: sin sesión previa, la cookie y el campo oculto deben coincidir.
-    cookie = request.cookies.get(COOKIE_CSRF_LOGIN, "")
+    cookie = request.cookies.get(cookie_csrf_login(request.app.state.settings), "")
     if not csrf_prelogin_valido(request, csrf):
         return _pagina_entrar(request, secrets.token_urlsafe(32), 403, MSG_EXPIRO, usuario)
     ip = ip_cliente(request)
@@ -98,7 +99,7 @@ def entrar(request: Request, usuario: str = Form(""), contrasena: str = Form("")
     resp = RedirectResponse("/cambiar-contrasena" if tutor.debe_cambiar else "/", status_code=303)
     poner_cookie(resp, token, request.app.state.settings,
                  int(DURACION["tutor"].total_seconds()))
-    resp.delete_cookie(COOKIE_CSRF_LOGIN, path="/")
+    borrar_csrf_login(resp, request.app.state.settings)
     return resp
 
 

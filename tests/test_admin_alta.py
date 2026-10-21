@@ -156,7 +156,7 @@ def test_alta_envia_por_whatsapp(db, op, admin, tpv, conduit):
     pw = _contrasena(r)
     assert env["recipient"] == "528341445807" and pw in env["text"]
     t = db.query(Tutor).one()
-    assert env["idempotency_key"] == f"acceso:{t.id}:1"
+    assert env["idempotency_key"] == f"portal:acceso:{t.id}:1"
     assert "https://cafeteria.test" in env["text"] and "8341445807" in env["text"]
     assert "whatsapp" in r.text.lower() and "enviado" in r.text.lower()
 
