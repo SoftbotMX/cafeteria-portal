@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from portal.conduit import ErrorEnvio, enviar_whatsapp
 from portal.correo import enviar_correo
 from portal.models import Bitacora, Operador, Tutor
-from portal.seguridad import generar_temporal, hash_contrasena
+from portal.seguridad import generar_temporal, hash_contrasena, invalidar_codigos
 from portal.sesiones import cerrar_sesiones
 
 class ErrorEntrega(Exception):
@@ -45,7 +45,7 @@ def texto_acceso(operador: Operador, tutor: Tutor, contrasena: str) -> str:
 
 
 def enviar_al_tutor(db: Session, app, operador: Operador, tutor: Tutor, texto: str,
-                    llave: str) -> tuple[str | None, str, str]:
+                    llave: str, asunto: str = "Tu acceso al portal de la cafetería") -> tuple[str | None, str, str]:
     """(canal, estado, detalle). WhatsApp si hay teléfono y Conduit; si no, correo si hay SMTP."""
     settings = app.state.settings
     if tutor.telefono and operador.conduit_url and operador.conduit_client_id \
@@ -65,7 +65,7 @@ def enviar_al_tutor(db: Session, app, operador: Operador, tutor: Tutor, texto: s
                                     else "Enviado por WhatsApp.")
     if tutor.correo and settings.smtp_host:
         try:
-            enviar_correo(settings, tutor.correo, "Tu acceso al portal de la cafetería", texto)
+            enviar_correo(settings, tutor.correo, asunto, texto)
         except ErrorEnvio as e:
             return "correo", "error", str(e)
         return "correo", "enviado", "Enviado por correo."
@@ -109,6 +109,7 @@ def entregar_credenciales(db: Session, app, operador: Operador, tutor: Tutor, in
     tutor.contrasena_hash = hash_contrasena(contrasena)
     tutor.debe_cambiar = True
     cerrar_sesiones(db, "tutor", tutor.id)
+    invalidar_codigos(db, tutor.id)
     llave = f"acceso:{tutor.id}:{intento}"
     marca = Bitacora(operador_id=operador.id, actor=actor[:50], operacion=operacion, llave=llave)
     db.add(marca)

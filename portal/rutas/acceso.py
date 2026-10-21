@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from portal.db import get_db
 from portal.models import Operador, Sesion, Tutor
 from portal.seguridad import (
-    HASH_FALSO, hash_contrasena, ip_cliente, limite_excedido, normalizar_usuario, registrar_intento,
+    HASH_FALSO, hash_contrasena, invalidar_codigos, ip_cliente, limite_excedido, normalizar_usuario, registrar_intento,
     validar_contrasena_nueva, verificar_contrasena,
 )
 from portal.sesiones import (
@@ -154,6 +154,7 @@ def cambiar(request: Request, actual: str = Form(""), nueva: str = Form(""),
 
     tutor.contrasena_hash = hash_contrasena(nueva)
     tutor.debe_cambiar = False
+    invalidar_codigos(db, tutor.id)
     cerrar_sesiones(db, "tutor", tutor.id, excepto_token=request.cookies[COOKIE])
     db.commit()  # una sola transacción: o cambia la contraseña y se cierran las demás, o nada
     return RedirectResponse("/", status_code=303)

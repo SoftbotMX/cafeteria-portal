@@ -1,13 +1,16 @@
 import hashlib
 import re
-from datetime import datetime, timedelta, timezone
+import logging
+from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import func
 
 from portal.models import CodigoRecuperacion, IntentoLogin, Sesion
 from portal.seguridad import verificar_contrasena
 from tests.conduit_falso import ConduitFalso
+from portal.rutas import recuperar as ruta
 from tests.fabricas import crear_operador, crear_tutor, csrf_de, entrar_tutor
 
 MISMA = "Si el usuario existe, te mandamos un código"
@@ -115,7 +118,7 @@ def test_codigo_expirado_no_vale(db, op, c, conduit):
     t = crear_tutor(db, op)
     _pedir(c, "8341445807")
     fila = db.query(CodigoRecuperacion).one()
-    fila.expira = datetime.now(timezone.utc) - timedelta(seconds=1)
+    fila.expira = func.now() - timedelta(minutes=1)  # reloj de la BD
     db.commit()
     r = _cambiar(c, "8341445807", _codigo_enviado(conduit))
     assert r.status_code == 400
@@ -133,7 +136,7 @@ def test_quinto_fallo_quema_el_codigo(db, op, c, conduit):
     fila = db.query(CodigoRecuperacion).one()
     db.refresh(fila)
     assert fila.intentos == 5 and fila.usado is True
-    assert _cambiar(c, "8341445807", bueno).status_code in (400, 429)
+    assert _cambiar(c, "8341445807", bueno).status_code == 429  # límite por usuario (5 fallos)
     db.expire_all()
     assert not verificar_contrasena(t.contrasena_hash, "nueva-clave-1")
     assert db.query(IntentoLogin).filter_by(exito=False).count() >= 5
@@ -202,3 +205,119 @@ def test_falla_el_envio_misma_respuesta(db, op, c, conduit):
 
 def test_enlace_en_entrar(op, c):
     assert "/recuperar" in c.get("/entrar").text
+
+
+def _normalizar(html: str) -> str:
+    return re.sub(r'value="[^"]*"', 'value=""', html)
+
+
+def test_envio_en_segundo_plano_misma_pagina(db, op, c, app, conduit, monkeypatch):
+    import inspect
+    crear_tutor(db, op)
+    llamadas = []
+    original = ruta.enviar_al_tutor
+
+    def espia(*a, **kw):
+        llamadas.append([f.function for f in inspect.stack()])
+        return original(*a, **kw)
+
+    monkeypatch.setattr(ruta, "enviar_al_tutor", espia)
+    otro = TestClient(app, base_url="https://cafeteria.test", follow_redirects=False)
+    a = _pedir(c, "8341445807")
+    b = _pedir(otro, "8340000000")
+    assert a.status_code == b.status_code == 303
+    assert a.headers["location"].replace("8341445807", "X") == b.headers["location"].replace("8340000000", "X")
+    assert _normalizar(c.get(a.headers["location"]).text) == _normalizar(otro.get(b.headers["location"]).text)
+    assert len(llamadas) == 1 and "_enviar_codigo" in llamadas[0] and "pedir" not in llamadas[0]
+    assert len(conduit.enviados) == 1
+
+
+def test_envio_fallido_misma_pagina_y_aviso_en_log(db, op, c, conduit, caplog):
+    crear_tutor(db, op)
+    conduit.responder = 500
+    with caplog.at_level(logging.INFO):
+        r = _pedir(c, "8341445807")
+    assert r.status_code == 303 and "u=8341445807" in r.headers["location"]
+    assert any(rec.levelno >= logging.WARNING and "estado=" in rec.getMessage() for rec in caplog.records)
+    assert not any(re.search(r"\b\d{6}\b", rec.getMessage()) for rec in caplog.records)
+
+
+def test_sin_canal_se_registra_como_aviso(db, caplog, c, op):
+    crear_tutor(db, op, telefono=None, correo="ana@mail.com")
+    with caplog.at_level(logging.INFO):
+        assert _pedir(c, "ana@mail.com").status_code == 303
+    assert any(rec.levelno == logging.WARNING and "sin_canal" in rec.getMessage() for rec in caplog.records)
+
+
+def _quemado(db, tutor, n=5):
+    db.add(CodigoRecuperacion(tutor_id=tutor.id, codigo_hash="x", expira=func.now() + timedelta(minutes=5),
+                              intentos=n, usado=True))
+    db.commit()
+
+
+def test_tope_de_10_fallos_por_tutor_no_emite_codigo_nuevo(db, op, c, conduit):
+    t = crear_tutor(db, op)
+    _quemado(db, t)
+    _quemado(db, t)
+    r = _pedir(c, "8341445807")
+    assert r.status_code == 303 and conduit.enviados == []
+    assert db.query(CodigoRecuperacion).filter_by(usado=False).count() == 0
+
+
+def test_tope_de_10_fallos_por_tutor_no_acepta_codigo_vigente(db, op, c):
+    t = crear_tutor(db, op)
+    _quemado(db, t)
+    _quemado(db, t)
+    db.add(CodigoRecuperacion(tutor_id=t.id, codigo_hash=hashlib.sha256(b"123456").hexdigest(),
+                              expira=func.now() + timedelta(minutes=5)))
+    db.commit()
+    r = _cambiar(c, "8341445807", "123456")
+    assert r.status_code == 400
+    db.expire_all()
+    assert not verificar_contrasena(t.contrasena_hash, "nueva-clave-1")
+
+
+def test_bajo_el_tope_el_codigo_sigue_valiendo(db, op, c):
+    t = crear_tutor(db, op)
+    _quemado(db, t, 4)
+    db.add(CodigoRecuperacion(tutor_id=t.id, codigo_hash=hashlib.sha256(b"123456").hexdigest(),
+                              expira=func.now() + timedelta(minutes=5)))
+    db.commit()
+    assert _cambiar(c, "8341445807", "123456").status_code == 303
+
+
+def test_solicitudes_simultaneas_respetan_el_limite(db, op, app, conduit):
+    import threading
+    crear_tutor(db, op)
+    codigos = []
+
+    def pedir():
+        cl = TestClient(app, base_url="https://cafeteria.test", follow_redirects=False)
+        codigos.append(_pedir(cl, "8341445807").status_code)
+
+    hilos = [threading.Thread(target=pedir) for _ in range(8)]
+    [h.start() for h in hilos]
+    [h.join() for h in hilos]
+    assert codigos.count(303) == 3 and codigos.count(429) == 5
+    assert len(conduit.enviados) == 3
+
+
+def test_cambiar_contrasena_logueado_invalida_codigos(db, op, c, conduit):
+    crear_tutor(db, op, debe_cambiar=False)
+    _pedir(c, "8341445807")
+    entrar_tutor(c, "8341445807", "temporal123")
+    pagina = c.get("/cambiar-contrasena")
+    r = c.post("/cambiar-contrasena", data={"actual": "temporal123", "nueva": "otra-clave-77",
+                                            "confirmar": "otra-clave-77", "csrf": csrf_de(pagina)})
+    assert r.status_code == 303
+    assert db.query(CodigoRecuperacion).filter_by(usado=False).count() == 0
+
+
+def test_reenvio_de_acceso_invalida_codigos(db, op, app, conduit):
+    from portal.credenciales import entregar_credenciales
+    t = crear_tutor(db, op)
+    db.add(CodigoRecuperacion(tutor_id=t.id, codigo_hash="x", expira=func.now() + timedelta(minutes=5)))
+    db.commit()
+    entregar_credenciales(db, app, op, t, 1)
+    db.commit()
+    assert db.query(CodigoRecuperacion).filter_by(usado=False).count() == 0

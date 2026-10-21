@@ -5,10 +5,10 @@ from datetime import datetime, timedelta, timezone
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
-from portal.models import IntentoLogin
+from portal.models import CodigoRecuperacion, IntentoLogin
 
 _hasher = PasswordHasher()
 
@@ -65,7 +65,7 @@ def validar_contrasena_nueva(c: str) -> str | None:
 def limite_excedido(db: Session, operador_id: int, usuario: str, ip: str) -> bool:
     """5 fallos por usuario o 20 por IP en 15 min. La IP es request.client.host:
     en P4 uvicorn debe correr con --proxy-headers tras nginx, o todos serían la IP del proxy."""
-    desde = datetime.now(timezone.utc) - VENTANA_INTENTOS
+    desde = func.now() - VENTANA_INTENTOS  # reloj de la BD, el mismo que llena `creado`
     base = select(func.count()).select_from(IntentoLogin).where(
         IntentoLogin.operador_id == operador_id,
         IntentoLogin.exito.is_(False),
@@ -75,6 +75,21 @@ def limite_excedido(db: Session, operador_id: int, usuario: str, ip: str) -> boo
     if por_usuario >= MAX_FALLOS_USUARIO:
         return True
     return db.scalar(base.where(IntentoLogin.ip == ip)) >= MAX_FALLOS_IP
+
+
+def bloquear_limites(db: Session, operador_id: int, *claves: str) -> None:
+    """Serializa las solicitudes que comparten clave (hasta el commit) para que contar y registrar
+    el intento sea atómico. Orden fijo: dos solicitudes con las mismas claves no se bloquean entre sí."""
+    for k in sorted({f"{operador_id}:{_usuario_bd(c)}" for c in claves}):
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": k})
+
+
+def invalidar_codigos(db: Session, tutor_id: int) -> None:
+    """Marca como usados los códigos de recuperación pendientes del tutor (flush, sin commit)."""
+    db.execute(update(CodigoRecuperacion).where(
+        CodigoRecuperacion.tutor_id == tutor_id, CodigoRecuperacion.usado.is_(False)
+    ).values(usado=True))
+    db.flush()
 
 
 def registrar_intento(db: Session, operador_id: int, usuario: str, ip: str, exito: bool) -> None:

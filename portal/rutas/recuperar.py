@@ -8,9 +8,9 @@ import secrets
 from datetime import timedelta
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from portal.credenciales import enviar_al_tutor
@@ -21,7 +21,7 @@ from portal.rutas.acceso import (
     csrf_prelogin_valido, pagina_prelogin,
 )
 from portal.seguridad import (
-    VENTANA_INTENTOS, hash_contrasena, ip_cliente, limite_excedido, normalizar_usuario,
+    VENTANA_INTENTOS, bloquear_limites, hash_contrasena, invalidar_codigos, ip_cliente, limite_excedido, normalizar_usuario,
     registrar_intento, validar_contrasena_nueva,
 )
 from portal.sesiones import cerrar_sesiones, operador_actual
@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 VIGENCIA = timedelta(minutes=15)
 MAX_SOLICITUDES = 3
 MAX_FALLOS_CODIGO = 5
+MAX_FALLOS_TUTOR_24H = 10  # suma de intentos fallidos de todos sus códigos en 24 h
 MENSAJE = "Si el usuario existe, te mandamos un código"
 MSG_CODIGO_MALO = "El código es incorrecto o ya venció."
 # Prefijos que el login nunca produce (sus claves son teléfono, correo o "invalido").
@@ -63,6 +64,31 @@ def _solicitudes_recientes(db: Session, operador_id: int, clave: str) -> int:
         IntentoLogin.creado >= func.now() - VENTANA_INTENTOS)) or 0
 
 
+def _tutor_bloqueado(db: Session, tutor_id: int) -> bool:
+    """Tope por tutor: 10 intentos fallidos en 24 h entre todos sus códigos."""
+    total = db.scalar(select(func.coalesce(func.sum(CodigoRecuperacion.intentos), 0)).where(
+        CodigoRecuperacion.tutor_id == tutor_id,
+        CodigoRecuperacion.creado >= func.now() - timedelta(hours=24)))
+    return total >= MAX_FALLOS_TUTOR_24H
+
+
+def _enviar_codigo(app, operador_id: int, tutor_id: int, codigo: str, llave: str) -> None:
+    """Tarea en segundo plano: así el tiempo de respuesta no depende de que el tutor exista.
+    Recibe sólo valores simples y abre su propia sesión."""
+    try:
+        with Session(app.state.engine) as db:
+            operador = db.get(Operador, operador_id)
+            tutor = db.get(Tutor, tutor_id)
+            canal, estado, _ = enviar_al_tutor(
+                db, app, operador, tutor,
+                f"Tu código para cambiar tu contraseña del portal de la cafetería es {codigo}. "
+                "Vence en 15 minutos.", llave, asunto="Tu código para cambiar tu contraseña")
+        nivel = logging.WARNING if estado in ("error", "sin_canal") else logging.INFO
+        log.log(nivel, "Código de recuperación: tutor=%s canal=%s estado=%s", tutor_id, canal, estado)
+    except Exception:  # el código nunca va al log
+        log.exception("No se pudo enviar el código de recuperación (tutor %s)", tutor_id)
+
+
 def _buscar_tutor(db: Session, operador: Operador, clave: str) -> Tutor | None:
     if not _usuario_valido(clave):
         return None
@@ -76,7 +102,7 @@ def pedir_form(request: Request, _: Operador = Depends(operador_actual)):
 
 
 @router.post("/recuperar")
-def pedir(request: Request, usuario: str = Form(""), csrf: str = Form(""),
+def pedir(request: Request, tareas: BackgroundTasks, usuario: str = Form(""), csrf: str = Form(""),
           operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
     if not csrf_prelogin_valido(request, csrf):
         return _pagina_pedir(request, secrets.token_urlsafe(32), 403, MSG_EXPIRO, usuario)
@@ -85,9 +111,12 @@ def pedir(request: Request, usuario: str = Form(""), csrf: str = Form(""),
     clave = normalizar_usuario(usuario)
     valido = _usuario_valido(clave)
     clave_intento = P_SOLICITUD + (clave if valido else CLAVE_INVALIDA)
+    # Contar y registrar es atómico: solicitudes simultáneas se turnan por clave y por IP.
+    bloquear_limites(db, operador.id, clave_intento, "ip:" + ip)
     # Umbral propio (3), aparte del 5 del login; la IP sí comparte su límite de 20.
     if (valido and _solicitudes_recientes(db, operador.id, clave) >= MAX_SOLICITUDES) \
             or limite_excedido(db, operador.id, clave_intento, ip):
+        db.rollback()
         return _pagina_pedir(request, cookie, 429, MSG_LIMITE, usuario)
     registrar_intento(db, operador.id, clave_intento, ip, exito=False)
 
@@ -97,24 +126,18 @@ def pedir(request: Request, usuario: str = Form(""), csrf: str = Form(""),
     if tutor is not None and tutor.activo:
         # Serializa las emisiones del mismo tutor: queda un solo código vigente.
         db.refresh(tutor, with_for_update=True)
-        codigo = f"{secrets.randbelow(10**6):06d}"
-        db.execute(update(CodigoRecuperacion).where(
-            CodigoRecuperacion.tutor_id == tutor.id, CodigoRecuperacion.usado.is_(False)
-        ).values(usado=True))
-        nuevo = CodigoRecuperacion(tutor_id=tutor.id, codigo_hash=_hash(codigo),
-                                   expira=func.now() + VIGENCIA)
-        db.add(nuevo)
-        db.flush()
+        if tutor.activo and not _tutor_bloqueado(db, tutor.id):
+            codigo = f"{secrets.randbelow(10**6):06d}"
+            invalidar_codigos(db, tutor.id)
+            nuevo = CodigoRecuperacion(tutor_id=tutor.id, codigo_hash=_hash(codigo),
+                                       expira=func.now() + VIGENCIA)
+            db.add(nuevo)
+            db.flush()
     llave = f"recuperar:{nuevo.id}" if nuevo else ""
+    tutor_id = tutor.id if nuevo else None
     db.commit()  # antes de enviar: lo enviado siempre existe en la BD
     if nuevo is not None:
-        try:
-            enviar_al_tutor(
-                db, request.app, operador, tutor,
-                f"Tu código para cambiar tu contraseña del portal de la cafetería es {codigo}. "
-                "Vence en 15 minutos.", llave)
-        except Exception:  # la respuesta no debe delatar nada; el código nunca va al log
-            log.exception("No se pudo enviar el código de recuperación (tutor %s)", tutor.id)
+        tareas.add_task(_enviar_codigo, request.app, operador.id, tutor_id, codigo, llave)
     return RedirectResponse(f"/recuperar/codigo?u={quote(clave, safe='@')}", status_code=303)
 
 
@@ -133,7 +156,9 @@ def codigo(request: Request, usuario: str = Form(""), codigo: str = Form(""),
     ip = ip_cliente(request)
     clave = normalizar_usuario(usuario)
     clave_intento = P_CODIGO + (clave if _usuario_valido(clave) else CLAVE_INVALIDA)
+    bloquear_limites(db, operador.id, clave_intento, "ip:" + ip)
     if limite_excedido(db, operador.id, clave_intento, ip):
+        db.rollback()
         return _pagina_codigo(request, cookie, 429, MSG_LIMITE, usuario)
 
     # Antes de mirar el código: así un error de formato no revela si el código era bueno.
@@ -147,6 +172,9 @@ def codigo(request: Request, usuario: str = Form(""), codigo: str = Form(""),
     fila = None
     if tutor is not None and tutor.activo:
         db.refresh(tutor, with_for_update=True)  # mismo orden de bloqueos que pedir(): tutor, luego código
+        if not tutor.activo or _tutor_bloqueado(db, tutor.id):
+            tutor = None
+    if tutor is not None and tutor.activo:
         # FOR UPDATE: dos envíos simultáneos no pueden usar el mismo código ni saltarse el conteo.
         fila = db.scalar(select(CodigoRecuperacion).where(
             CodigoRecuperacion.tutor_id == tutor.id, CodigoRecuperacion.usado.is_(False),
@@ -162,9 +190,7 @@ def codigo(request: Request, usuario: str = Form(""), codigo: str = Form(""),
         db.commit()
         return _pagina_codigo(request, cookie, 400, MSG_CODIGO_MALO, usuario)
 
-    db.execute(update(CodigoRecuperacion).where(
-        CodigoRecuperacion.tutor_id == tutor.id, CodigoRecuperacion.usado.is_(False)
-    ).values(usado=True))
+    invalidar_codigos(db, tutor.id)
     tutor.contrasena_hash = hash_contrasena(nueva)
     tutor.debe_cambiar = False
     cerrar_sesiones(db, "tutor", tutor.id)
