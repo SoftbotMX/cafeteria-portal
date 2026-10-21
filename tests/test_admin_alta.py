@@ -217,6 +217,7 @@ def test_alta_sin_conexion_al_tpv_conserva_formulario(db, op, admin, tpv):
     tpv.fallar_en = {"admin/tutor/crear"}
     r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta")))
     assert r.status_code >= 400 and "María Pérez" in r.text
+    assert "No se pudo contactar al TPV" in r.text
     assert db.query(Tutor).count() == 0
     assert db.query(Bitacora).filter_by(operacion="admin/tutor/crear", http_status=503).count() == 1
 
@@ -411,3 +412,37 @@ def test_alta_completa_muestra_estado_guardado_del_envio(db, op, admin, tpv, con
     admin.post("/admin/alta", data=datos)
     r = admin.post("/admin/alta", data=datos)
     assert 'id="envio">error<' in r.text
+
+
+def test_tpv_4xx_distinto_de_llave_reutilizada_pide_revisar_los_datos(db, op, admin, tpv):
+    import httpx
+    original = tpv._operar
+
+    def _operar(op_, d):
+        if op_ == "admin/alumno/crear":
+            return httpx.Response(400, json={"ok": False, "error": {
+                "codigo": "matricula_duplicada", "mensaje": "La matrícula ya existe."}})
+        return original(op_, d)
+
+    tpv._operar = _operar
+    r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta")))
+    assert r.status_code == 400 and "Revisa los datos y reintenta." in r.text
+    assert "La matrícula ya existe." in r.text
+    assert "No se pudo contactar" not in r.text and "Los datos cambiaron" not in r.text
+
+
+def test_tutor_solo_correo_con_conduit_roto_va_por_correo(db, op, admin, tpv, conduit, app, monkeypatch):
+    from cryptography.fernet import Fernet
+    from portal.cifrado import cifrar
+    op.conduit_secreto_cif = cifrar("x", Fernet.generate_key().decode())
+    db.commit()
+    monkeypatch.setattr(app.state.settings, "smtp_host", "smtp.test")
+    enviados = []
+    monkeypatch.setattr("portal.credenciales.enviar_correo",
+                        lambda settings, para, asunto, texto: enviados.append((para, texto)))
+    r = admin.post("/admin/alta", data=datos_alta(
+        admin.get("/admin/alta"), telefono="", correo="mama@mail.com"))
+    assert r.status_code == 200
+    assert 'id="canal">correo<' in r.text and 'id="estado">enviado<' in r.text
+    assert len(enviados) == 1 and enviados[0][0] == "mama@mail.com"
+    assert _contrasena(r) in enviados[0][1] and conduit.enviados == []

@@ -47,11 +47,13 @@ def enviar_al_tutor(db: Session, app, operador: Operador, tutor: Tutor, texto: s
                     llave: str) -> tuple[str | None, str, str]:
     """(canal, estado, detalle). WhatsApp si hay teléfono y Conduit; si no, correo si hay SMTP."""
     settings = app.state.settings
-    try:
-        secreto = _secreto_conduit(operador, settings.fernet_key)
-    except ErrorEntrega as e:
-        return "whatsapp", "error", str(e)
-    if tutor.telefono and operador.conduit_url and operador.conduit_client_id and secreto:
+    if tutor.telefono and operador.conduit_url and operador.conduit_client_id \
+            and operador.conduit_secreto_cif:
+        # Sólo aquí se descifra: un secreto de Conduit roto no debe afectar a quien va por correo.
+        try:
+            secreto = _secreto_conduit(operador, settings.fernet_key)
+        except ErrorEntrega as e:
+            return "whatsapp", "error", str(e)
         try:
             estado = enviar_whatsapp(
                 operador.conduit_url, operador.conduit_client_id, secreto, tutor.telefono, texto,
