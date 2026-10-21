@@ -39,6 +39,9 @@ class TPVFalso:
         self.precompras: dict[tuple, tuple] = {}  # (tutor_ref, llave) -> (contenido, pedido)
         self.cancelaciones: dict[tuple, tuple] = {}  # (tutor_ref, llave) -> (huella, respuesta)
         self.cuerpos_cancelar: list[dict] = []  # lo que el portal mandó a precompra/cancelar
+        self.una_vez: dict[tuple, tuple] = {}  # (tutor_ref, llave) -> (huella, respuesta): _sb_una_vez
+        self.cuerpos_permiso: list[dict] = []  # lo que el portal mandó a alumno/permiso
+        self.cuerpos_credencial: list[tuple[str, dict]] = []  # (operación, cuerpo) de credencial/*
         self.hoy: date | None = None  # fija el «hoy» del TPV; por omisión, el de México
         self.transport = httpx.MockTransport(self._manejar)
 
@@ -85,12 +88,90 @@ class TPVFalso:
         t["alumnos"].append(al)
         return al
 
+    @staticmethod
+    def _ficha(al: dict) -> dict:
+        """Como `_ficha` del TPV real: sólo las credenciales ACTIVAS (clave `activa` opcional en
+        el fake, ausente = activa) y de ellas sólo id, tipo y bloqueada."""
+        f = copy.deepcopy(al)
+        f["credenciales"] = [{"id": c["id"], "tipo": c["tipo"], "bloqueada": bool(c.get("bloqueada"))}
+                             for c in al["credenciales"] if c.get("activa", True)]
+        return f
+
+    def _una_vez(self, op: str, d: dict, autorizar, ejecutar) -> httpx.Response:
+        """Imita _sb_una_vez del TPV real (alumno/permiso y credencial/*): llave obligatoria; la
+        autorización se revisa SIEMPRE, también al repetir; repetir devuelve la respuesta GUARDADA
+        sin ejecutar; la misma llave con otro contenido (u otra operación: la llave guardada es de
+        todas) es 409 `llave_reutilizada`. Los errores de `ejecutar` no se guardan."""
+        t = self.tutores.get(d.get("tutor_ref"))
+        if not t or not t["activo"]:
+            return _err("tutor_desconocido", "Tutor desconocido.", 404)
+        llave = (d.get("llave") or "").strip() if isinstance(d.get("llave"), str) else ""
+        if not llave or len(llave) > 120:
+            return _err("falta_llave", "Toda escritura lleva su llave de idempotencia.", 400)
+        error = autorizar(t)
+        if error is not None:
+            return error
+        huella = json.dumps([op, d], sort_keys=True, default=str)
+        previa = self.una_vez.get((t["tutor_ref"], llave))
+        if previa:
+            if previa[0] != huella:
+                return _err("llave_reutilizada", "Esa llave ya se usó para otra operación.", 409)
+            return httpx.Response(200, json=copy.deepcopy(previa[1]))
+        resultado = ejecutar(t)
+        if isinstance(resultado, httpx.Response):
+            return resultado
+        resp = {"ok": True, **resultado}
+        self.una_vez[(t["tutor_ref"], llave)] = (huella, copy.deepcopy(resp))
+        return httpx.Response(200, json=resp)
+
+    def _permiso(self, d: dict) -> httpx.Response:
+        """Como op_alumno_permiso: alumno ajeno = desconocido; `compra_sin_pedido` ha de ser un
+        booleano estricto (nada de "no", 0 ni "false"), si no `dato_invalido`."""
+        def autorizar(t):
+            if d.get("alumno_id") not in [a["id"] for a in t["alumnos"]]:
+                return _err("alumno_desconocido", "Alumno desconocido.", 404)
+
+        def ejecutar(t):
+            valor = d.get("compra_sin_pedido")
+            if not isinstance(valor, bool):
+                return _err("dato_invalido", "compra_sin_pedido tiene que ser true o false.", 400)
+            al = self.alumnos[d["alumno_id"]]
+            al["compra_sin_pedido"] = valor
+            return {"alumno": self._ficha(al)}
+
+        self.cuerpos_permiso.append(copy.deepcopy(d))
+        return self._una_vez("alumno_permiso", d, autorizar, ejecutar)
+
+    def _credencial(self, op: str, d: dict) -> httpx.Response:
+        """Como op_credencial_bloquear/desbloquear: la credencial ha de ser de un alumno de este
+        tutor (aunque esté inactiva y no salga en la ficha), si no 404 `credencial_desconocida`.
+        Bloquear lo ya bloqueado no cambia nada y es OK."""
+        def buscar(t):
+            for a in t["alumnos"]:
+                for c in a["credenciales"]:
+                    if isinstance(d.get("credencial_id"), int) and c["id"] == d["credencial_id"]:
+                        return a, c
+            return None
+
+        def autorizar(t):
+            if buscar(t) is None:
+                return _err("credencial_desconocida", "Credencial desconocida.", 404)
+
+        def ejecutar(t):
+            alumno, cred = buscar(t)
+            cred["bloqueada"] = op == "credencial/bloquear"
+            return {"alumno": self._ficha(alumno)}
+
+        self.cuerpos_credencial.append((op, copy.deepcopy(d)))
+        return self._una_vez(op.replace("/", "_"), d, autorizar, ejecutar)
+
     def _lectura_tutor(self, op: str, d: dict) -> httpx.Response | None:
         t = self.tutores.get(d.get("tutor_ref"))
         if not t or not t["activo"]:
             return _err("tutor_desconocido", "Tutor desconocido.", 404)
         if op == "tutor/alumnos":
-            return httpx.Response(200, json={"ok": True, "alumnos": copy.deepcopy(t["alumnos"])})
+            return httpx.Response(200, json={"ok": True,
+                                             "alumnos": [self._ficha(a) for a in t["alumnos"]]})
         # Un alumno ajeno responde igual que uno inexistente.
         if d.get("alumno_id") not in [a["id"] for a in t["alumnos"]]:
             return _err("alumno_desconocido", "Alumno desconocido.", 404)
@@ -225,6 +306,10 @@ class TPVFalso:
             return self._alumno_pedidos(d)
         if op == "precompra/cancelar":
             return self._cancelar(d)
+        if op == "alumno/permiso":
+            return self._permiso(d)
+        if op in ("credencial/bloquear", "credencial/desbloquear"):
+            return self._credencial(op, d)
         if op == "admin/tutor/detalle":
             t = self.tutores.get(d.get("tutor_ref"))
             if not t:
