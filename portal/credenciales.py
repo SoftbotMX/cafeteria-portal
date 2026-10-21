@@ -1,6 +1,7 @@
 """Entrega de accesos al tutor: contraseña temporal + envío por WhatsApp o correo."""
 from dataclasses import dataclass, field
 
+from cryptography.fernet import InvalidToken
 from sqlalchemy.orm import Session
 
 from portal.conduit import ErrorEnvio, enviar_whatsapp
@@ -8,6 +9,18 @@ from portal.correo import enviar_correo
 from portal.models import Bitacora, Operador, Tutor
 from portal.seguridad import generar_temporal, hash_contrasena
 from portal.sesiones import cerrar_sesiones
+
+class ErrorEntrega(Exception):
+    """No se pudo preparar la entrega; no se tocó la contraseña del tutor."""
+
+
+def _secreto_conduit(operador: Operador, llave_fernet: str) -> str | None:
+    try:
+        return operador.secreto_conduit(llave_fernet)
+    except (InvalidToken, ValueError):
+        raise ErrorEntrega("No se pudo leer la configuración de WhatsApp (llave de cifrado). "
+                           "Avisa a soporte.") from None
+
 
 SIN_CANAL = "No hay un canal disponible: entrega la contraseña en persona."
 
@@ -34,7 +47,10 @@ def enviar_al_tutor(db: Session, app, operador: Operador, tutor: Tutor, texto: s
                     llave: str) -> tuple[str | None, str, str]:
     """(canal, estado, detalle). WhatsApp si hay teléfono y Conduit; si no, correo si hay SMTP."""
     settings = app.state.settings
-    secreto = operador.secreto_conduit(settings.fernet_key)
+    try:
+        secreto = _secreto_conduit(operador, settings.fernet_key)
+    except ErrorEntrega as e:
+        return "whatsapp", "error", str(e)
     if tutor.telefono and operador.conduit_url and operador.conduit_client_id and secreto:
         try:
             estado = enviar_whatsapp(
@@ -55,6 +71,10 @@ def enviar_al_tutor(db: Session, app, operador: Operador, tutor: Tutor, texto: s
 
 def entregar_credenciales(db: Session, app, operador: Operador, tutor: Tutor, intento: int,
                           actor: str = "admin") -> ResultadoEntrega:
+    # Antes de tocar la contraseña: si el secreto no se puede leer, no queda un acceso «entregado»
+    # que nadie recibió.
+    if tutor.telefono:
+        _secreto_conduit(operador, app.state.settings.fernet_key)
     contrasena = generar_temporal()
     tutor.contrasena_hash = hash_contrasena(contrasena)
     tutor.debe_cambiar = True
@@ -67,7 +87,8 @@ def entregar_credenciales(db: Session, app, operador: Operador, tutor: Tutor, in
     db.commit()
     canal, estado, detalle = enviar_al_tutor(
         db, app, operador, tutor, texto_acceso(operador, tutor, contrasena), llave)
-    if estado not in ("enviado", "en_curso"):
+    marca.http_status = 200  # sin esto, el envío quedó interrumpido
+    if estado != "enviado":
         marca.codigo_error = estado
     db.flush()  # la ruta confirma al final
     return ResultadoEntrega(contrasena, canal, estado, detalle)

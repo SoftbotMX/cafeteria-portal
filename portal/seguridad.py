@@ -80,3 +80,11 @@ def limite_excedido(db: Session, operador_id: int, usuario: str, ip: str) -> boo
 def registrar_intento(db: Session, operador_id: int, usuario: str, ip: str, exito: bool) -> None:
     db.add(IntentoLogin(operador_id=operador_id, usuario=_usuario_bd(usuario), ip=ip[:64], exito=exito))
     db.flush()
+
+
+# Verificar contra un hash falso cuando el usuario no existe: mismo tiempo que con uno real.
+HASH_FALSO = hash_contrasena("sin-usuario-" + secrets.token_hex(8))
+
+
+def ip_cliente(request) -> str:
+    return request.client.host if request.client else "desconocida"

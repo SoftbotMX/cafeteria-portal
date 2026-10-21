@@ -3,5 +3,6 @@
 {% block contenido %}
 <h1>Este alta ya se completó</h1>
 <p>{{ tutor.nombre }} ya tiene su acceso y sus hijos dados de alta. No se generó otra contraseña. Si el tutor no recibió su acceso, usa «Reenviar acceso» desde su ficha: genera una contraseña nueva.</p>
+<p>Estado del envío de acceso: <span id="envio">{{ envio }}</span></p>
 <p><a href="/admin">Ver en la lista de tutores</a> · <a href="/admin/alta">Dar de alta otro</a></p>
 {% endblock %}

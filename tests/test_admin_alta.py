@@ -317,3 +317,97 @@ def test_admin_con_usuario_largo_puede_dar_de_alta(db, op, c, tpv, conduit):
     assert entrar_admin(c, "u" * 90).status_code == 303
     r = c.post("/admin/alta", data=datos_alta(c.get("/admin/alta")))
     assert r.status_code == 200 and db.query(Tutor).count() == 1
+
+
+# ---- ronda de correcciones 1 ----
+
+def _falla_en_hijo_2(admin, tpv):
+    datos = datos_alta(admin.get("/admin/alta"))
+    tpv.fallar_en = {"admin/alumno/crear"}
+    r = admin.post("/admin/alta", data=datos)
+    tpv.fallar_en = set()
+    return datos, r
+
+
+def test_falla_a_medias_vuelve_con_formulario_de_solo_lectura(db, op, admin, tpv):
+    datos, r = _falla_en_hijo_2(admin, tpv)
+    assert "Reintenta sin cambiar nada. Si algo está mal, termina el alta y corrígelo desde la ficha del tutor." in r.text
+    assert len(re.findall(r"<input[^>]* readonly", r.text)) == 3 + 2 * 2  # tutor + 2 hijos
+    assert r.text.count('name="hijo_nombre"') == 2  # sin filas vacías
+
+
+def test_falla_antes_del_tutor_deja_el_formulario_editable(db, op, admin, tpv):
+    tpv.fallar_en = {"admin/tutor/crear"}
+    r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta")))
+    assert "readonly" not in r.text and "Reintenta sin cambiar nada" not in r.text
+    assert r.text.count('name="hijo_nombre"') == 5
+
+
+def test_hijo_editado_tras_exito_parcial_no_duplica(db, op, admin, tpv, conduit):
+    datos = datos_alta(admin.get("/admin/alta"))
+    # TPV: el primer alumno entra y el segundo falla.
+    original = tpv._operar
+
+    def _operar(op_, d):
+        if op_ == "admin/alumno/crear" and d["nombre"] == "Sofía Pérez" and tpv.fallar_hijo2:
+            import httpx
+            return httpx.Response(503, json={"ok": False, "error": {"codigo": "x", "mensaje": "x"}})
+        return original(op_, d)
+
+    tpv.fallar_hijo2 = True
+    tpv._operar = _operar
+    r = admin.post("/admin/alta", data=datos)
+    assert r.status_code == 400 and len(tpv.alumnos) == 1
+    tpv.fallar_hijo2 = False
+    datos.update(csrf=csrf_de(r))
+    datos["hijo_nombre"] = ["Luis EDITADO", "Sofía Pérez", "", "", ""]
+    r2 = admin.post("/admin/alta", data=datos)
+    assert r2.status_code == 400
+    assert "Los datos cambiaron desde el primer intento. Reintenta con los datos originales o corrige desde la ficha del tutor." in r2.text
+    assert len(tpv.alumnos) == 1 and len(tpv.tutores) == 1 and db.query(Tutor).count() == 1
+    assert conduit.enviados == []
+
+
+def test_tpv_503_dice_no_se_pudo_contactar(db, op, admin, tpv):
+    _, r = _falla_en_hijo_2(admin, tpv)
+    assert "No se pudo contactar al TPV. Vuelve a intentar en un momento." in r.text
+
+
+def test_lista_marca_alta_incompleta(db, op, admin, tpv, conduit):
+    crear_tutor(db, op, telefono="8340000009", nombre="Sin alta web")
+    _falla_en_hijo_2(admin, tpv)
+    pagina = admin.get("/admin")
+    assert pagina.text.count("Alta incompleta") == 1
+    datos = datos_alta(admin.get("/admin/alta"))
+    admin.post("/admin/alta", data=datos)  # alta nueva completa
+    assert admin.get("/admin").text.count("Alta incompleta") == 1
+
+
+def test_carrera_de_telefono_no_pierde_la_bitacora_del_tpv(db, op, admin, tpv, monkeypatch):
+    import portal.alta as alta
+    crear_tutor(db, op, telefono="8341445807")
+    monkeypatch.setattr(alta, "_choque", lambda *a, **k: None)
+    r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta")))
+    assert r.status_code == 400
+    assert db.query(Bitacora).filter_by(operacion="admin/tutor/crear", http_status=200).count() == 1
+
+
+def test_llave_de_cifrado_mala_no_deja_acceso_entregado(db, op, admin, tpv, conduit):
+    from cryptography.fernet import Fernet
+    from portal.cifrado import cifrar
+    op.conduit_secreto_cif = cifrar("x", Fernet.generate_key().decode())
+    db.commit()
+    r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta")))
+    assert r.status_code == 500 and "configuración de WhatsApp" in r.text
+    assert 'id="contrasena"' not in r.text
+    t = db.query(Tutor).one()  # el tutor sobrevive
+    assert t.contrasena_hash == "!"
+    assert db.query(Bitacora).filter_by(operacion="entregar_acceso").count() == 0
+
+
+def test_alta_completa_muestra_estado_guardado_del_envio(db, op, admin, tpv, conduit):
+    conduit.responder = 500
+    datos = datos_alta(admin.get("/admin/alta"))
+    admin.post("/admin/alta", data=datos)
+    r = admin.post("/admin/alta", data=datos)
+    assert 'id="envio">error<' in r.text

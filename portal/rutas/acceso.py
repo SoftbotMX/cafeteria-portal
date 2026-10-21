@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from portal.db import get_db
 from portal.models import Operador, Sesion, Tutor
 from portal.seguridad import (
-    hash_contrasena, limite_excedido, normalizar_usuario, registrar_intento,
+    HASH_FALSO, hash_contrasena, ip_cliente, limite_excedido, normalizar_usuario, registrar_intento,
     validar_contrasena_nueva, verificar_contrasena,
 )
 from portal.sesiones import (
@@ -27,16 +27,10 @@ MSG_EXPIRO = "Tu sesión expiró, vuelve a intentarlo."
 # contraseña ("cambio:<id>") nunca se pueden producir desde el login.
 CLAVE_INVALIDA = "invalido"
 MSG_LIMITE = "Demasiados intentos. Espera 15 minutos."
-# Verificar contra un hash falso cuando el usuario no existe: mismo tiempo que con uno real.
-_HASH_FALSO = hash_contrasena("sin-usuario-" + secrets.token_hex(8))
 
 
 def _usuario_valido(clave: str) -> bool:
     return "@" in clave or (len(clave) == 10 and clave.isascii() and clave.isdigit())
-
-
-def _ip(request: Request) -> str:
-    return request.client.host if request.client else "desconocida"
 
 
 def _pagina_entrar(request: Request, csrf: str, status: int = 200, error: str | None = None,
@@ -64,7 +58,7 @@ def entrar(request: Request, usuario: str = Form(""), contrasena: str = Form("")
         exigir_csrf(csrf, cookie)
     except HTTPException:
         return _pagina_entrar(request, secrets.token_urlsafe(32), 403, MSG_EXPIRO, usuario)
-    ip = _ip(request)
+    ip = ip_cliente(request)
     clave = normalizar_usuario(usuario)
     valido = _usuario_valido(clave)
     # Un usuario inválido no escribe intentos bajo una clave arbitraria; cuenta solo por IP.
@@ -76,7 +70,7 @@ def entrar(request: Request, usuario: str = Form(""), contrasena: str = Form("")
     if valido:
         campo = Tutor.correo if "@" in clave else Tutor.telefono
         tutor = db.scalar(select(Tutor).where(Tutor.operador_id == operador.id, campo == clave))
-    ok = verificar_contrasena(tutor.contrasena_hash if tutor else _HASH_FALSO, contrasena)
+    ok = verificar_contrasena(tutor.contrasena_hash if tutor else HASH_FALSO, contrasena)
     if tutor is None or not ok or not tutor.activo:
         registrar_intento(db, operador.id, clave_intento, ip, exito=False)
         db.commit()
@@ -131,10 +125,10 @@ def cambiar(request: Request, actual: str = Form(""), nueva: str = Form(""),
 
     # La contraseña actual es adivinable con una sesión robada: mismo límite que el login.
     clave = f"cambio:{tutor.id}"
-    if limite_excedido(db, tutor.operador_id, clave, _ip(request)):
+    if limite_excedido(db, tutor.operador_id, clave, ip_cliente(request)):
         return _pagina_cambio(request, sesion, tutor, 429, MSG_LIMITE)
     if not verificar_contrasena(tutor.contrasena_hash, actual):
-        registrar_intento(db, tutor.operador_id, clave, _ip(request), exito=False)
+        registrar_intento(db, tutor.operador_id, clave, ip_cliente(request), exito=False)
         db.commit()
         return _pagina_cambio(request, sesion, tutor, 400, "La contraseña actual no es correcta.")
     error = validar_contrasena_nueva(nueva)

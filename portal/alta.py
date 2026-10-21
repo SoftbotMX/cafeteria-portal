@@ -52,11 +52,12 @@ def _llamar(db, operador, cliente, actor, operacion, cuerpo) -> dict:
 
 
 def _mensaje_tpv(e: ErrorTPV, paso: str) -> str:
-    if e.status in (0, -1):
-        return (f"No se pudo contactar al TPV ({paso}). Vuelve a intentarlo con el mismo "
-                "formulario: no se duplicará nada.")
-    return (f"El TPV rechazó la operación ({paso}): {e.mensaje} Revisa los datos y reintenta "
-            "con el mismo formulario.")
+    if e.codigo == "llave_reutilizada":
+        return ("Los datos cambiaron desde el primer intento. Reintenta con los datos originales "
+                "o corrige desde la ficha del tutor.")
+    if e.status <= 0 or e.status >= 500:
+        return "No se pudo contactar al TPV. Vuelve a intentar en un momento."
+    return f"El TPV rechazó la operación ({paso}): {e.mensaje} Revisa los datos y reintenta."
 
 
 def dar_de_alta(db: Session, operador: Operador, cliente: ClienteTPV, actor: str,
@@ -89,13 +90,16 @@ def dar_de_alta(db: Session, operador: Operador, cliente: ClienteTPV, actor: str
         tutor = Tutor(
             operador_id=operador.id, tutor_ref=ref, nombre=datos.nombre, telefono=datos.telefono,
             correo=datos.correo, contrasena_hash="!", debe_cambiar=True, alta_llave=datos.llave)
-        db.add(tutor)
         try:
-            db.flush()
+            # Savepoint: si falla el insert sólo se deshace éste y la fila de bitácora del TPV queda.
+            with db.begin_nested():
+                db.add(tutor)
         except IntegrityError:
-            db.rollback()
-            raise ErrorAlta("Otro alta con los mismos datos se está procesando. Espera un momento "
-                            "y reintenta con el mismo formulario.") from None
+            if tutor_por_llave(db, operador.id, datos.llave) is not None:
+                raise ErrorAlta("Otro alta con esta misma solicitud se está procesando. Espera "
+                                "un momento y reintenta.") from None
+            raise ErrorAlta(_choque(db, operador, datos, None)
+                            or "Ya hay un tutor con ese teléfono o correo") from None
 
     creados = []
     for i, (nombre, matricula) in enumerate(datos.hijos):

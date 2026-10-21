@@ -8,7 +8,7 @@
   <tbody>
   {% for t in tutores %}
     <tr>
-      <td>{{ t.nombre }}</td><td>{{ t.telefono or "—" }}</td><td>{{ t.correo or "—" }}</td>
+      <td>{{ t.nombre }}{% if t.id in incompletas %} <strong>Alta incompleta</strong>{% endif %}</td><td>{{ t.telefono or "—" }}</td><td>{{ t.correo or "—" }}</td>
       <td>{{ "Sí" if t.activo else "No" }}</td><td>{{ "Sí" if t.debe_cambiar else "No" }}</td>
     </tr>
   {% else %}
