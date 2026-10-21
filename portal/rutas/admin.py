@@ -1,11 +1,11 @@
 import re
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
 from portal.alta import DatosAlta, ErrorAlta, dar_de_alta, escribir_tpv, mensaje_tpv, tutor_por_llave
@@ -240,7 +240,7 @@ def _alumnos_del_tpv(cliente, tutor_ref: str) -> list[dict]:
                 isinstance(a, dict) and isinstance(a.get("id"), int) for a in alumnos):
             raise TypeError
     except ErrorTPV as e:
-        raise _SinTPV(mensaje_tpv(e, "consultar al tutor")) from None
+        raise _SinTPV(mensaje_tpv(e, "consultar al tutor", True)) from None
     except (KeyError, TypeError):
         raise _SinTPV("El TPV respondió algo inesperado al consultar al tutor.") from None
     return alumnos
@@ -257,7 +257,10 @@ def _tutor_o_404(db: Session, admin: Admin, tutor_id: int, bloquear: bool = Fals
 def _otro_o_404(db: Session, admin: Admin, tutor: Tutor, otro_id: int) -> Tutor:
     if otro_id == tutor.id:
         raise HTTPException(404)
-    return _tutor_o_404(db, admin, otro_id)
+    otro = _tutor_o_404(db, admin, otro_id)
+    if not otro.tutor_ref:
+        raise HTTPException(404)
+    return otro
 
 
 def _ficha(request: Request, sesion: Sesion, admin: Admin, operador: Operador, db: Session,
@@ -266,12 +269,23 @@ def _ficha(request: Request, sesion: Sesion, admin: Admin, operador: Operador, d
     """Pinta la ficha. Si el TPV falla, la ficha sale igual con las acciones que no lo necesitan."""
     cliente = cliente_admin(request.app, operador, request.app.state.settings.fernet_key)
     hijos, error_tpv = None, None
-    try:
-        hijos = _alumnos_del_tpv(cliente, tutor.tutor_ref)
-    except _SinTPV:
-        error_tpv = "No se pudo consultar el TPV. Vuelve a intentar en un momento."
+    if not tutor.tutor_ref:
+        error_tpv = MSG_SIN_REF
+    else:
+        try:
+            hijos = _alumnos_del_tpv(cliente, tutor.tutor_ref)
+        except _SinTPV:
+            error_tpv = "No se pudo consultar el TPV. Vuelve a intentar en un momento."
     otros = db.scalars(select(Tutor).where(
-        Tutor.operador_id == operador.id, Tutor.id != tutor.id).order_by(Tutor.nombre, Tutor.id)).all()
+        Tutor.operador_id == operador.id, Tutor.id != tutor.id, Tutor.tutor_ref != "")
+        .order_by(Tutor.nombre, Tutor.id)).all()
+    entregas = entregas_de(db, operador.id, tutor.id)
+    if not entregas:
+        ultima_entrega = None
+    elif entregas[-1].http_status is None:
+        ultima_entrega = "interrumpido: no se sabe si se envió"
+    else:
+        ultima_entrega = entregas[-1].codigo_error or "enviado"
     otro_tutor, hijos_otro = None, []
     if hijos is not None and otro is not None:
         otro_tutor = next((o for o in otros if o.id == otro), None)
@@ -288,6 +302,7 @@ def _ficha(request: Request, sesion: Sesion, admin: Admin, operador: Operador, d
         "hijos": hijos, "error_tpv": error_tpv, "error": error, "mensajes": mensajes or [],
         "hijo_form": hijo_form or {"llave": "", "nombre": "", "matricula": ""},
         "otros": otros, "otro_tutor": otro_tutor, "hijos_otro": hijos_otro,
+        "ultima_entrega": ultima_entrega,
         "incompleta": tutor.id not in tutores_con_entrega(db, operador.id),
         "intento": siguiente_intento(db, operador.id, tutor.id),
         "nueva_llave": lambda: str(uuid.uuid4())}, status_code=status)
@@ -300,7 +315,10 @@ def _ctx(request, par, operador, db, tutor_id, bloquear=False):
     return sesion, admin, _tutor_o_404(db, admin, tutor_id, bloquear)
 
 
+# Un envío vivo dura como mucho el timeout de Conduit (10 s) o del SMTP (15 s); 2 min deja holgura.
 ENVIO_EN_CURSO = timedelta(minutes=2)
+MSG_SIN_REF = ("El alta de este tutor no está completa en el TPV (no tiene referencia): "
+               "no se pueden consultar ni cambiar sus hijos.")
 MSG_FORM_CADUCO = "El formulario caducó. Revisa los datos y envíalo de nuevo."
 
 
@@ -319,7 +337,7 @@ def _escribir(request, db, operador, admin, tutor, operacion, cuerpo, paso):
         escribir_tpv(db, operador, cliente, f"admin:{admin.usuario}"[:50], operacion, cuerpo)
     except ErrorTPV as e:
         db.commit()  # la bitácora del intento fallido es verdad
-        return mensaje_tpv(e, paso)
+        return mensaje_tpv(e, paso, True)
     db.commit()
     return None
 
@@ -331,6 +349,8 @@ def agregar_hijo(request: Request, tutor_id: int, nombre: str = Form(""), matric
                  operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
     sesion, admin, tutor = _ctx(request, par, operador, db, tutor_id)
     exigir_csrf(csrf, sesion.csrf)
+    if not tutor.tutor_ref:
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_SIN_REF)
     nombre, matricula = nombre.strip(), matricula.strip()
     if not _LLAVE_OK.match(llave):
         return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_FORM_CADUCO,
@@ -359,6 +379,8 @@ def vincular(request: Request, tutor_id: int, otro_tutor_id: int = Form(...), al
              operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
     sesion, admin, tutor = _ctx(request, par, operador, db, tutor_id)
     exigir_csrf(csrf, sesion.csrf)
+    if not tutor.tutor_ref:
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_SIN_REF)
     otro = _otro_o_404(db, admin, tutor, otro_tutor_id)
     if not _LLAVE_OK.match(llave):
         return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_FORM_CADUCO)
@@ -386,6 +408,8 @@ def desvincular(request: Request, tutor_id: int, alumno_id: int = Form(...), lla
                 operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
     sesion, admin, tutor = _ctx(request, par, operador, db, tutor_id)
     exigir_csrf(csrf, sesion.csrf)
+    if not tutor.tutor_ref:
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_SIN_REF)
     if not _LLAVE_OK.match(llave):
         return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_FORM_CADUCO)
     cliente = cliente_admin(request.app, operador, request.app.state.settings.fernet_key)
@@ -422,8 +446,9 @@ def reenviar(request: Request, tutor_id: int, intento: int = Form(0), llave: str
         return _ficha(request, sesion, admin, operador, db, tutor, status=400,
                       error="El tutor está desactivado. Actívalo antes de reenviar su acceso.")
     previas = entregas_de(db, operador.id, tutor.id)
-    if previas and previas[-1].http_status is None and \
-            datetime.now(timezone.utc) - previas[-1].creado < ENVIO_EN_CURSO:
+    # La comparación va en SQL: el reloj es el de la BD, el mismo que puso `creado`.
+    if previas and previas[-1].http_status is None and db.scalar(select(exists().where(
+            Bitacora.id == previas[-1].id, Bitacora.creado > func.now() - ENVIO_EN_CURSO))):
         # El candado se suelta al confirmar la contraseña, antes de enviar: otro reenvío ahora
         # invalidaría la que aún está saliendo.
         db.rollback()

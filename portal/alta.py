@@ -52,8 +52,11 @@ def escribir_tpv(db, operador, cliente, actor, operacion, cuerpo) -> dict:
     return r
 
 
-def mensaje_tpv(e: ErrorTPV, paso: str) -> str:
+def mensaje_tpv(e: ErrorTPV, paso: str, en_ficha: bool = False) -> str:
     if e.codigo == "llave_reutilizada":
+        if en_ficha:
+            return ("Esta solicitud ya se había enviado con otros datos. Recarga la ficha y "
+                    "vuelve a capturarla.")
         return ("Los datos cambiaron desde el primer intento. Reintenta con los datos originales "
                 "o corrige desde la ficha del tutor.")
     if e.status <= 0 or e.status >= 500:

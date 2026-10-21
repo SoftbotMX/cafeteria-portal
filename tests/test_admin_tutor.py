@@ -359,8 +359,11 @@ def test_alta_incompleta_es_sin_entrega_exitosa(db, op, admin, tpv, conduit):
                     llave=f"acceso:{otro.id}:1"))
     db.commit()
     assert admin.get("/admin").text.count("Alta incompleta") == 1
-    # y la fila de otro tutor con id parecido no la cubre
-    assert f"acceso:{otro.id}:1" != f"acceso:{otro.id}1:1"
+    # y la fila de otro tutor con id parecido (id seguido de «1») no lo marca como entregado
+    db.add(Bitacora(operador_id=op.id, actor="x", operacion="entregar_acceso",
+                    llave=f"acceso:{otro.id}1:1", http_status=200))
+    db.commit()
+    assert admin.get("/admin").text.count("Alta incompleta") == 1
 
 
 def test_alta_incompleta_se_resuelve_con_un_reenvio(db, op, admin, tpv, conduit):
@@ -411,3 +414,40 @@ def test_reenvio_con_envio_en_curso_se_rechaza(db, op, admin, tpv, conduit):
     r = admin.post(f"/admin/tutores/{t.id}/reenviar", data=campos)
     assert r.status_code == 409 and "en curso" in r.text and 'id="contrasena"' not in r.text
     assert len(conduit.enviados) == 1
+
+
+def test_ficha_muestra_estado_del_ultimo_envio(db, op, admin, tpv, conduit):
+    t = tutor_tpv(db, op, tpv)
+    assert 'id="ultima-entrega">ninguno<' in admin.get(f"/admin/tutores/{t.id}").text
+    db.add(Bitacora(operador_id=op.id, actor="x", operacion="entregar_acceso", llave=f"acceso:{t.id}:1"))
+    db.commit()
+    assert "interrumpido" in admin.get(f"/admin/tutores/{t.id}").text
+    db.add(Bitacora(operador_id=op.id, actor="x", operacion="reenviar_acceso",
+                    llave=f"acceso:{t.id}:2", http_status=200, codigo_error="error"))
+    db.commit()
+    assert 'id="ultima-entrega">error<' in admin.get(f"/admin/tutores/{t.id}").text
+
+
+def test_tutor_sin_referencia_no_ofrece_hijos_ni_se_ofrece_como_otro(db, op, admin, tpv):
+    sin = crear_tutor(db, op, telefono="8340000050", tutor_ref="", nombre="Sin Ref")
+    con = tutor_tpv(db, op, tpv, nombre="Con Ref", telefono="8340000051")
+    r = admin.get(f"/admin/tutores/{sin.id}")
+    assert r.status_code == 200 and "no tiene referencia" in r.text
+    assert f"/admin/tutores/{sin.id}/hijos" not in r.text
+    assert "Sin Ref (" not in admin.get(f"/admin/tutores/{con.id}").text
+    campos = {"csrf": csrf_de(r), "llave": "11111111-aaaa", "nombre": "x", "alumno_id": 1,
+              "otro_tutor_id": con.id}
+    for ruta in ("hijos", "vincular", "desvincular"):
+        rr = admin.post(f"/admin/tutores/{sin.id}/{ruta}", data=campos)
+        assert rr.status_code == 400 and "no tiene referencia" in rr.text, ruta
+    rr = admin.post(f"/admin/tutores/{con.id}/vincular", data={**campos, "otro_tutor_id": sin.id})
+    assert rr.status_code == 404
+    assert [k for k in tpv.llamadas if k != "admin/tutor/detalle"] == []
+
+
+def test_llave_reutilizada_en_la_ficha_no_manda_a_la_ficha(db, op, admin, tpv):
+    t = tutor_tpv(db, op, tpv)
+    campos = formulario(admin.get(f"/admin/tutores/{t.id}"), f"/admin/tutores/{t.id}/hijos")
+    admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombre": "Mateo", "matricula": ""})
+    r = admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombre": "Otro", "matricula": ""})
+    assert r.status_code == 400 and "desde la ficha" not in r.text and "Recarga la ficha" in r.text
