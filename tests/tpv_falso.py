@@ -37,6 +37,8 @@ class TPVFalso:
         self.pedidos: list[dict] = []
         self.cuerpos_precompra: list[dict] = []  # lo que el portal mandó, tal cual
         self.precompras: dict[tuple, tuple] = {}  # (tutor_ref, llave) -> (contenido, pedido)
+        self.cancelaciones: dict[tuple, tuple] = {}  # (tutor_ref, llave) -> (huella, respuesta)
+        self.cuerpos_cancelar: list[dict] = []  # lo que el portal mandó a precompra/cancelar
         self.hoy: date | None = None  # fija el «hoy» del TPV; por omisión, el de México
         self.transport = httpx.MockTransport(self._manejar)
 
@@ -168,9 +170,61 @@ class TPVFalso:
         return httpx.Response(200, json={"ok": True, "pedido": copy.deepcopy(pedido),
                                          "alumno": copy.deepcopy(al)})
 
+    def _alumno_pedidos(self, d: dict) -> httpx.Response:
+        """Como op_alumno_pedidos: los 50 más recientes del alumno (el real ordena `fecha desc,
+        id desc`, es decir, por creación, no por día de entrega)."""
+        t = self.tutores.get(d.get("tutor_ref"))
+        if not t or not t["activo"]:
+            return _err("tutor_desconocido", "Tutor desconocido.", 404)
+        if d.get("alumno_id") not in [a["id"] for a in t["alumnos"]]:
+            return _err("alumno_desconocido", "Alumno desconocido.", 404)
+        suyos = [p for p in reversed(self.pedidos) if p["alumno_id"] == d["alumno_id"]][:50]
+        return httpx.Response(200, json={"ok": True, "pedidos": copy.deepcopy(suyos)})
+
+    def _cancelar(self, d: dict) -> httpx.Response:
+        """Imita op_precompra_cancelar envuelto en _sb_una_vez: la autorización se revisa SIEMPRE
+        (también al repetir), repetir devuelve la respuesta GUARDADA sin volver a ejecutar, la
+        misma llave con otro contenido es 409 `llave_reutilizada`, cancelar lo ya cancelado
+        es OK sin cambios y cualquier otro estado distinto de `retenida` es 409 `rechazado`
+        (que no se guarda)."""
+        t = self.tutores.get(d.get("tutor_ref"))
+        if not t or not t["activo"]:
+            return _err("tutor_desconocido", "Tutor desconocido.", 404)
+        llave = (d.get("llave") or "").strip() if isinstance(d.get("llave"), str) else ""
+        if not llave or len(llave) > 120:
+            return _err("falta_llave", "Toda escritura lleva su llave de idempotencia.", 400)
+        pedido = next((p for p in self.pedidos if p["id"] == d.get("pedido_id")), None)
+        if pedido is None or pedido["alumno_id"] not in [a["id"] for a in t["alumnos"]]:
+            return _err("pedido_desconocido", "Pedido desconocido.", 404)
+        self.cuerpos_cancelar.append(copy.deepcopy(d))
+        huella = json.dumps(["precompra_cancelar", d], sort_keys=True, default=str)
+        previa = self.cancelaciones.get((t["tutor_ref"], llave))
+        if previa:
+            if previa[0] != huella:
+                return _err("llave_reutilizada", "Esa llave ya se usó para otra operación.", 409)
+            return httpx.Response(200, json=copy.deepcopy(previa[1]))
+        al = self.alumnos[pedido["alumno_id"]]
+        if pedido["estado"] != "cancelada":
+            if pedido["estado"] != "retenida":
+                return _err("rechazado", f"El pedido {pedido['nombre']} ya no se puede cancelar.", 409)
+            al["disponible"] = round(float(al["disponible"]) + pedido["total"], 2)
+            al["retenido"] = round(float(al["retenido"]) - pedido["total"], 2)
+            pedido["estado"] = "cancelada"
+            self.movimientos[al["id"]].insert(0, {
+                "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "tipo": "liberacion",
+                "descripcion": "Pedido cancelado", "disponible": pedido["total"],
+                "retenido": -pedido["total"], "venta": ""})
+        resp = {"ok": True, "pedido": copy.deepcopy(pedido), "alumno": copy.deepcopy(al)}
+        self.cancelaciones[(t["tutor_ref"], llave)] = (huella, copy.deepcopy(resp))
+        return httpx.Response(200, json=resp)
+
     def _operar(self, op: str, d: dict) -> httpx.Response:
         if op in ("tutor/alumnos", "alumno/movimientos"):
             return self._lectura_tutor(op, d)
+        if op == "alumno/pedidos":
+            return self._alumno_pedidos(d)
+        if op == "precompra/cancelar":
+            return self._cancelar(d)
         if op == "admin/tutor/detalle":
             t = self.tutores.get(d.get("tutor_ref"))
             if not t:

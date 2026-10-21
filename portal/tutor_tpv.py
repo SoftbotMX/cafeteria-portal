@@ -1,5 +1,6 @@
 """Lecturas (y escrituras) del tutor al TPV. El `tutor_ref` sale siempre de la sesión."""
 import time
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException, Request
@@ -9,6 +10,7 @@ from portal.models import Operador, Tutor
 from portal.tpv import ErrorTPV, cliente_tutor
 
 MSG_SIN_TPV = "No pudimos consultar el saldo, intenta en un momento."
+MSG_SIN_PEDIDOS = "No pudimos consultar los pedidos, intenta en un momento."
 MSG_SIN_MENU = "No pudimos consultar el menú, intenta en un momento."
 
 
@@ -93,6 +95,30 @@ def movimientos(request: Request, operador: Operador, tutor: Tutor, alumno_id: i
         return {"total": int(r["total"]), "movimientos": list(r["movimientos"])}
     except (ErrorTPV, KeyError, TypeError, ValueError):
         raise SinTPV from None
+
+
+def pedidos(request: Request, operador: Operador, tutor: Tutor, alumno_id: int) -> list[dict]:
+    """Los 50 pedidos más recientes del hijo, con `fecha_entrega` ya como `date`. Lo que venga
+    mal formado se descarta: un pedido sin id, folio o día claros no se ofrece ni se cancela."""
+    try:
+        crudo = _cliente(request, operador).leer("alumno/pedidos", {
+            "tutor_ref": tutor.tutor_ref, "alumno_id": alumno_id})["pedidos"]
+        if not isinstance(crudo, list):
+            raise TypeError
+    except (ErrorTPV, KeyError, TypeError):
+        raise SinTPV from None
+    lista = []
+    for p in crudo:
+        if not isinstance(p, dict) or not isinstance(p.get("id"), int) or isinstance(p["id"], bool):
+            continue
+        try:
+            entrega = date.fromisoformat(str(p["fecha_entrega"]))
+        except (KeyError, ValueError):
+            continue
+        lineas = p.get("lineas") if isinstance(p.get("lineas"), list) else []
+        lista.append({**p, "fecha_entrega": entrega, "nombre": str(p.get("nombre") or ""),
+                      "lineas": [l for l in lineas if isinstance(l, dict)]})
+    return lista
 
 
 def es_incierto(e: ErrorTPV) -> bool:

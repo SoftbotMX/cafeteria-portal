@@ -8,7 +8,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
-from fastapi import APIRouter, Depends, Form, Query, Request, Response
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -16,11 +16,13 @@ from portal import tutor_tpv
 from portal.db import get_db
 from portal.formato import ESTADOS_PEDIDO, dinero, fecha as fmt_fecha
 from portal.models import Bitacora, Operador, Sesion, Tutor
-from portal.reglas import ahora_fresca, ahora_utc, cargar_reglas, fechas_disponibles, motivo_fecha_invalida
+from portal.reglas import (
+    Reglas, ahora_fresca, ahora_local, ahora_utc, cargar_reglas, fechas_disponibles,
+    motivo_fecha_invalida, puede_cancelar)
 from portal.sesiones import exigir_csrf, operador_actual, tutor_listo
 from portal.tpv import ErrorTPV
 from portal.tutor_tpv import (
-    MSG_SIN_MENU, MSG_SIN_TPV, SinTPV, es_incierto, escribir_tutor, mensaje_para_tutor)
+    MSG_SIN_MENU, MSG_SIN_PEDIDOS, MSG_SIN_TPV, SinTPV, es_incierto, escribir_tutor, mensaje_para_tutor)
 from portal.web import templates
 
 router = APIRouter()
@@ -77,10 +79,9 @@ def _pagina(request, plantilla, ctx, status=200):
     return templates.TemplateResponse(request, plantilla, ctx, status_code=status, headers=SIN_CACHE)
 
 
-def _error(request, mensaje: str, volver: str):
+def _error(request, mensaje: str, volver: str, titulo: str = "No se pudo hacer el pedido"):
     return _pagina(request, "tutor/resultado.html", {
-        "titulo": "No se pudo hacer el pedido", "mensaje": mensaje, "volver": volver,
-        "detalles": [], "error": True})
+        "titulo": titulo, "mensaje": mensaje, "volver": volver, "detalles": [], "error": True})
 
 
 def validar_lineas(pares: list[tuple[str, str]], menu: list[dict],
@@ -232,29 +233,32 @@ def revisar(alumno_id: int, request: Request, csrf: str = Form(""), fecha: str =
         "aviso": None if alcanza else f"No te alcanza el saldo de {hijo['nombre']} para este pedido."})
 
 
-def _ya_registrado(db: Session, operador: Operador, tutor: Tutor, llave: str) -> bool:
+def _ya_registrado(db: Session, operador: Operador, tutor: Tutor, llave: str,
+                   operacion: str = "precompra") -> bool:
     return db.scalars(select(Bitacora.id).where(
         Bitacora.operador_id == operador.id, Bitacora.actor == f"tutor:{tutor.id}",
-        Bitacora.operacion == "precompra", Bitacora.llave == llave,
+        Bitacora.operacion == operacion, Bitacora.llave == llave,
         Bitacora.http_status == 200, Bitacora.codigo_error.is_(None))).first() is not None
 
 
-def _intento_incierto(db: Session, operador: Operador, tutor: Tutor, llave: str) -> bool:
+def _intento_incierto(db: Session, operador: Operador, tutor: Tutor, llave: str,
+                      operacion: str = "precompra") -> bool:
     """¿Hubo ya un envío con esta llave que no obtuvo respuesta clara del TPV?"""
     return db.scalars(select(Bitacora.id).where(
         Bitacora.operador_id == operador.id, Bitacora.actor == f"tutor:{tutor.id}",
-        Bitacora.operacion == "precompra", Bitacora.llave == llave,
+        Bitacora.operacion == operacion, Bitacora.llave == llave,
         or_(Bitacora.http_status < 200, Bitacora.http_status >= 500,
             # misma regla que `es_incierto`: 4xx sin JSON reconocible, o 200 ilegible
             Bitacora.codigo_error.in_(("respuesta_invalida", "repetida"))))).first() is not None
 
 
-def _con_aviso(db, operador, tutor, llave, hijo, mensaje: str) -> str:
+def _con_aviso(db, operador, tutor, llave, hijo, mensaje: str, operacion: str = "precompra",
+               reintento: str = "volver a pedir") -> str:
     """Si un envío anterior con esta llave quedó sin respuesta, un rechazo de ahora no prueba que
     aquél fallara: puede existir el pedido. Se le dice al tutor que lo revise."""
-    if _intento_incierto(db, operador, tutor, llave):
+    if _intento_incierto(db, operador, tutor, llave, operacion):
         mensaje += (" Ojo: tu intento anterior no tuvo respuesta y puede haberse registrado. "
-                    f"Revisa los movimientos de {hijo['nombre']} antes de volver a pedir.")
+                    f"Revisa los movimientos de {hijo['nombre']} antes de {reintento}.")
     return mensaje
 
 
@@ -347,3 +351,134 @@ def _contexto_confirmar(alumno_id, sesion, hijo, dia, items, menu, llave, aviso)
                    "cantidad": [str(n) for _, n in items], "llave": llave},
         "boton": "Confirmar pedido", "volver": f"/hijos/{alumno_id}/pedir?fecha={dia.isoformat()}",
         "csrf": sesion.csrf, "aviso": aviso}
+
+
+
+# ------------------------------------------------------------------- cancelar
+
+OP_CANCELAR = "precompra/cancelar"
+TIT_CANCELAR = "No se pudo cancelar el pedido"
+MSG_SIN_RESPUESTA_CANCELAR = (
+    "No se pudo contactar al TPV. Tu cancelación puede haberse registrado: vuelve a tocar "
+    "«Cancelar pedido» (no se repite) o revisa los movimientos de tu hijo.")
+
+
+def _pedido_del_hijo(pedidos: list[dict], pedido_id: int) -> dict:
+    """Sólo vale un pedido que el TPV lista para ESTE hijo; si no, 404 sin tocar el TPV."""
+    for p in pedidos:
+        if p["id"] == pedido_id:
+            return p
+    raise HTTPException(404)
+
+
+def motivo_no_cancelable(reglas: Reglas, pedido: dict, ahora: datetime) -> str | None:
+    estado = pedido.get("estado")
+    if estado == "cancelada":
+        return "Este pedido ya estaba cancelado."
+    if estado != "retenida":
+        return f"Este pedido ya no se puede cancelar ({ESTADOS_PEDIDO.get(estado, 'estado desconocido')})."
+    if puede_cancelar(reglas, pedido["fecha_entrega"], ahora):
+        return None
+    if pedido["fecha_entrega"] == ahora_local(reglas, ahora).date():
+        return f"Ya pasó la hora límite para cancelar el pedido de hoy ({reglas.hora_limite:%H:%M})."
+    return "Este pedido es de un día que ya pasó."
+
+
+def _cantidad(l: dict) -> str:
+    try:
+        n = Decimal(str(l.get("cantidad")))
+        return str(int(n)) if n == n.to_integral_value() else str(n.normalize())
+    except (InvalidOperation, ValueError, TypeError, OverflowError):
+        return "?"
+
+
+def _contexto_cancelar(alumno_id, sesion, hijo, pedido, llave, aviso=None) -> dict:
+    lineas = [f"Pedido {pedido.get('nombre') or pedido['id']}",
+              f"Para el día: {fmt_fecha(pedido['fecha_entrega'])}"]
+    lineas += [f"{_cantidad(l)} × {l.get('producto') or 'Producto'}" for l in pedido["lineas"]]
+    if "total" in pedido:
+        lineas.append(f"Total: {dinero(pedido['total'])}")
+    lineas.append(f"Al cancelar, ese dinero vuelve al saldo disponible de {hijo['nombre']}.")
+    return {
+        "titulo": f"Cancelar el pedido de {hijo['nombre']}", "lineas": lineas, "aviso": aviso,
+        "accion": f"/hijos/{alumno_id}/pedidos/{pedido['id']}/cancelar", "csrf": sesion.csrf,
+        "campos": {"llave": llave}, "boton": "Cancelar pedido", "volver": f"/hijos/{alumno_id}"}
+
+
+@router.get("/hijos/{alumno_id}/pedidos/{pedido_id}/cancelar")
+def cancelar_confirmacion(alumno_id: int, pedido_id: int, request: Request,
+                          par: tuple[Sesion, Tutor] = Depends(tutor_listo),
+                          operador: Operador = Depends(operador_actual),
+                          db: Session = Depends(get_db), ahora: datetime = Depends(ahora_utc)):
+    sesion, tutor = par
+    volver = f"/hijos/{alumno_id}"
+    try:
+        hijo = _hijo(request, operador, tutor, alumno_id)
+        pedidos = tutor_tpv.pedidos(request, operador, tutor, alumno_id)
+    except SinTPV:
+        return _error(request, MSG_SIN_PEDIDOS, volver, TIT_CANCELAR)
+    pedido = _pedido_del_hijo(pedidos, pedido_id)
+    motivo = motivo_no_cancelable(cargar_reglas(db, operador.id), pedido, ahora)
+    if motivo:
+        return _error(request, motivo, volver, TIT_CANCELAR)
+    return _pagina(request, "tutor/confirmar.html", _contexto_cancelar(
+        alumno_id, sesion, hijo, pedido, uuid.uuid4().hex))
+
+
+@router.post("/hijos/{alumno_id}/pedidos/{pedido_id}/cancelar")
+def cancelar(alumno_id: int, pedido_id: int, request: Request, csrf: str = Form(""),
+             llave: str = Form(""), par: tuple[Sesion, Tutor] = Depends(tutor_listo),
+             operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
+    sesion, tutor = par
+    exigir_csrf(csrf, sesion.csrf)
+    volver = f"/hijos/{alumno_id}"
+    try:
+        hijo = _hijo(request, operador, tutor, alumno_id)
+        pedidos = tutor_tpv.pedidos(request, operador, tutor, alumno_id)
+    except SinTPV:
+        # Un intento anterior pudo quedar sin respuesta: se conserva la llave para repetirlo tal cual.
+        if _LLAVE.fullmatch(llave):
+            return _pagina(request, "tutor/confirmar.html", {
+                "titulo": "Cancelar pedido", "lineas": [f"Pedido {pedido_id}"], "aviso": MSG_SIN_PEDIDOS,
+                "accion": f"/hijos/{alumno_id}/pedidos/{pedido_id}/cancelar", "csrf": sesion.csrf,
+                "campos": {"llave": llave}, "boton": "Reintentar", "volver": volver})
+        return _error(request, MSG_SIN_PEDIDOS, volver, TIT_CANCELAR)
+    pedido = _pedido_del_hijo(pedidos, pedido_id)
+    if not _LLAVE.fullmatch(llave):
+        return _error(request, MSG_LLAVE, volver, TIT_CANCELAR)
+    # Con la llave ya registrada (200), o ya cancelado tras un intento sin respuesta, el TPV
+    # repite su respuesta guardada: un doble toque ve el resultado aunque ya pasara la hora límite.
+    ya_entro = _ya_registrado(db, operador, tutor, llave, OP_CANCELAR) or (
+        pedido.get("estado") == "cancelada" and _intento_incierto(db, operador, tutor, llave, OP_CANCELAR))
+    if not ya_entro:
+        # Con la hora de AHORA (tras las lecturas), no la de la confirmación.
+        motivo = motivo_no_cancelable(cargar_reglas(db, operador.id), pedido, ahora_fresca(request))
+        if motivo:
+            return _error(request, _con_aviso(db, operador, tutor, llave, hijo, motivo, OP_CANCELAR,
+                                              "volver a intentarlo"), volver, TIT_CANCELAR)
+    try:
+        r = escribir_tutor(db, request, operador, tutor, OP_CANCELAR,
+                           {"pedido_id": pedido_id, "llave": llave})
+    except ErrorTPV as e:
+        db.commit()  # la bitácora del intento fallido es verdad
+        if es_incierto(e):
+            return _pagina(request, "tutor/confirmar.html", _contexto_cancelar(
+                alumno_id, sesion, hijo, pedido, llave, MSG_SIN_RESPUESTA_CANCELAR))
+        return _error(request, _con_aviso(db, operador, tutor, llave, hijo, mensaje_para_tutor(e),
+                                          OP_CANCELAR, "volver a intentarlo"), volver, TIT_CANCELAR)
+    db.commit()
+    nuevo = r.get("pedido") if isinstance(r.get("pedido"), dict) else {}
+    alumno = r.get("alumno") if isinstance(r.get("alumno"), dict) else {}
+    if nuevo.get("estado") != "cancelada" or not nuevo.get("nombre"):
+        return _error(request, "El TPV respondió algo inesperado. Revisa los movimientos de "
+                      f"{hijo['nombre']} antes de volver a intentarlo.", volver, TIT_CANCELAR)
+    detalles = [f"Folio: {nuevo['nombre']}"]
+    # Un repetido recibe la respuesta GUARDADA del TPV (con el saldo de aquel momento); la ficha
+    # leída al empezar esta petición ya es posterior a la cancelación y trae el saldo de hoy.
+    fuente = hijo if ya_entro and "disponible" in hijo else alumno
+    if "disponible" in fuente:
+        detalles.append(f"Disponible de {hijo['nombre']}: {dinero(fuente['disponible'])}")
+    return _pagina(request, "tutor/resultado.html", {
+        "titulo": f"Pedido {nuevo['nombre']} cancelado",
+        "mensaje": f"Cancelaste el pedido de {hijo['nombre']}; su dinero ya está disponible.",
+        "detalles": detalles, "volver": volver, "error": False})

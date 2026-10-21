@@ -12,6 +12,19 @@
     <p class="alerta">Bloqueada: {{ tipos_credencial.get(c.tipo, c.tipo) }}</p>
   {% endfor %}
   <p><a class="boton" href="/hijos/{{ hijo.id }}/pedir">Pedir</a></p>
+  <h2>Pedidos</h2>
+  {% if error_pedidos %}<p class="aviso">{{ error_pedidos }}</p>
+  {% elif not pedidos %}<p>Todavía no hay pedidos.</p>{% endif %}
+  {% for p in pedidos %}
+  <div class="movimiento">
+    <div><strong>{{ p.nombre or "Pedido" }}</strong><br>
+      <small>{{ p.fecha_entrega | fecha }} · {{ estados_pedido.get(p.estado, "Desconocido") }}</small></div>
+    <div class="importe">
+      {% if p.total is defined %}<span>{{ p.total | dinero }}</span>{% endif %}
+      {% if p.cancelable %}<a class="boton secundario" href="/hijos/{{ hijo.id }}/pedidos/{{ p.id }}/cancelar">Cancelar</a>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
   <h2>Movimientos</h2>
   <div id="movimientos">
     {% include "tutor/_movimientos.html" %}
