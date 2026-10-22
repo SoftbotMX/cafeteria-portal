@@ -29,6 +29,9 @@ class Operador(Base):
     conduit_client_id: Mapped[str | None] = mapped_column(String(200))
     conduit_secreto_cif: Mapped[str | None] = mapped_column(String)
     mp_access_token_cif: Mapped[str | None] = mapped_column(String)
+    # Acciones por WhatsApp (pedir, recargar, transferir…). Encendidas por decisión del usuario
+    # (2026-10-22) aunque Conduit aún no verifica la firma de Meta (#39): sirve para apagarlas ya.
+    bot_escrituras: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     creado: Mapped[datetime] = _creado()
 
     def secreto_tpv(self, llave_fernet: str) -> str:
@@ -194,3 +197,29 @@ class Recarga(Base):
     actualizada: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     acreditada_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class BotConversacion(Base):
+    """En qué paso va el papá en el bot de WhatsApp (`datos["paso"]` + lo elegido)."""
+    __tablename__ = "bot_conversacion"
+    __table_args__ = (UniqueConstraint("operador_id", "telefono", name="uq_bot_conversacion"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    operador_id: Mapped[int] = mapped_column(ForeignKey("operador.id"))
+    telefono: Mapped[str] = mapped_column(String(10))
+    datos: Mapped[dict] = mapped_column(JSONB, default=dict)
+    actualizada: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class BotMensaje(Base):
+    """Cada mensaje de Conduit una sola vez: un `message_id` repetido recibe la misma respuesta y
+    no avanza la conversación (si no, el segundo «1» confirmaría lo que el papá no vio)."""
+    __tablename__ = "bot_mensaje"
+    __table_args__ = (UniqueConstraint("operador_id", "message_id", name="uq_bot_mensaje"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    operador_id: Mapped[int] = mapped_column(ForeignKey("operador.id"))
+    message_id: Mapped[str] = mapped_column(String(100))
+    respuesta: Mapped[str | None] = mapped_column(String)
+    creado: Mapped[datetime] = _creado()

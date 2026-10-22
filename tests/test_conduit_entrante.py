@@ -60,12 +60,12 @@ def test_firma_mala_o_vieja_es_401(op, c, conduit, ruta):
     assert conduit.respuestas == []
 
 
-def test_mensaje_recibe_la_liga_del_portal(op, c, conduit):
+def test_numero_no_registrado_recibe_el_aviso(op, c, conduit):
     r = _firmado(c, "/message", MENSAJE)
     assert r.status_code == 200 and r.json() == {"received": True}
     (resp,) = conduit.respuestas
     assert resp["message_id"] == MENSAJE["message_id"]
-    assert "https://cafeteria.test" in resp["reply_text"]
+    assert "no está registrado" in resp["reply_text"]
     assert resp["cacheable"] is False
 
 
