@@ -6,7 +6,7 @@ hijos, pedidos con fecha, recargas con MercadoPago y alta por la administración
 - Contrato con el TPV: [`docs/API_TPV.md`](docs/API_TPV.md). El portal no guarda saldos.
 - Instrucciones para agentes: [`AGENTS.md`](AGENTS.md).
 
-Producción: `https://cafeteria.softbot.com.mx` (pendiente).
+Producción: `https://cafeteria.softbot.com.mx`.
 
 ## Desarrollo local
 
@@ -44,51 +44,31 @@ Administración: contador propio de 20 por IP, para que los papás no puedan blo
 Recuperación de contraseña: 3 solicitudes de código por usuario y 30 por IP (no cuentan como fallos
 de login); los códigos incorrectos sí cuentan contra la IP.
 
-## Despliegue (P4) — obligatorio
+## Producción (P4)
 
-- **uvicorn** detrás de nginx con `--proxy-headers --forwarded-allow-ips=<IP de nginx/bridge>`. Sin esto
-  todos los visitantes comparten la IP del proxy y los límites por IP bloquean a todos a la vez.
-- **nginx** debe pasar `Host` (el operador se resuelve por host) y `X-Forwarded-For` / `X-Forwarded-Proto`:
-  `proxy_set_header Host $host; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-  proxy_set_header X-Forwarded-Proto $scheme;`
+En el VPS (`ssh gerri@softbot.com.mx`), repo clonado en `~/cafeteria-portal` (deploy key de sólo lectura):
+
+```bash
+cd ~/cafeteria-portal && git pull
+cd deploy && docker compose -p cafeteria-portal up -d --build   # migra al arrancar
+```
+- Variables en `deploy/.env` (chmod 600), plantilla en `deploy/env.example`. **Respalda aparte
+  `PORTAL_FERNET_KEY`**: sin ella los secretos cifrados del operador no se pueden leer.
+- nginx: copiar `deploy/nginx.conf` a `/etc/nginx/sites-available/cafeteria.softbot.com.mx.conf`,
+  enlazarlo en `sites-enabled`, `sudo nginx -t && sudo systemctl reload nginx`, y después
+  `sudo certbot --nginx -d cafeteria.softbot.com.mx --redirect`.
+- Respaldo diario de la BD: `deploy/respaldo.sh` en el cron del usuario (14 días en
+  `~/respaldos/cafeteria-portal`). Restaurar: `pg_restore -U portal -d portal --clean` dentro del
+  contenedor `db`.
+- Operador y administradores: `docker compose -p cafeteria-portal exec portal python -m portal.cli …`
+  (con `ssh -t`, getpass necesita terminal).
+
+Reglas que el despliegue no puede romper (hay pruebas en `tests/test_despliegue.py`):
+- **uvicorn** con `--proxy-headers --forwarded-allow-ips='*'`, publicado sólo en `127.0.0.1`.
+- **nginx** pasa `Host` (el operador se resuelve por host) y **sobrescribe** `X-Forwarded-For` con
+  `$remote_addr`. Nunca `$proxy_add_x_forwarded_for`: uvicorn toma el primer valor y el papá podría
+  mandar uno distinto en cada intento y saltarse los límites por IP.
 - **SMTP**: puerto **587 con STARTTLS**. El 465 (TLS implícito) no está soportado.
-- **`PORTAL_INSTANCIA`** única por instalación (p. ej. `cafeteria-colegio-x`): prefija las llaves de
-  idempotencia enviadas a Conduit; dos instalaciones con el mismo valor se pisarían los mensajes.
-- **`PORTAL_COOKIE_SECURE=true`** (por defecto): activa `Secure` en las cookies y el prefijo `__Host-`
-  de la cookie CSRF previa al login.
+- **`PORTAL_INSTANCIA`** única por instalación: prefija las llaves de idempotencia enviadas a Conduit.
+- **`PORTAL_COOKIE_SECURE=true`** (por defecto).
 - La API del TPV va **antes** que el portal.
-
-## Pedidos (P2)
-
-Los papás piden con fecha, cancelan, transfieren saldo, cambian el permiso de comprar sin pedido y
-bloquean credenciales. Todo se escribe en el TPV con su `llave`; el portal no guarda saldos.
-
-### Configuración de la administración (`/admin/pedidos`)
-
-- **Hora límite**: se puede pedir y cancelar para HOY sólo antes de esa hora local (a la hora
-  exacta ya no). Para fechas futuras no aplica. Sin hora límite no hay corte.
-- **Días de servicio**: días de la semana en que hay cafetería (por omisión lunes a viernes).
-- **Días sin servicio**: fechas sueltas (feriados, suspensiones) que no se pueden pedir.
-- **Zona horaria**: la del plantel; decide qué es «hoy», la hora límite y el día que se muestra en
-  los movimientos.
-- **Anticipación**: cuántos días hacia adelante se puede pedir (por omisión 14).
-
-Sin configuración guardada el portal no pone hora límite, ofrece todos los días y 14 de anticipación.
-
-### Lista de arranque (go-live)
-
-- [ ] **Guardar la configuración antes del 1-nov** (hora límite, días, zona, anticipación): sin
-      ella no hay hora límite y se aceptarían pedidos de hoy a cualquier hora.
-- [ ] El `tz` del partner de la compañía en el TPV debe ser **igual** a la zona horaria del portal:
-      el TPV decide con su zona qué día es «hoy» al apartar y cancelar; si difieren, un pedido que
-      el portal acepta puede rechazarse (o al revés) en las horas de cambio de día.
-- [ ] La API del TPV se despliega antes que el portal.
-
-### Pendiente en el TPV (no bloquea el portal; lo resuelve el usuario)
-
-- `alumno/pedidos` devuelve sólo los 50 más recientes por fecha de creación y no pagina: un pedido
-  futuro hecho hace mucho puede no aparecer y no se podría cancelar desde el portal.
-- `precompra`: capturar el `IntegrityError` de la `llave` única (hoy un doble toque simultáneo
-  devuelve una página de error de Odoo) y responder con el replay del pedido ya creado.
-- Códigos de error propios: el TPV responde `409 rechazado` a todo `UserError` (saldo
-  insuficiente sólo se distingue por el texto).
