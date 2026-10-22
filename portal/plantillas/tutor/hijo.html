@@ -20,7 +20,8 @@
   </div>
   {% endfor %}
   {% endif %}
-  <p><a class="boton" href="/hijos/{{ hijo.id }}/pedir">Pedir</a></p>
+  <p><a class="boton" href="/hijos/{{ hijo.id }}/pedir">Pedir</a>
+    {% if recargas %}<a class="boton secundario" href="/recargar">Recargar</a>{% endif %}</p>
   {% if hijo.compra_sin_pedido is sameas true %}
     <p>{{ hijo.nombre }} puede comprar sin pedido.
       <a class="boton secundario" href="/hijos/{{ hijo.id }}/permiso?valor=no">Que sólo recoja lo que pida</a></p>

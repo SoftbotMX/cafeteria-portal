@@ -5,7 +5,7 @@ from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import exists, func, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -15,7 +15,7 @@ from portal.credenciales import (
     tutores_con_entrega, usuario_de,
 )
 from portal.db import get_db
-from portal.models import Admin, Bitacora, ConfigPedidos, DiaSinServicio, Operador, Sesion, Tutor
+from portal.models import Admin, Bitacora, ConfigPedidos, DiaSinServicio, Operador, Sesion, Tutor, Recarga
 from portal.reglas import ZONAS, ahora_local, cargar_reglas
 from portal.rutas.acceso import (
     MSG_EXPIRO, MSG_LIMITE, MSG_MALO,
@@ -618,3 +618,25 @@ def sin_servicio_borrar(request: Request, dia_id: int, csrf: str = Form(""),
     db.delete(dia)
     db.commit()
     return _pagina_pedidos(request, sesion, admin, db, mensajes=["Día sin servicio quitado."])
+
+
+ESTADOS_RECARGA = ("revision", "aprobada", "pendiente", "acreditada", "vencida", "rechazada")
+
+
+@router.get("/recargas")
+def recargas_lista(request: Request, estado: str = "",
+                   par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                   db: Session = Depends(get_db)):
+    """Las recargas del operador; las que requieren a la administración (`revision`) primero."""
+    _, admin = par
+    q = (select(Recarga, Tutor).join(Tutor, Tutor.id == Recarga.tutor_id)
+         .where(Recarga.operador_id == admin.operador_id))
+    if estado in ESTADOS_RECARGA:
+        q = q.where(Recarga.estado == estado)
+    # Primero lo que requiere a la administración: revisión o pagos de más.
+    atender = or_(Recarga.estado == "revision", func.jsonb_array_length(Recarga.pagos_extra) > 0)
+    q = q.order_by(~atender, Recarga.id.desc()).limit(200)
+    resp = templates.TemplateResponse(request, "admin/recargas.html", {
+        "filas": db.execute(q).all(), "estado": estado, "estados": ESTADOS_RECARGA})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp

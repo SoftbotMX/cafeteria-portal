@@ -21,6 +21,7 @@
     </li>
   {% endfor %}
   </ul>
+  {% if recargas %}<p><a class="boton" href="/recargar">Recargar saldo</a> <a href="/recargas">Mis recargas</a></p>{% endif %}
   {% if hijos|length >= 2 %}<p><a class="boton" href="/transferir">Transferir saldo</a></p>{% endif %}
 {% endif %}
 <form method="post" action="/salir">

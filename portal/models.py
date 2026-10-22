@@ -1,8 +1,11 @@
 from datetime import date, datetime, time
+from decimal import Decimal
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Time, UniqueConstraint, func, text,
+    Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Time, UniqueConstraint,
+    func, text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from portal.cifrado import descifrar
@@ -25,6 +28,7 @@ class Operador(Base):
     conduit_url: Mapped[str | None] = mapped_column(String(500))
     conduit_client_id: Mapped[str | None] = mapped_column(String(200))
     conduit_secreto_cif: Mapped[str | None] = mapped_column(String)
+    mp_access_token_cif: Mapped[str | None] = mapped_column(String)
     creado: Mapped[datetime] = _creado()
 
     def secreto_tpv(self, llave_fernet: str) -> str:
@@ -32,6 +36,12 @@ class Operador(Base):
 
     def secreto_tpv_admin(self, llave_fernet: str) -> str:
         return descifrar(self.tpv_secreto_admin_cif, llave_fernet)
+
+    def token_mp(self, llave_fernet: str) -> str | None:
+        """Access Token de MercadoPago del operador (sin él no se ofrece recargar)."""
+        if not self.mp_access_token_cif:
+            return None
+        return descifrar(self.mp_access_token_cif, llave_fernet)
 
     def secreto_conduit(self, llave_fernet: str) -> str | None:
         if not self.conduit_secreto_cif:
@@ -148,3 +158,39 @@ class DiaSinServicio(Base):
     operador_id: Mapped[int] = mapped_column(ForeignKey("operador.id"))
     fecha: Mapped[date] = mapped_column(Date)
     motivo: Mapped[str] = mapped_column(String(200), default="", server_default="")
+
+
+class Recarga(Base):
+    """Una recarga pagada con MercadoPago. El reparto y el total salen de aquí al acreditar, nunca
+    del aviso de MP. Estados: pendiente · aprobada (pagada, falta el TPV) · acreditada · rechazada ·
+    vencida · revision (requiere a la administración)."""
+    __tablename__ = "recarga"
+    __table_args__ = (
+        UniqueConstraint("operador_id", "tutor_id", "llave", name="uq_recarga_llave"),
+        # Un mismo pago de MP no acredita dos recargas.
+        Index("uq_recarga_operador_pago", "operador_id", "mp_pago_id", unique=True,
+              postgresql_where=text("mp_pago_id IS NOT NULL")),
+        Index("ix_recarga_estado", "estado"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    operador_id: Mapped[int] = mapped_column(ForeignKey("operador.id"))
+    tutor_id: Mapped[int] = mapped_column(ForeignKey("tutor.id"))
+    llave: Mapped[str] = mapped_column(String(120))
+    total: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    reparto: Mapped[list] = mapped_column(JSONB)  # [{alumno_id, nombre, importe}]
+    estado: Mapped[str] = mapped_column(String(12), default="pendiente", server_default="pendiente")
+    mp_preferencia_id: Mapped[str | None] = mapped_column(String(100))
+    init_point: Mapped[str | None] = mapped_column(String(500))
+    liga_vence: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    mp_pago_id: Mapped[str | None] = mapped_column(String(50))
+    # Otros pagos aprobados de la MISMA preferencia (el papá pagó dos veces): el dinero entró pero
+    # no se acredita solo; la administración lo devuelve o lo acredita a mano.
+    pagos_extra: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    error: Mapped[str | None] = mapped_column(String(500))
+    # Revisión final de sus pagos en MP, ya vencida la liga: encuentra pagos de más sin aviso.
+    conciliada: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    creada: Mapped[datetime] = _creado()
+    actualizada: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    acreditada_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

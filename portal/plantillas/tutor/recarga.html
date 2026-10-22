@@ -1,0 +1,27 @@
+{#- Contexto: r (Recarga), vigente (aún se puede pagar con su liga). -#}
+{% extends "base.html" %}
+{% block titulo %}Recarga · Portal de tutores{% endblock %}
+{% block contenido %}
+{% if r.estado == "acreditada" %}
+  <h1>¡Listo!</h1>
+  <p class="listo">Se acreditaron {{ r.total | dinero }}.</p>
+{% elif r.estado == "aprobada" %}
+  <h1>Pago recibido</h1>
+  <p class="listo">Estamos acreditando el saldo; tarda un momento. No vuelvas a pagar.</p>
+{% elif r.estado == "revision" %}
+  <h1>Pago en revisión</h1>
+  <p class="aviso">Recibimos tu pago y la cafetería lo está revisando. No vuelvas a pagar.</p>
+{% elif r.estado == "pendiente" %}
+  <h1>Aún no vemos tu pago</h1>
+  {% if r.error %}<p class="aviso">Tu pago no se aprobó. Puedes intentar con otra tarjeta.</p>{% endif %}
+  {% if vigente %}<p><a class="boton" href="{{ r.init_point }}">Pagar {{ r.total | dinero }} en Mercado Pago</a></p>
+  {% else %}<p>La liga de pago venció. <a href="/recargar">Arma otra recarga</a>.</p>{% endif %}
+{% else %}
+  <h1>Esta recarga no se pagó</h1>
+  <p><a class="boton" href="/recargar">Recargar</a></p>
+{% endif %}
+<ul class="resumen">
+  {% for p in r.reparto %}<li>{{ p.nombre }}: {{ p.importe | dinero }}</li>{% endfor %}
+</ul>
+<p><a href="/">&larr; Inicio</a> · <a href="/recargas">Mis recargas</a></p>
+{% endblock %}

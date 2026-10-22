@@ -261,7 +261,9 @@ def test_cambio_con_csrf_vencido_muestra_formulario(db, op, c):
 
 # Rutas que no exigen tutor_listo: por ruta exacta o por prefijo.
 EXENTAS = {"/entrar", "/salir", "/cambiar-contrasena", "/salud", "/openapi.json", "/docs",
-           "/docs/oauth2-redirect", "/redoc"}
+           "/docs/oauth2-redirect", "/redoc",
+           # Lo llama MercadoPago, sin sesión: no se le cree, se consulta el pago en su API.
+           "/mp/aviso"}
 PREFIJOS_EXENTOS = ("/estatico", "/admin", "/recuperar")
 
 

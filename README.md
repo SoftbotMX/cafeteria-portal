@@ -44,6 +44,25 @@ Administración: contador propio de 20 por IP, para que los papás no puedan blo
 Recuperación de contraseña: 3 solicitudes de código por usuario y 30 por IP (no cuentan como fallos
 de login); los códigos incorrectos sí cuentan contra la IP.
 
+## Recargas con MercadoPago (P3)
+
+Checkout Pro. El papá reparte entre sus hijos (pesos enteros, total de $50 a $2,000), paga en
+MercadoPago (sólo tarjeta o saldo de MP: sin OXXO ni SPEI) y el TPV acredita con `recarga`.
+
+- **Token del operador** (cifrado en BD; sin él no aparece «Recargar»):
+  `ssh -t gerri@softbot.com.mx 'cd ~/cafeteria-portal/deploy && docker compose -p cafeteria-portal exec portal python -m portal.cli guardar-mp --host cafeteria.softbot.com.mx'`.
+  Pruebas: el Access Token **de prueba** de la app; producción: el de producción. Siempre se usa
+  `init_point` (MP ya no tiene `sandbox_init_point`).
+- **Aviso de MP**: cada preferencia lleva `notification_url = https://<host>/mp/aviso`; no hay que
+  configurar nada en el panel. El aviso **no se cree**: se consulta el pago en la API de MP.
+- **Barrido** (servicio `barrido` del compose, cada minuto): reintenta las pagadas que el TPV no
+  tomó, busca pagos sin aviso tras 10 min, vence las pendientes de 24 h y concilia cada recarga
+  una vez, 15 min después de que vence su liga de pago.
+- **Administración** (`/admin/recargas`): arriba las que la requieren. `revision` = el pago entró
+  pero no cuadró o el TPV lo rechazó (p. ej. `pago_ya_acreditado`, que **no** es éxito);
+  «Pago extra» = el papá pagó dos veces la misma recarga. Se resuelven en MercadoPago (devolución)
+  o con un ajuste en el TPV.
+
 ## Producción (P4)
 
 En el VPS (`ssh gerri@softbot.com.mx`), repo clonado en `~/cafeteria-portal` (deploy key de sólo lectura):

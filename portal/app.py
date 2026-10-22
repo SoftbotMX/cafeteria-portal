@@ -20,6 +20,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Las pruebas sustituyen estos transportes por simulados.
     app.state.tpv_transport = None
     app.state.conduit_transport = None
+    app.state.mp_transport = None
     app.state.cache_menu = {}  # operador.id -> (instante, productos); ver tutor_tpv.menu
     app.state.cache_menu_candado = threading.Lock()
     app.mount("/estatico", StaticFiles(directory=str(BASE / "estatico")), name="estatico")
@@ -36,7 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def salud() -> dict[str, bool]:
         return {"ok": True}
 
-    from portal.rutas import acceso, admin, pedidos, recuperar, transferir, tutor
+    from portal.rutas import acceso, admin, pedidos, recargas, recuperar, transferir, tutor
 
     app.include_router(acceso.router)
     app.include_router(recuperar.router)
@@ -44,4 +45,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(tutor.router)
     app.include_router(pedidos.router)
     app.include_router(transferir.router)
+    app.include_router(recargas.router)
     return app

@@ -1,0 +1,19 @@
+{#- Contexto: hijos, csrf, error, valores (lo capturado), minimo, maximo. -#}
+{% extends "base.html" %}
+{% block titulo %}Recargar saldo · Portal de tutores{% endblock %}
+{% block contenido %}
+<h1>Recargar saldo</h1>
+<p>Escribe cuánto le recargas a cada hijo, en pesos. El total va de {{ minimo | dinero | replace(".00", "") }} a {{ maximo | dinero | replace(".00", "") }}.</p>
+{% if error %}<p class="aviso">{{ error }}</p>{% endif %}
+<form method="post" action="/recargar/revisar">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% for h in hijos %}
+  <label>{{ h.nombre }} <small>({{ h.disponible | dinero }} disponible)</small>
+    <input type="text" name="importe_{{ h.id }}" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
+           placeholder="0" value="{{ valores.get('importe_' ~ h.id, '') }}">
+  </label>
+  {% endfor %}
+  <button type="submit">Revisar</button>
+</form>
+<p><a href="/">&larr; Volver</a> · <a href="/recargas">Mis recargas</a></p>
+{% endblock %}

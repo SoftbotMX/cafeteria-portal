@@ -1,0 +1,16 @@
+{#- Contexto: recargas (list[Recarga]), estados (estado -> texto). -#}
+{% extends "base.html" %}
+{% block titulo %}Mis recargas · Portal de tutores{% endblock %}
+{% block contenido %}
+<h1>Mis recargas</h1>
+{% for r in recargas %}
+  <div class="movimiento">
+    <div><a href="/recargas/{{ r.id }}">{{ r.creada | fecha }}</a><br>
+      <small>{{ r.reparto | map(attribute="nombre") | join(", ") }}</small></div>
+    <div class="importe"><strong>{{ r.total | dinero }}</strong><small>{{ estados.get(r.estado, r.estado) }}</small></div>
+  </div>
+{% else %}
+  <p>Aún no has recargado.</p>
+{% endfor %}
+<p><a class="boton" href="/recargar">Recargar</a> <a href="/">Inicio</a></p>
+{% endblock %}
