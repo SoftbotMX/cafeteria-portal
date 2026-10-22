@@ -337,3 +337,17 @@ def test_paso_y_respuesta_se_guardan_juntos(db, op, hijos, escribir):
     m = db.query(BotMensaje).filter_by(message_id=mid).one()
     conv = db.query(BotConversacion).one()
     assert m.respuesta and conv.datos["paso"] == "tar_cred" != paso_antes
+
+
+@pytest.mark.parametrize("numero,esperado", [
+    ("+528341445807", "8341445807"), ("+5218341445807", "8341445807"),
+    ("528341445807", "8341445807"),
+    ("+18341445807", None), ("+448341445807", None), ("+4408341445807", None),
+    ("8341445807", None), ("+52834144580", None), ("", None), ("+52８３４１４４５８０７", None)])
+def test_solo_numeros_mexicanos(numero, esperado):
+    from portal.bot import telefono10
+    assert telefono10(numero) == esperado
+
+
+def test_numero_extranjero_con_la_misma_terminacion_no_es_el_papa(hijos, escribir):
+    assert "no está registrado" in escribir("hola", numero="+448341445807")
