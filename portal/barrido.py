@@ -9,11 +9,11 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from portal import recargas
-from portal.models import Operador, Recarga
+from portal.models import BotMensaje, Operador, Recarga
 
 log = logging.getLogger("portal.barrido")
 ESPERA_PENDIENTE = timedelta(minutes=10)
@@ -27,6 +27,9 @@ def una_vuelta(app: FastAPI) -> int:
     ahora = datetime.now(timezone.utc)
     limite = ahora - ESPERA_PENDIENTE
     with Session(engine) as db:
+        # Los message_id del bot sólo sirven para reconocer repetidos recientes.
+        db.execute(delete(BotMensaje).where(BotMensaje.creado < ahora - timedelta(days=2)))
+        db.commit()
         ids = db.execute(select(Recarga.id, Recarga.operador_id, Recarga.estado).where(or_(
             Recarga.estado == "aprobada",
             and_(Recarga.estado == "pendiente", Recarga.creada < limite),

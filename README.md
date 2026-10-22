@@ -63,6 +63,22 @@ MercadoPago (sólo tarjeta o saldo de MP: sin OXXO ni SPEI) y el TPV acredita co
   «Pago extra» = el papá pagó dos veces la misma recarga. Se resuelven en MercadoPago (devolución)
   o con un ajuste en el TPV.
 
+## Bot de WhatsApp guiado
+
+Conduit (Broker Mode) reenvía lo que escribe el papá a `/api/conduit/incoming/{validate,message}`
+(firmado con el `broker_secret`); el portal identifica al tutor por su teléfono y el bot
+(`portal/bot.py`) contesta por `/api/broker/reply`. Menú por números: saldo, recargar (liga de
+MP), pedir, mis pedidos (cancelar), transferir, compras sin pedido, tarjetas. Las acciones salen de
+`portal/acciones.py` (las mismas reglas que la web; base del futuro servidor MCP).
+
+- `/validate` acepta a todo número (cada rechazo cuenta para el silencio permanente de Conduit).
+- Cada `message_id` se atiende una vez (`bot_mensaje`); un papá a la vez (candado de PostgreSQL);
+  el paso y la respuesta se guardan en la misma transacción.
+- `operador.bot_escrituras` (encendido por omisión) apaga las acciones por WhatsApp de inmediato.
+  ⚠️ Conduit aún no verifica la firma de Meta (#39): decisión del usuario dejarlas encendidas.
+- Se activa al configurar en el operador `conduit_url`, `conduit_client_id` y el secreto, cuando
+  Conduit dé de alta a la cafetería (falta su número de WhatsApp).
+
 ## Producción (P4)
 
 En el VPS (`ssh gerri@softbot.com.mx`), repo clonado en `~/cafeteria-portal` (deploy key de sólo lectura):

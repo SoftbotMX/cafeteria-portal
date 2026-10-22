@@ -236,3 +236,14 @@ def test_concilia_tras_el_vencimiento_real_de_la_liga(db, app, op, rec, mp):
     barrido.una_vuelta(app)
     db.refresh(rec)
     assert rec.conciliada
+
+
+def test_barrido_borra_mensajes_viejos_del_bot(db, app, op):
+    from portal.models import BotMensaje
+    db.add_all([BotMensaje(operador_id=op.id, message_id="viejo",
+                           creado=datetime.now(timezone.utc) - timedelta(days=3)),
+                BotMensaje(operador_id=op.id, message_id="nuevo")])
+    db.commit()
+    barrido.una_vuelta(app)
+    db.expire_all()
+    assert [m.message_id for m in db.query(BotMensaje)] == ["nuevo"]
