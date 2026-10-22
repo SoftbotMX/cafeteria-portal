@@ -44,8 +44,15 @@ def _normal(texto: str) -> str:
 
 
 def telefono10(sender: str) -> str | None:
-    digitos = re.sub(r"\D", "", sender or "")
-    return digitos[-10:] if len(digitos) >= 10 else None
+    """Los 10 dígitos de un número MEXICANO (52 o 521 + 10). Otro país o largo: None (no
+    registrado). Tomar los últimos 10 de cualquier número dejaría a un extranjero con la misma
+    terminación pasar por un papá (revisión de seguridad)."""
+    if not isinstance(sender, str) or any(c.isdigit() and not c.isascii() for c in sender):
+        return None
+    d = re.sub(r"[^0-9]", "", sender)
+    if (len(d) == 12 and d.startswith("52")) or (len(d) == 13 and d.startswith("521")):
+        return d[-10:]
+    return None
 
 
 def tutor_por_telefono(db: Session, operador: Operador, sender: str) -> Tutor | None:
