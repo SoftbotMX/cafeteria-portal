@@ -37,7 +37,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def salud() -> dict[str, bool]:
         return {"ok": True}
 
-    from portal.rutas import acceso, admin, pedidos, recargas, recuperar, transferir, tutor
+    from portal.rutas import (
+        acceso, admin, conduit_entrante, pedidos, recargas, recuperar, transferir, tutor)
 
     app.include_router(acceso.router)
     app.include_router(recuperar.router)
@@ -46,4 +47,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(pedidos.router)
     app.include_router(transferir.router)
     app.include_router(recargas.router)
+    app.include_router(conduit_entrante.router)
     return app

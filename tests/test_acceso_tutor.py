@@ -264,7 +264,8 @@ EXENTAS = {"/entrar", "/salir", "/cambiar-contrasena", "/salud", "/openapi.json"
            "/docs/oauth2-redirect", "/redoc",
            # Lo llama MercadoPago, sin sesión: no se le cree, se consulta el pago en su API.
            "/mp/aviso"}
-PREFIJOS_EXENTOS = ("/estatico", "/admin", "/recuperar")
+# /api/conduit: lo llama Conduit (Broker Mode), firmado con HMAC, sin sesión de papá.
+PREFIJOS_EXENTOS = ("/estatico", "/admin", "/recuperar", "/api/conduit")
 
 
 def _depende_de(dependant, objetivo) -> bool:
