@@ -57,6 +57,18 @@ def crear_admin(args, settings) -> None:
     engine.dispose()
 
 
+def guardar_mp(args, settings) -> None:
+    engine = crear_engine(settings.database_url)
+    with Session(engine) as db:
+        op = db.scalars(select(Operador).where(Operador.host == args.host)).first()
+        if op is None:
+            sys.exit(f"No existe un operador con host {args.host}.")
+        op.mp_access_token_cif = cifrar(_pedir("Access Token de MercadoPago"), settings.fernet_key)
+        db.commit()
+        print(f"Token de MercadoPago guardado en {op.host}.")
+    engine.dispose()
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="python -m portal.cli")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -70,9 +82,12 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("--host", required=True)
     a.add_argument("--usuario", required=True)
     a.add_argument("--nombre", required=True)
+    m = sub.add_parser("guardar-mp")
+    m.add_argument("--host", required=True)
     args = p.parse_args(argv)
     settings = get_settings()
-    {"crear-operador": crear_operador, "crear-admin": crear_admin}[args.cmd](args, settings)
+    {"crear-operador": crear_operador, "crear-admin": crear_admin,
+     "guardar-mp": guardar_mp}[args.cmd](args, settings)
 
 
 if __name__ == "__main__":

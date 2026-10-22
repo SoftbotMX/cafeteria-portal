@@ -1,0 +1,27 @@
+{#- Contexto: filas [(Recarga, Tutor)], estado (filtro), estados. -#}
+{% extends "base.html" %}
+{% block titulo %}Recargas · Administración{% endblock %}
+{% block contenido %}
+<h1>Recargas</h1>
+<p><a href="/admin">Volver a tutores</a></p>
+<p>Filtrar: <a href="/admin/recargas">todas</a>{% for e in estados %} · <a href="/admin/recargas?estado={{ e }}">{{ e }}</a>{% endfor %}</p>
+<p><small>«revision»: el pago entró a MercadoPago pero no se acreditó solo. Revísalo en MercadoPago y, si procede, acredítalo con un ajuste en el TPV.</small></p>
+<table>
+  <thead><tr><th>#</th><th>Fecha</th><th>Tutor</th><th>Reparto</th><th>Total</th><th>Estado</th><th>Pago MP</th></tr></thead>
+  <tbody>
+  {% for r, t in filas %}
+    <tr>
+      <td>{{ r.id }}</td><td>{{ r.creada | fecha }}</td><td>{{ t.nombre }}</td>
+      <td>{% for p in r.reparto %}{{ p.nombre }} {{ p.importe | dinero }}{{ ", " if not loop.last }}{% endfor %}</td>
+      <td>{{ r.total | dinero }}</td>
+      <td>{% if r.estado == "revision" %}<strong>revision</strong>{% else %}{{ r.estado }}{% endif %}
+        {% if r.error and r.estado in ("revision", "aprobada") %}<br><small>{{ r.error }}</small>{% endif %}
+        {% if r.pagos_extra %}<br><strong>Pago extra: {{ r.pagos_extra | join(", ") }}</strong> <small>(el papá pagó de más: devolverlo en MercadoPago o acreditarlo a mano)</small>{% endif %}</td>
+      <td>{{ r.mp_pago_id or "—" }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7">No hay recargas.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

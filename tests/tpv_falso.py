@@ -46,6 +46,8 @@ class TPVFalso:
         self.cuerpos_transferencia: list[dict] = []  # lo que el portal mandó a transferencia
         self.transferencias: dict[tuple, tuple] = {}  # (tutor_ref, llave) -> (origen, destino, importe)
         self.hoy: date | None = None  # fija el «hoy» del TPV; por omisión, el de México
+        self.recargas: dict[str, str] = {}  # pago_ref -> huella (op_recarga)
+        self.cuerpos_recarga: list[dict] = []  # lo que el portal mandó a recarga
         self.transport = httpx.MockTransport(self._manejar)
 
     def _manejar(self, req: httpx.Request) -> httpx.Response:
@@ -167,6 +169,57 @@ class TPVFalso:
 
         self.cuerpos_credencial.append((op, copy.deepcopy(d)))
         return self._una_vez(op.replace("/", "_"), d, autorizar, ejecutar)
+
+    @staticmethod
+    def _importe(valor):
+        """Como `_importe` del TPV real: float > 0 redondeado a centavos, si no `importe_invalido`."""
+        try:
+            importe = round(float(valor), 2)
+        except (TypeError, ValueError):
+            return None
+        return importe if importe > 0 else None
+
+    def _recarga(self, d: dict) -> httpx.Response:
+        """Como op_recarga: idempotente por `pago_ref`; el mismo pago con OTRO reparto es
+        409 `pago_ya_acreditado`; el reparto tiene que sumar el total y ser de SUS alumnos."""
+        self.cuerpos_recarga.append(copy.deepcopy(d))
+        t = self.tutores.get(d.get("tutor_ref"))
+        if not t or not t["activo"]:
+            return _err("tutor_desconocido", "Tutor desconocido.", 404)
+        pago_ref = (d.get("pago_ref") or "").strip() if isinstance(d.get("pago_ref"), str) else ""
+        if not pago_ref or len(pago_ref) > 120:
+            return _err("falta_pago", "Falta la referencia del pago.", 400)
+        total = self._importe(d.get("total"))
+        if total is None:
+            return _err("importe_invalido", "Importe no válido.", 400)
+        reparto = []
+        for parte in d.get("reparto") or []:
+            if not isinstance(parte, dict):
+                return _err("dato_invalido", "Reparto no válido.", 400)
+            al = next((a for a in t["alumnos"] if a["id"] == parte.get("alumno_id")), None)
+            if al is None:
+                return _err("alumno_desconocido", "Alumno desconocido.", 404)
+            importe = self._importe(parte.get("importe"))
+            if importe is None:
+                return _err("importe_invalido", "Importe no válido.", 400)
+            reparto.append((al, importe))
+        if not reparto or len({a["id"] for a, _i in reparto}) != len(reparto):
+            return _err("reparto_invalido", "El reparto necesita al menos un alumno y sin repetir.", 400)
+        if round(sum(i for _a, i in reparto), 2) != total:
+            return _err("reparto_invalido", "El reparto no suma el total del pago.", 400)
+        huella = json.dumps([t["tutor_ref"], total] + sorted([a["id"], i] for a, i in reparto))
+        previa = self.recargas.get(pago_ref)
+        if previa is not None and previa != huella:
+            return _err("pago_ya_acreditado", "Ese pago ya se acreditó con otro reparto.", 409)
+        if previa is None:
+            self.recargas[pago_ref] = huella
+            for al, importe in reparto:
+                al["disponible"] = round(al["disponible"] + importe, 2)
+                self.movimientos[al["id"]].insert(0, {
+                    "fecha": "2026-10-22 12:00:00", "tipo": "recarga", "descripcion": "Recarga",
+                    "disponible": importe, "retenido": 0, "venta": None})
+        return httpx.Response(200, json={"ok": True, "pago_ref": pago_ref,
+                                         "alumnos": [self._ficha(a) for a, _i in reparto]})
 
     def _lectura_tutor(self, op: str, d: dict) -> httpx.Response | None:
         t = self.tutores.get(d.get("tutor_ref"))
@@ -377,6 +430,8 @@ class TPVFalso:
             return httpx.Response(200, json={"ok": True, "productos": copy.deepcopy(self.productos)})
         if op == "precompra":
             return self._precompra(d)
+        if op == "recarga":
+            return self._recarga(d)
         if op not in ("admin/tutor/crear", "admin/alumno/crear", "admin/vincular"):
             return _err("no_encontrada", "Operación desconocida.", 404)
         llave = d.get("llave")
