@@ -85,3 +85,21 @@ def test_conduit_telefono_invalido_no_envia(tel):
     with pytest.raises(ErrorEnvio):
         enviar_whatsapp(URL, "c", "cond-s", tel, "x", "k", transport=f.transport)
     assert f.enviados == []
+
+
+# -- plantillas (Conduit #42) ---------------------------------------------------------------------
+PLANTILLA = {"name": "acceso_portal", "language": "es_MX",
+             "components": [{"type": "body", "parameters": [{"type": "text", "text": "Ana"}]}]}
+
+
+def test_con_plantilla_manda_template_y_no_texto():
+    f = ConduitFalso()
+    assert _enviar(f, plantilla=PLANTILLA) == "enviado"
+    c = f.enviados[0]
+    assert c["template"] == PLANTILLA and "text" not in c and c["idempotency_key"]
+
+
+def test_plantilla_rechazada_es_error_definitivo_con_motivo():
+    t = httpx.MockTransport(lambda r: httpx.Response(400, json={"detail": "132001: plantilla no existe"}))
+    with pytest.raises(ErrorEnvio, match="132001"):
+        enviar_whatsapp(URL, "c", "s", "8341445807", "x", "k", transport=t, plantilla=PLANTILLA)

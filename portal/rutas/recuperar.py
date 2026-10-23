@@ -13,7 +13,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from portal.credenciales import enviar_al_tutor, recuperacion_bloqueada
+from portal.credenciales import enviar_al_tutor, plantilla_codigo, recuperacion_bloqueada
 from portal.db import get_db
 from portal.models import CodigoRecuperacion, IntentoLogin, Operador, Tutor
 from portal.rutas.acceso import (
@@ -72,7 +72,8 @@ def _enviar_codigo(app, operador_id: int, tutor_id: int, codigo: str, llave: str
             canal, estado, _ = enviar_al_tutor(
                 db, app, operador, tutor,
                 f"Tu código para cambiar tu contraseña del portal de la cafetería es {codigo}. "
-                "Vence en 15 minutos.", llave, asunto="Tu código para cambiar tu contraseña")
+                "Vence en 15 minutos.", llave, asunto="Tu código para cambiar tu contraseña",
+                plantilla=plantilla_codigo(codigo))
         nivel = logging.WARNING if estado in ("error", "sin_canal") else logging.INFO
         log.log(nivel, "Código de recuperación: tutor=%s canal=%s estado=%s", tutor_id, canal, estado)
     except Exception:  # el código nunca va al log

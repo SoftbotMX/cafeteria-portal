@@ -34,6 +34,9 @@ class Operador(Base):
     bot_escrituras: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     # sha256 del token con que la IA llama al servidor MCP (el token sólo lo ve quien lo crea).
     mcp_token_hash: Mapped[str | None] = mapped_column(String(64))
+    # Mensajes que inicia el portal por WhatsApp con plantilla aprobada en Meta (fuera de la ventana
+    # de 24 h sólo así llegan). Apagado hasta que Meta las apruebe: mientras, texto libre.
+    wa_plantillas: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     creado: Mapped[datetime] = _creado()
 
     def secreto_tpv(self, llave_fernet: str) -> str:

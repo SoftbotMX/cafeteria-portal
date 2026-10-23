@@ -11,14 +11,29 @@ class ErrorEnvio(Exception):
     pass
 
 
+def plantilla(nombre: str, valores: list[str], botones: list[dict] | None = None) -> dict:
+    """Plantilla aprobada en Meta (`docs/PLANTILLAS_WHATSAPP.md`). Las variables no pueden ir
+    vacías ni llevar saltos de línea (Meta las rechaza)."""
+    limpios = [" ".join(str(v).split()) or "-" for v in valores]
+    componentes = [{"type": "body", "parameters": [{"type": "text", "text": v} for v in limpios]}]
+    return {"name": nombre, "language": "es_MX", "components": componentes + (botones or [])}
+
+
 def enviar_whatsapp(url: str, client_id: str, secreto: str, telefono10: str, texto: str, llave: str,
-                    *, transport: httpx.BaseTransport | None = None) -> str:
+                    *, transport: httpx.BaseTransport | None = None,
+                    plantilla: dict | None = None) -> str:
+    """Con `plantilla`, Conduit manda la plantilla y no el texto (Conduit #42): llega aunque el papá
+    no haya escrito en 24 h. Un 400 entonces es definitivo (plantilla no aprobada, número sin
+    WhatsApp…) y trae el motivo de Meta."""
     if not (len(telefono10) == 10 and telefono10.isascii() and telefono10.isdigit()):
         raise ErrorEnvio("El teléfono debe tener exactamente 10 dígitos.")
-    cuerpo = json.dumps({
-        "client_id": client_id, "recipient": "52" + telefono10, "channel": "whatsapp",
-        "text": texto, "idempotency_key": llave,
-    }, separators=(",", ":"), ensure_ascii=False).encode()
+    datos = {"client_id": client_id, "recipient": "52" + telefono10, "channel": "whatsapp",
+             "idempotency_key": llave}
+    if plantilla:
+        datos["template"] = plantilla
+    else:
+        datos["text"] = texto
+    cuerpo = json.dumps(datos, separators=(",", ":"), ensure_ascii=False).encode()
     ts = str(int(time.time()))
     firma = hmac.new(secreto.encode(), f"{ts}.".encode() + cuerpo, hashlib.sha256).hexdigest()
     cab = {"Content-Type": "application/json", "X-Conduit-Timestamp": ts,
@@ -32,6 +47,12 @@ def enviar_whatsapp(url: str, client_id: str, secreto: str, telefono10: str, tex
         return "enviado"
     if r.status_code == 409:
         return "en_curso"
+    if r.status_code == 400 and plantilla:
+        try:
+            motivo = r.json().get("detail")
+        except (ValueError, AttributeError):
+            motivo = None
+        raise ErrorEnvio(f"WhatsApp rechazó la plantilla: {motivo or 'sin motivo'}.")
     raise ErrorEnvio(f"Conduit respondió {r.status_code}.")
 
 

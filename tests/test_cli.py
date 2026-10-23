@@ -58,3 +58,14 @@ def test_crear_admin_host_inexistente(entorno, monkeypatch):
     monkeypatch.setattr(cli.getpass, "getpass", lambda *_: "x")
     with pytest.raises(SystemExit):
         cli.main(["crear-admin", "--host", "no.existe", "--usuario", "a", "--nombre", "A"])
+
+
+def test_activar_y_desactivar_plantillas(entorno, db):
+    from tests.fabricas import crear_operador
+    crear_operador(db, host="cafe.test")
+    cli.main(["plantillas-whatsapp", "--host", "cafe.test", "--activar"])
+    db.expire_all()
+    assert db.scalars(select(Operador)).one().wa_plantillas is True
+    cli.main(["plantillas-whatsapp", "--host", "cafe.test", "--desactivar"])
+    db.expire_all()
+    assert db.scalars(select(Operador)).one().wa_plantillas is False
