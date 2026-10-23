@@ -81,8 +81,17 @@ def _escribir(db, app, operador, tutor, operacion, cuerpo, llave, hijo, reintent
     return None, r
 
 
+def total_de(carta: list[dict], items: list[tuple[int, int]]) -> Decimal:
+    precios = {p["id"]: p["precio"] for p in carta}
+    return sum((precios[pid] * n for pid, n in items), Decimal(0))
+
+
 def pedir(db: Session, app: FastAPI, operador: Operador, tutor: Tutor, hijo: dict, dia: date,
-          items: list[tuple[int, int]], llave: str) -> Resultado:
+          items: list[tuple[int, int]], llave: str,
+          total_esperado: Decimal | None = None) -> Resultado:
+    """`total_esperado`: el total que el papá vio al confirmar (bot, MCP). Si el menú de ahora da
+    otro, no se pide: se cobraría un precio que no aprobó (Codex). Queda la ventana entre esta
+    lectura y la escritura; cerrarla exige que el TPV acepte un total esperado."""
     try:
         carta = menu(app, operador)
     except SinTPV:
@@ -93,6 +102,10 @@ def pedir(db: Session, app: FastAPI, operador: Operador, tutor: Tutor, hijo: dic
                                    cero_omite=False)
     if error is None and not ya_entro:
         error = motivo_fecha_invalida(cargar_reglas(db, operador.id), dia, ahora(app))
+    if error is None and not ya_entro and total_esperado is not None \
+            and total_de(carta, lineas) != total_esperado:
+        error = (f"El precio de un producto cambió desde que lo revisaste (ahora el total es "
+                 f"{dinero(total_de(carta, lineas))}). Arma el pedido otra vez.")
     if error:
         return Resultado("rechazo", con_aviso(db, operador, tutor, llave, hijo, error, OP_PEDIR))
     cuerpo = {"alumno_id": hijo["id"], "fecha_entrega": dia.isoformat(), "llave": llave,

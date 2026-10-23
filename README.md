@@ -79,6 +79,22 @@ MP), pedir, mis pedidos (cancelar), transferir, compras sin pedido, tarjetas. La
 - Se activa al configurar en el operador `conduit_url`, `conduit_client_id` y el secreto, cuando
   Conduit dé de alta a la cafetería (falta su número de WhatsApp).
 
+## Servidor MCP (lenguaje natural)
+
+`https://<host>/mcp` (streamable HTTP, sin estado) para una IA que atienda a los papás. Mismo
+núcleo que la web y el bot (`portal/acciones.py`).
+
+- **Token** por operador, `Authorization: Bearer <token>` (en la BD sólo su sha256). Crearlo (se
+  muestra una vez y reemplaza al anterior):
+  `ssh -t gerri@softbot.com.mx 'cd ~/cafeteria-portal/deploy && docker compose -p cafeteria-portal exec portal python -m portal.cli crear-token-mcp --host cafeteria.softbot.com.mx'`.
+- La IA afirma el `telefono` del papá (número mexicano). Consultas: `hijos`, `dias_para_pedir`,
+  `menu`, `pedidos_por_recoger`.
+- **Acciones en dos pasos impuestos por el servidor**: `preparar_pedido|recarga|transferencia|
+  cancelacion|permiso|tarjeta` validan y devuelven resumen + `folio` (vence en 10 min);
+  `confirmar(folio)` ejecuta lo preparado, una vez (un incierto se reintenta con su misma llave y
+  no vence). El pedido se rechaza si el precio cambió entre preparar y confirmar.
+- `operador.bot_escrituras` también apaga las acciones del MCP.
+
 ## Producción (P4)
 
 En el VPS (`ssh gerri@softbot.com.mx`), repo clonado en `~/cafeteria-portal` (deploy key de sólo lectura):

@@ -69,6 +69,22 @@ def guardar_mp(args, settings) -> None:
     engine.dispose()
 
 
+def crear_token_mcp(args, settings) -> None:
+    """Token para el servidor MCP. Se muestra UNA vez; en la BD sólo queda su sha256."""
+    from portal.mcp_servidor import hash_token, nuevo_token
+    engine = crear_engine(settings.database_url)
+    with Session(engine) as db:
+        op = db.scalars(select(Operador).where(Operador.host == args.host)).first()
+        if op is None:
+            sys.exit(f"No existe un operador con host {args.host}.")
+        token = nuevo_token()
+        op.mcp_token_hash = hash_token(token)
+        db.commit()
+        print(f"Token MCP de {op.host} (guárdalo; no se vuelve a mostrar y reemplaza al anterior):")
+        print(token)
+    engine.dispose()
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="python -m portal.cli")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -84,10 +100,12 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("--nombre", required=True)
     m = sub.add_parser("guardar-mp")
     m.add_argument("--host", required=True)
+    t = sub.add_parser("crear-token-mcp")
+    t.add_argument("--host", required=True)
     args = p.parse_args(argv)
     settings = get_settings()
     {"crear-operador": crear_operador, "crear-admin": crear_admin,
-     "guardar-mp": guardar_mp}[args.cmd](args, settings)
+     "guardar-mp": guardar_mp, "crear-token-mcp": crear_token_mcp}[args.cmd](args, settings)
 
 
 if __name__ == "__main__":
