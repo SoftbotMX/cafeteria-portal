@@ -5,20 +5,18 @@ olvida a los 30 minutos sin mensajes. Las acciones son las de `portal.acciones` 
 que la web). Cada confirmación lleva su llave, guardada aquí: un reintento tras un «no sabemos si
 entró» usa la MISMA llave y no duplica.
 """
-import hashlib
 import re
-import time
 import unicodedata
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import FastAPI
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from portal import acciones, recargas
+from portal import acciones, candado, recargas
 from portal.formato import TIPOS_CREDENCIAL, dinero, parse_importe
 from portal.models import BotConversacion, BotMensaje, Operador, Recarga, Tutor
 from portal.tutor_tpv import MSG_SIN_MENU, MSG_SIN_PEDIDOS, MSG_SIN_TPV, SinTPV
@@ -242,12 +240,12 @@ class Bot:
 
     def _p_rec_confirmar(self, datos, texto):
         def hacer():
-            ya = self.db.scalar(select(Recarga.id).where(
+            ya = self.db.scalar(select(Recarga).where(
                 Recarga.operador_id == self.op.id, Recarga.tutor_id == self.tutor.id,
                 Recarga.llave == datos["llave"]))
-            if ya is None:
-                # Recarga nueva: los hijos tienen que seguir siendo suyos AHORA (Codex): si no,
-                # MP cobraría y el TPV rechazaría la acreditación.
+            if ya is None or not ya.init_point:
+                # Sin liga emitida todavía (nueva, o MP falló antes): los hijos tienen que seguir
+                # siendo suyos AHORA (Codex): si no, MP cobraría y el TPV rechazaría la acreditación.
                 actuales = {h["id"] for h in acciones.hijos(self.app, self.op, self.tutor)}
                 if any(p["alumno_id"] not in actuales for p in datos["reparto"]):
                     return acciones.Resultado(
@@ -309,7 +307,8 @@ class Bot:
                 return datos, "Todavía no agregas nada. Escribe por ejemplo «1 2»." + PIE
             resumen, total = self._resumen_carrito(datos)
             dia = date.fromisoformat(datos["dia"])
-            return {**datos, "paso": "ped_confirmar", "llave": uuid.uuid4().hex}, (
+            return {**datos, "paso": "ped_confirmar", "llave": uuid.uuid4().hex,
+                    "total": str(total)}, (
                 f"Pedido para el {DIAS[dia.weekday()]} {dia.day:02d}/{dia.month:02d}:\n{resumen}\n"
                 f"Total: {dinero(total)}\n\n1 Confirmar\n2 Cancelar")
         m = re.fullmatch(r"quitar\s+(\d+)", t)
@@ -342,7 +341,9 @@ class Bot:
                 return acciones.Resultado("rechazo", "Ese hijo ya no aparece en tu cuenta.")
             items = [(int(pid), n) for pid, n in datos["carrito"].items()]
             return acciones.pedir(self.db, self.app, self.op, self.tutor, hijo,
-                                  date.fromisoformat(datos["dia"]), items, datos["llave"])
+                                  date.fromisoformat(datos["dia"]), items, datos["llave"],
+                                  # conversaciones guardadas antes de este campo: sin comparar
+                                  Decimal(datos["total"]) if datos.get("total") else None)
         return self._confirmar(datos, texto, hacer)
 
     # -- mis pedidos (cancelar) -----------------------------------------------------------
@@ -492,8 +493,7 @@ class Bot:
 
 def llave_candado(operador_id: int, telefono: str) -> int:
     """Llave del candado de PostgreSQL por papá (bigint con signo)."""
-    h = hashlib.sha256(f"bot:{operador_id}:{telefono}".encode()).digest()
-    return int.from_bytes(h[:8], "big", signed=True)
+    return candado.llave("bot", operador_id, telefono)
 
 
 def atender(db: Session, app: FastAPI, operador: Operador, sender: str, texto: str,
@@ -509,22 +509,8 @@ def atender(db: Session, app: FastAPI, operador: Operador, sender: str, texto: s
     k = llave_candado(operador.id, tutor.telefono)
     engine = db.get_bind()
     db.rollback()  # suelta la conexión de trabajo mientras se espera el candado
-    limite = time.monotonic() + ESPERA_CANDADO
-    while True:
-        # `try` y soltar la conexión entre intentos: quien espera no retiene conexiones del pool,
-        # que el dueño del candado necesita para terminar (Codex).
-        candado = engine.connect()
-        if candado.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": k}).scalar():
-            break
-        candado.close()
-        if time.monotonic() > limite:
-            return MSG_OCUPADO
-        time.sleep(0.2)
     try:
-        return Bot(db, app, operador, tutor, mensaje_id).atender(texto or "")
-    finally:
-        try:
-            candado.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": k})
-            candado.commit()
-        finally:
-            candado.close()
+        with candado.tomar(engine, k, ESPERA_CANDADO):
+            return Bot(db, app, operador, tutor, mensaje_id).atender(texto or "")
+    except candado.Ocupado:
+        return MSG_OCUPADO

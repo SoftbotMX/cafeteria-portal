@@ -351,3 +351,42 @@ def test_solo_numeros_mexicanos(numero, esperado):
 
 def test_numero_extranjero_con_la_misma_terminacion_no_es_el_papa(hijos, escribir):
     assert "no está registrado" in escribir("hola", numero="+448341445807")
+
+
+def test_bot_si_cambia_el_precio_no_pide(hijos, escribir, tpv):
+    escribir("hola")
+    escribir("3")
+    escribir("1")
+    escribir("2")
+    escribir("1 2")
+    escribir("listo")
+    tpv.productos[0]["precio"] = 50
+    assert "precio" in escribir("1")
+    assert tpv.cuerpos_precompra == []
+
+
+def test_bot_reintento_de_recarga_revalida_hijos(db, tutor, hijos, escribir, mp, tpv):
+    escribir("hola")
+    escribir("2")
+    escribir("2")  # Ana
+    escribir("100")
+    mp.fallar.add("preferencia")
+    assert "reintentar" in escribir("1")
+    mp.fallar.clear()
+    tpv.tutores[tutor.tutor_ref]["alumnos"].remove(hijos[1])
+    assert "ya no aparece" in escribir("1")
+    assert db.query(Recarga).one().init_point is None
+
+
+def test_confirmacion_guardada_sin_total_sigue_funcionando(db, hijos, escribir, tpv):
+    from portal.models import BotConversacion
+    escribir("hola")
+    escribir("3")
+    escribir("1")
+    escribir("2")
+    escribir("1 2")
+    escribir("listo")
+    conv = db.query(BotConversacion).one()
+    conv.datos = {k: v for k, v in conv.datos.items() if k != "total"}  # formato anterior
+    db.commit()
+    assert "¡Listo!" in escribir("1")

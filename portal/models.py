@@ -32,6 +32,8 @@ class Operador(Base):
     # Acciones por WhatsApp (pedir, recargar, transferir…). Encendidas por decisión del usuario
     # (2026-10-22) aunque Conduit aún no verifica la firma de Meta (#39): sirve para apagarlas ya.
     bot_escrituras: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    # sha256 del token con que la IA llama al servidor MCP (el token sólo lo ve quien lo crea).
+    mcp_token_hash: Mapped[str | None] = mapped_column(String(64))
     creado: Mapped[datetime] = _creado()
 
     def secreto_tpv(self, llave_fernet: str) -> str:
@@ -223,3 +225,22 @@ class BotMensaje(Base):
     message_id: Mapped[str] = mapped_column(String(100))
     respuesta: Mapped[str | None] = mapped_column(String)
     creado: Mapped[datetime] = _creado()
+
+
+class McpConfirmacion(Base):
+    """Una acción preparada por el MCP que espera el «sí» del papá. `confirmar(folio)` la ejecuta
+    tal cual se preparó (una sola vez; con un incierto, se reintenta con la MISMA llave)."""
+    __tablename__ = "mcp_confirmacion"
+    __table_args__ = (UniqueConstraint("folio", name="uq_mcp_confirmacion_folio"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    folio: Mapped[str] = mapped_column(String(32))
+    operador_id: Mapped[int] = mapped_column(ForeignKey("operador.id"))
+    tutor_id: Mapped[int] = mapped_column(ForeignKey("tutor.id"))
+    accion: Mapped[str] = mapped_column(String(20))
+    datos: Mapped[dict] = mapped_column(JSONB)
+    llave: Mapped[str] = mapped_column(String(64))
+    expira: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    estado: Mapped[str] = mapped_column(String(10), default="preparada", server_default="preparada")
+    resultado: Mapped[str | None] = mapped_column(String)
+    creada: Mapped[datetime] = _creado()
