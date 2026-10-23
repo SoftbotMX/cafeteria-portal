@@ -33,7 +33,7 @@ Envío: `POST /api/notify` de Conduit con `template {name, language: "es_MX", co
 | Nombre | Categoría | Cuerpo | Ejemplo | Cuándo |
 |---|---|---|---|---|
 | `acceso_portal` | Utilidad | Hola {{1}}, ya tienes acceso al portal de la cafetería en {{2}} con el usuario {{3}} y la contraseña temporal {{4}}. Te pediremos cambiarla al entrar. | `Ana` · `https://cafeteria.softbot.com.mx` · `8341445807` · `fresa-limon-42` | Alta del tutor y «Reenviar acceso» |
-| `codigo_verificacion` | **Autenticación** | (texto fijo de Meta) «*{{1}}* es tu código de verificación.» + botón **Copiar código**; vence en 10 min | `148789` | Recuperar contraseña |
+| `codigo_verificacion` | **Autenticación** | (texto fijo de Meta) «*{{1}}* es tu código de verificación.» + botón **Copiar código**; vence en 15 min (el portal dice 15) | `148789` | Recuperar contraseña |
 
 Notas:
 - La categoría **Autenticación** tiene el texto fijo de Meta (no se redacta) y es la que corresponde

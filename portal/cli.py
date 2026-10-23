@@ -85,6 +85,19 @@ def crear_token_mcp(args, settings) -> None:
     engine.dispose()
 
 
+def plantillas_whatsapp(args, settings) -> None:
+    """Encender cuando Meta apruebe las plantillas de docs/PLANTILLAS_WHATSAPP.md."""
+    engine = crear_engine(settings.database_url)
+    with Session(engine) as db:
+        op = db.scalars(select(Operador).where(Operador.host == args.host)).first()
+        if op is None:
+            sys.exit(f"No existe un operador con host {args.host}.")
+        op.wa_plantillas = args.activar
+        db.commit()
+        print(f"Plantillas de WhatsApp en {op.host}: {'activadas' if args.activar else 'desactivadas'}.")
+    engine.dispose()
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="python -m portal.cli")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -102,10 +115,16 @@ def main(argv: list[str] | None = None) -> None:
     m.add_argument("--host", required=True)
     t = sub.add_parser("crear-token-mcp")
     t.add_argument("--host", required=True)
+    w = sub.add_parser("plantillas-whatsapp")
+    w.add_argument("--host", required=True)
+    g = w.add_mutually_exclusive_group(required=True)
+    g.add_argument("--activar", dest="activar", action="store_true")
+    g.add_argument("--desactivar", dest="activar", action="store_false")
     args = p.parse_args(argv)
     settings = get_settings()
     {"crear-operador": crear_operador, "crear-admin": crear_admin,
-     "guardar-mp": guardar_mp, "crear-token-mcp": crear_token_mcp}[args.cmd](args, settings)
+     "guardar-mp": guardar_mp, "crear-token-mcp": crear_token_mcp,
+     "plantillas-whatsapp": plantillas_whatsapp}[args.cmd](args, settings)
 
 
 if __name__ == "__main__":

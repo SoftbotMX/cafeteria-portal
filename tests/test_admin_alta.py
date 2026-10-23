@@ -447,3 +447,16 @@ def test_tutor_solo_correo_con_conduit_roto_va_por_correo(db, op, admin, tpv, co
     assert 'id="canal">correo<' in r.text and 'id="estado">enviado<' in r.text
     assert len(enviados) == 1 and enviados[0][0] == "mama@mail.com"
     assert _contrasena(r) in enviados[0][1] and conduit.enviados == []
+
+
+def test_alta_con_plantillas_activas_manda_acceso_portal(db, op, admin, tpv, conduit):
+    op.wa_plantillas = True
+    db.commit()
+    r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta")))
+    (env,) = conduit.enviados
+    assert "text" not in env and env["template"]["name"] == "acceso_portal"
+    assert env["template"]["language"] == "es_MX"
+    (cuerpo,) = env["template"]["components"]
+    valores = [p["text"] for p in cuerpo["parameters"]]
+    assert valores[1:] == ["https://cafeteria.test", "8341445807", _contrasena(r)]
+    assert all(v.strip() and "\n" not in v for v in valores)

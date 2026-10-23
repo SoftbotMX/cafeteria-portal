@@ -334,3 +334,17 @@ def test_el_fallo_que_llega_al_tope_se_registra_una_vez(db, op, c, conduit, capl
             assert _cambiar(c, "8341445807", "000000").status_code == 400
     avisos = [r.getMessage() for r in caplog.records if "bloqueada" in r.getMessage()]
     assert avisos == [f"Recuperación bloqueada por intentos fallidos: tutor={t.id}"]
+
+
+def test_recuperar_con_plantillas_activas_manda_codigo_verificacion(db, op, c, conduit):
+    op.wa_plantillas = True
+    db.commit()
+    crear_tutor(db, op)
+    _pedir(c, "8341445807")
+    t = conduit.enviados[0]["template"]
+    assert t["name"] == "codigo_verificacion" and "text" not in conduit.enviados[0]
+    cuerpo = next(x for x in t["components"] if x["type"] == "body")
+    boton = next(x for x in t["components"] if x["type"] == "button")
+    cod = cuerpo["parameters"][0]["text"]
+    assert len(cod) == 6 and cod.isdigit()
+    assert boton["sub_type"] == "url" and boton["parameters"][0]["text"] == cod

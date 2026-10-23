@@ -7,7 +7,7 @@ from datetime import timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from portal.conduit import ErrorEnvio, enviar_whatsapp
+from portal.conduit import ErrorEnvio, enviar_whatsapp, plantilla as plantilla_wa
 from portal.correo import enviar_correo
 from portal.models import Bitacora, CodigoRecuperacion, Operador, Tutor
 from portal.seguridad import generar_temporal, hash_contrasena, invalidar_codigos
@@ -46,9 +46,24 @@ def texto_acceso(operador: Operador, tutor: Tutor, contrasena: str) -> str:
             "Te pediremos cambiarla al entrar.")
 
 
+def plantilla_acceso(operador: Operador, tutor: Tutor, contrasena: str) -> dict:
+    return plantilla_wa("acceso_portal", [tutor.nombre, f"https://{operador.host}",
+                                          usuario_de(tutor), contrasena])
+
+
+def plantilla_codigo(codigo: str) -> dict:
+    """Categoría Autenticación: el código va en el cuerpo y en el botón «Copiar código»."""
+    return plantilla_wa("codigo_verificacion", [codigo], [
+        {"type": "button", "sub_type": "url", "index": "0",
+         "parameters": [{"type": "text", "text": codigo}]}])
+
+
 def enviar_al_tutor(db: Session, app, operador: Operador, tutor: Tutor, texto: str,
-                    llave: str, asunto: str = "Tu acceso al portal de la cafetería") -> tuple[str | None, str, str]:
-    """(canal, estado, detalle). WhatsApp si hay teléfono y Conduit; si no, correo si hay SMTP."""
+                    llave: str, asunto: str = "Tu acceso al portal de la cafetería",
+                    plantilla: dict | None = None) -> tuple[str | None, str, str]:
+    """(canal, estado, detalle). WhatsApp si hay teléfono y Conduit; si no, correo si hay SMTP.
+    `plantilla` se usa en WhatsApp sólo si el operador ya tiene sus plantillas aprobadas
+    (`wa_plantillas`); el correo siempre lleva `texto`."""
     settings = app.state.settings
     if tutor.telefono and operador.conduit_url and operador.conduit_client_id \
             and operador.conduit_secreto_cif:
@@ -60,7 +75,8 @@ def enviar_al_tutor(db: Session, app, operador: Operador, tutor: Tutor, texto: s
         try:
             estado = enviar_whatsapp(
                 operador.conduit_url, operador.conduit_client_id, secreto, tutor.telefono, texto,
-                f"{settings.instancia}:{llave}", transport=app.state.conduit_transport)
+                f"{settings.instancia}:{llave}", transport=app.state.conduit_transport,
+                plantilla=plantilla if operador.wa_plantillas else None)
         except ErrorEnvio as e:
             return "whatsapp", "error", str(e)
         return "whatsapp", estado, ("Conduit lo está procesando." if estado == "en_curso"
@@ -119,7 +135,8 @@ def entregar_credenciales(db: Session, app, operador: Operador, tutor: Tutor, in
     # contraseña que no existe en la BD. Así lo enviado y lo mostrado siempre es lo guardado.
     db.commit()
     canal, estado, detalle = enviar_al_tutor(
-        db, app, operador, tutor, texto_acceso(operador, tutor, contrasena), llave)
+        db, app, operador, tutor, texto_acceso(operador, tutor, contrasena), llave,
+        plantilla=plantilla_acceso(operador, tutor, contrasena))
     marca.http_status = 200  # sin esto, el envío quedó interrumpido
     if estado != "enviado":
         marca.codigo_error = estado
