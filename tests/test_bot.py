@@ -112,10 +112,12 @@ def test_recargar_total_y_repartir_entre_hijos(db, hijos, escribir, mp):
     assert "Te quedan $300.00" in r and "Luis" in r
     assert "entre 0 y 300" in escribir("400")
     r = escribir("$200")
-    assert "Total: $300.00" in r and "Luis: $200.00" in r and "Ana: $100.00" in r  # a Ana, el resto
+    assert "*Total a pagar: $300.00*" in r and "Luis: $200.00" in r and "Ana: $100.00" in r  # a Ana, el resto
     assert "1 Confirmar" in r
     r = escribir("1")
-    assert "https://mp.test/checkout" in r and "30 minutos" in r
+    assert r.startswith("*Paga $300.00 aquí:*\nhttps://mp.test/checkout")
+    assert "*La liga vence en 30 minutos.*" in r and "*Conversación terminada" in r
+    assert "¿Qué deseas hacer?" in escribir("hola")  # tras la liga, empieza de nuevo
     rec = db.query(Recarga).one()
     assert rec.total == 300 and {p["nombre"]: p["importe"] for p in rec.reparto} == {
         "Luis": 200, "Ana": 100}
@@ -126,7 +128,7 @@ def test_recargar_todo_a_un_hijo_no_pregunta_por_los_demas(db, hijos, escribir, 
     escribir("2")
     escribir("1,000")
     r = escribir("1000")
-    assert "Luis: $1,000.00" in r and "Ana" not in r and "Total: $1,000.00" in r
+    assert "Luis: $1,000.00" in r and "Ana" not in r and "Total a pagar: $1,000.00" in r
 
 
 def test_recargar_respeta_el_minimo_y_cancelar_no_crea_nada(db, hijos, escribir):
@@ -135,7 +137,7 @@ def test_recargar_respeta_el_minimo_y_cancelar_no_crea_nada(db, hijos, escribir)
     assert "$50" in escribir("30")
     assert "$2,000" in escribir("2001")
     escribir("50")
-    assert "Total: $50.00" in escribir("0")  # todo a Ana
+    assert "Total a pagar: $50.00" in escribir("0")  # todo a Ana
     assert "no se hizo nada" in escribir("2")
     assert db.query(Recarga).count() == 0
 

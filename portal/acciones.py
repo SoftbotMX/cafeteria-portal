@@ -266,4 +266,5 @@ def recargar(db: Session, app: FastAPI, operador: Operador, tutor: Tutor, repart
         return Resultado("incierto", "No pudimos abrir Mercado Pago. No se te cobró nada: "
                                      "responde 1 para reintentar.")
     return Resultado("ok", f"Paga {dinero(total)} aquí: {r.init_point}\nLa liga vence en 30 "
-                           "minutos. Te avisamos por aquí cuando se acredite.", {"recarga_id": r.id})
+                           "minutos. Te avisamos por aquí cuando se acredite.",
+                     {"recarga_id": r.id, "url": r.init_point})
