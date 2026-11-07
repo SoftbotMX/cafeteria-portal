@@ -135,11 +135,11 @@ def _pedir_torta(escribir, dia="2"):
     r = escribir(dia)
     assert "1 Almuerzo (1)" in r and "2 Bebidas (1)" in r  # por categoría
     assert "1 Torta $45.00" in escribir("1")
-    assert "1 Torta × 2" in escribir("1 2")
+    assert "1) Torta × 2" in escribir("1 2")
     r = escribir("categorías")
-    assert "Llevas:" in r and "1 Torta × 2" in r
+    assert "Llevas:" in r and "1) Torta × 2" in r
     assert "1 Agua $15.00" in escribir("2")
-    assert "2 Agua × 1" in escribir("1")
+    assert "2) Agua × 1" in escribir("1")
     r = escribir("listo")
     assert "Total: $105.00" in r
     return escribir("1")
@@ -161,10 +161,10 @@ def test_instrucciones_de_productos_cortas_con_tip(hijos, escribir):
 
 def test_repetir_la_seleccion_suma(hijos, escribir):
     _a_almuerzo(escribir)
-    assert "1 Torta × 1" in escribir("1")
-    assert "1 Torta × 2" in escribir("1")
+    assert "1) Torta × 1" in escribir("1")
+    assert "1) Torta × 2" in escribir("1")
     r = escribir("1 3")
-    assert "1 Torta × 5" in r and "Total: $225.00" in r
+    assert "1) Torta × 5" in r and "Total: $225.00" in r
     assert "«quitar 1»" in r and "«listo»" in r and "«categorías»" in r
 
 
@@ -174,28 +174,43 @@ def test_repetir_no_pasa_del_maximo(hijos, escribir):
     escribir(f"1 {MAX_POR_LINEA}")
     r = escribir("1")
     assert f"Máximo {MAX_POR_LINEA}" in r
-    assert f"1 Torta × {MAX_POR_LINEA}" in escribir("categorías")
+    assert f"1) Torta × {MAX_POR_LINEA}" in escribir("categorías")
 
 
 def test_quitar_un_producto_del_carrito(hijos, escribir):
     _a_almuerzo(escribir)
-    escribir("1 2")
+    escribir("1")
     escribir("categorías")
     escribir("2")  # Bebidas
-    assert "2 Agua × 1" in escribir("1")
-    r = escribir("quitar 1")  # la línea 1 del carrito: la torta, aunque estemos en Bebidas
-    assert "Quité Torta" in r and "1 Agua × 1" in r and "Torta ×" not in r
+    assert "2) Agua × 1" in escribir("1")
+    r = escribir("quitar 1")  # la línea 1 del carrito: la torta (una sola: sin preguntar)
+    assert "Quité Torta" in r and "1) Agua × 1" in r and "Torta ×" not in r
     assert "No tienes un producto 5" in escribir("quitar 5")
 
 
-def test_quitar_desde_la_lista_de_categorias(hijos, escribir):
+def test_quitar_con_varias_pregunta_todas_o_algunas(hijos, escribir):
     _a_almuerzo(escribir)
-    escribir("1")
-    r = escribir("categorías")
-    assert "«quitar 1»" in r
+    escribir("1 5")
     r = escribir("quitar 1")
+    assert "Llevas 5 × Torta" in r and "1 Quitar todas" in r and "2 Quitar algunas" in r
+    assert "No entendí" in escribir("7")
+    assert "del 1 al 4" in escribir("2")
+    assert "del 1 al 4" in escribir("5")
+    r = escribir("3")
+    assert "Quité 3 × Torta" in r and "1) Torta × 2" in r and "Agrega otro" in r
+    r = escribir("quitar 1")
+    assert "Llevas 2 × Torta" in r
+    r = escribir("2")  # con dos, «algunas» sólo puede ser una: no pregunta cuántas
+    assert "Quité 1 × Torta" in r and "1) Torta × 1" in r
+
+
+def test_quitar_todas_desde_categorias_regresa_a_categorias(hijos, escribir):
+    _a_almuerzo(escribir)
+    escribir("1 3")
+    escribir("categorías")
+    assert "Quitar todas" in escribir("quitar 1")
+    r = escribir("1")
     assert "Quité Torta" in r and "¿Qué quieres ver?" in r and "Llevas:" not in r
-    assert "Todavía no agregas nada" in escribir("listo")
 
 
 def test_pedir_para_manana(hijos, escribir, tpv):
