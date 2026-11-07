@@ -72,6 +72,12 @@ def _numero(texto: str, maximo: int) -> int | None:
     return None
 
 
+def _pesos(texto: str) -> int | None:
+    """«300», «$300», «1,000» → pesos enteros; None si no es eso."""
+    t = _normal(texto).replace("$", "").replace(",", "").replace(" ", "")
+    return int(t) if t.isdigit() else None
+
+
 def _dia(d: date, hoy: date) -> str:
     if d == hoy:
         return "Hoy"
@@ -113,7 +119,8 @@ class Bot:
         t = _normal(texto)
         if t in DESPEDIDAS:
             datos, respuesta = {"paso": "fin"}, DESPEDIDA
-        elif viejo or t in ("menu", "0", "inicio", "hola", "cancelar") or not datos.get("paso"):
+        elif (viejo or t in ("menu", "inicio", "hola", "cancelar") or not datos.get("paso")
+              or (t == "0" and datos.get("paso") != "rec_reparte")):  # ahí «0» = nada a ese hijo
             datos = {"paso": "menu"}
             respuesta = self._menu(saludo=True)
         else:
@@ -173,7 +180,15 @@ class Bot:
             return self._al_menu("No tienes hijos vinculados. Pide a la cafetería que los dé de alta.")
         if accion == "transferir" and len(hijos) < 2:
             return self._al_menu("Para transferir necesitas dos hijos o más.")
+        if accion == "recargar" and len(hijos) > 1:
+            return self._inicio_recarga([h["id"] for h in hijos])
         return self._elegir_hijo({"accion": accion}, hijos)
+
+    def _inicio_recarga(self, ids: list[int]) -> tuple[dict, str]:
+        """Como en el portal: un solo pago del papá, que él reparte entre sus hijos."""
+        return {"accion": "recargar", "paso": "rec_total", "hijos": ids}, (
+            f"¿Cuánto vas a recargar en total? Pesos enteros, de ${recargas.MINIMO} a "
+            f"${recargas.MAXIMO:,}. Después me dices cuánto le toca a cada hijo." + PIE)
 
     # -- elegir hijo (común) --------------------------------------------------------------
     def _elegir_hijo(self, datos: dict, hijos: list[dict], excluir: int | None = None,
@@ -182,21 +197,17 @@ class Bot:
         if len(opciones) == 1 and datos["accion"] != "transferir":
             return self._con_hijo(datos, opciones[0])
         datos = {**datos, "paso": "hijo", "opciones": [h["id"] for h in opciones]}
-        extra = ["Todos por igual"] if datos["accion"] == "recargar" and len(opciones) > 1 else []
         lineas = [f"{h['nombre']} ({dinero(h.get('disponible'))} disponible)" for h in opciones]
-        return datos, f"{pregunta}\n" + _numerada(lineas + extra) + PIE
+        return datos, f"{pregunta}\n" + _numerada(lineas) + PIE
 
     def _p_hijo(self, datos, texto):
         ids = datos["opciones"]
-        todos = datos["accion"] == "recargar" and len(ids) > 1
-        n = _numero(texto, len(ids) + (1 if todos else 0))
+        if datos["accion"] == "recargar" and len(ids) > 1 and _numero(texto, len(ids) + 1) == len(ids) + 1:
+            return self._inicio_recarga(ids)  # «Todos por igual» de una conversación anterior
+        n = _numero(texto, len(ids))
         if n is None:
             return datos, "No entendí: escribe el número de la lista." + PIE
         hijos = {h["id"]: h for h in acciones.hijos(self.app, self.op, self.tutor)}
-        if todos and n == len(ids) + 1:
-            return {**datos, "paso": "rec_monto", "hijos": ids}, (
-                f"¿Cuánto a cada uno? Pesos enteros; el total va de ${recargas.MINIMO} a "
-                f"${recargas.MAXIMO:,}." + PIE)
         hijo = hijos.get(ids[n - 1])
         if hijo is None:
             return self._al_menu("Ese hijo ya no aparece en tu cuenta.")
@@ -247,6 +258,57 @@ class Bot:
         lineas = "\n".join(f"{p['nombre']}: {dinero(p['importe'])}" for p in reparto)
         return {**datos, "paso": "rec_confirmar", "reparto": reparto, "total": str(total),
                 "llave": uuid.uuid4().hex}, (
+            f"Recarga:\n{lineas}\nTotal: {dinero(total)}\n\n1 Confirmar y recibir la liga de pago"
+            f"\n2 Cancelar")
+
+    def _p_rec_total(self, datos, texto):
+        pesos = _pesos(texto)
+        if pesos is None or not recargas.MINIMO <= pesos <= recargas.MAXIMO:
+            return datos, (f"Escribe sólo los pesos, sin centavos, de ${recargas.MINIMO} a "
+                           f"${recargas.MAXIMO:,} (por ejemplo 300)." + PIE)
+        return self._pedir_parte({**datos, "paso": "rec_reparte", "total": pesos, "montos": []})
+
+    def _pedir_parte(self, datos) -> tuple[dict, str]:
+        """Pregunta cuánto va al siguiente hijo; al último le toca lo que queda, sin preguntar."""
+        hijos = {h["id"]: h for h in acciones.hijos(self.app, self.op, self.tutor)}
+        ids = datos["hijos"]
+        if any(i not in hijos for i in ids):
+            # Los montos van por posición: con un hijo de menos se recorrerían al hijo equivocado.
+            return self._al_menu("Uno de tus hijos ya no aparece en tu cuenta. Arma la recarga "
+                                 "otra vez.")
+        montos = datos["montos"]
+        resta = datos["total"] - sum(montos)
+        faltan = ids[len(montos):]
+        if resta == 0 or len(faltan) == 1:
+            montos = montos + [resta] + [0] * (len(faltan) - 1)
+            return self._resumen_recarga(datos, hijos, montos)
+        h = hijos[faltan[0]]
+        return datos, (
+            f"Te quedan {dinero(resta)} por repartir. ¿Cuánto para {h['nombre']}? "
+            f"(tiene {dinero(h.get('disponible'))}). Escribe 0 si nada." + PIE)
+
+    def _p_rec_reparte(self, datos, texto):
+        if _pesos(texto) is not None:
+            actuales = {h["id"] for h in acciones.hijos(self.app, self.op, self.tutor)}
+            if any(i not in actuales for i in datos["hijos"]):
+                return self._al_menu("Uno de tus hijos ya no aparece en tu cuenta. Arma la "
+                                     "recarga otra vez.")
+        resta = datos["total"] - sum(datos["montos"])
+        pesos = _pesos(texto)
+        if pesos is None or pesos > resta:
+            return datos, f"Escribe un número de pesos entre 0 y {resta:,}." + PIE
+        return self._pedir_parte({**datos, "montos": datos["montos"] + [pesos]})
+
+    def _resumen_recarga(self, datos, hijos, montos) -> tuple[dict, str]:
+        elegidos = [hijos[i] for i in datos["hijos"]]
+        armado = recargas.armar_reparto(
+            elegidos, {f"importe_{h['id']}": str(m) for h, m in zip(elegidos, montos)})
+        if isinstance(armado, str):
+            return self._al_menu(armado)
+        reparto, total = armado
+        lineas = "\n".join(f"{p['nombre']}: {dinero(p['importe'])}" for p in reparto)
+        return {"accion": "recargar", "paso": "rec_confirmar", "reparto": reparto,
+                "total": str(total), "llave": uuid.uuid4().hex}, (
             f"Recarga:\n{lineas}\nTotal: {dinero(total)}\n\n1 Confirmar y recibir la liga de pago"
             f"\n2 Cancelar")
 
