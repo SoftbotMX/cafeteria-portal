@@ -324,7 +324,7 @@ class Bot:
             return self._terminar_pedido(datos)
         quitado = self._quitar(datos, texto)
         if quitado is not None:
-            return quitado[0], self._lista_categorias(quitado[0], quitado[1])
+            return quitado
         n = _numero(texto, len(datos["cats"]))
         if n is None:
             return datos, self._lista_categorias(datos, "No entendí. ")
@@ -357,20 +357,76 @@ class Bot:
         """El carrito numerado, para que «quitar N» se entienda."""
         lineas = self._lineas_carrito(datos)
         total = sum((p * c for _, _, p, c in lineas), Decimal(0))
-        return ("Llevas:\n" + _numerada([f"{n} × {c}" for _, n, _, c in lineas])
+        return ("Llevas:\n" + "\n".join(f"{i}) {n} × {c}" for i, (_, n, _, c) in enumerate(lineas, 1))
                 + f"\nTotal: {dinero(total)}")
 
+    def _vista(self, datos, antes: str = "") -> str:
+        """Lo que se ve en el paso de pedido actual (productos o categorías), con un aviso antes."""
+        if datos["paso"] == "ped_categoria":
+            return self._lista_categorias(datos, antes)
+        return antes + self._eco(datos)
+
     def _quitar(self, datos, texto) -> tuple[dict, str] | None:
-        """«quitar N» saca la línea N del carrito (la numeración de «Llevas»). None si no aplica."""
+        """«quitar N» con la numeración de «Llevas». Si la línea tiene más de una pieza, pregunta
+        si quitar todas o algunas. None si el texto no es un «quitar»."""
         m = re.fullmatch(r"(?:quitar|quita|eliminar|borrar)\s+(\d+)", _normal(texto))
         if not m:
             return None
         lineas = self._lineas_carrito(datos)
         i = int(m.group(1))
         if not 1 <= i <= len(lineas):
-            return datos, f"No tienes un producto {i} en tu pedido. "
-        carrito = {k: v for k, v in datos["carrito"].items() if k != lineas[i - 1][0]}
-        return {**datos, "carrito": carrito}, f"Quité {lineas[i - 1][1]}. "
+            return datos, self._vista(datos, f"No tienes un producto {i} en tu pedido. ")
+        pid, nombre, _, cant = lineas[i - 1]
+        if cant == 1:
+            return self._restar(datos, pid, 1)
+        return ({**datos, "paso": "ped_quitar", "quitar_pid": pid, "volver": datos["paso"]},
+                self._pregunta_quitar(datos, pid))
+
+    def _pregunta_quitar(self, datos, pid) -> str:
+        nombre = self._nombre(datos, pid)
+        return (f"Llevas {datos['carrito'][pid]} × {nombre}.\n"
+                + _numerada(["Quitar todas", "Quitar algunas"]) + PIE)
+
+    def _nombre(self, datos, pid) -> str:
+        return next(n for i, n, _, _ in self._lineas_carrito(datos) if i == pid)
+
+    def _restar(self, datos, pid, n) -> tuple[dict, str]:
+        """Resta n piezas (todas si llega a cero) y regresa al paso donde se pidió quitar."""
+        nombre = self._nombre(datos, pid)
+        carrito = dict(datos["carrito"])
+        quedan = carrito[pid] - n
+        if quedan > 0:
+            carrito[pid] = quedan
+        else:
+            carrito.pop(pid)
+        datos = {k: v for k, v in datos.items() if k not in ("quitar_pid", "volver")}
+        datos = {**datos, "carrito": carrito}
+        aviso = f"Quité {n} × {nombre}. " if quedan > 0 else f"Quité {nombre}. "
+        return datos, self._vista(datos, aviso)
+
+    def _volver(self, datos) -> dict:
+        return {**datos, "paso": datos["volver"]}
+
+    def _p_ped_quitar(self, datos, texto):
+        pid = datos["quitar_pid"]
+        cant = datos["carrito"][pid]
+        n = _numero(texto, 2)
+        if n == 1:
+            return self._restar(self._volver(datos), pid, cant)
+        if n == 2:
+            if cant == 2:  # sólo cabe quitar una
+                return self._restar(self._volver(datos), pid, 1)
+            return {**datos, "paso": "ped_quitar_cuantas"}, (
+                f"¿Cuántas quitas? Escribe un número del 1 al {cant - 1}." + PIE)
+        return datos, "No entendí. " + self._pregunta_quitar(datos, pid)
+
+    def _p_ped_quitar_cuantas(self, datos, texto):
+        pid = datos["quitar_pid"]
+        cant = datos["carrito"][pid]
+        n = _numero(texto, cant - 1)
+        if n is None:
+            return datos, f"Escribe un número del 1 al {cant - 1}." + PIE
+        return self._restar(self._volver(datos), pid, n)
 
     def _p_ped_productos(self, datos, texto):
         t = _normal(texto)
@@ -384,7 +440,7 @@ class Bot:
             return {**datos, "paso": "ped_categoria"}, self._lista_categorias(datos)
         quitado = self._quitar(datos, texto)
         if quitado is not None:
-            return quitado[0], quitado[1] + self._eco(quitado[0])
+            return quitado
         m = re.fullmatch(r"(\d+)(?:\s*(?:x|\s)\s*(\d+))?", t)
         if not m or not 1 <= int(m.group(1)) <= len(productos):
             return datos, "No entendí. Escribe el número del producto y la cantidad, por ejemplo «1 2»." + PIE
