@@ -104,27 +104,47 @@ def test_respuesta_invalida_repite(hijos, escribir):
     assert "No entendí" in escribir("99")
 
 
-def test_recargar_a_todos_por_igual(db, hijos, escribir, mp):
+def test_recargar_total_y_repartir_entre_hijos(db, hijos, escribir, mp):
     escribir("hola")
     r = escribir("2")
-    assert "3 Todos por igual" in r
-    assert "¿Cuánto a cada uno?" in escribir("3")
-    r = escribir("100")
-    assert "Total: $200.00" in r and "1 Confirmar" in r
+    assert "¿Cuánto vas a recargar en total?" in r and "¿De quién?" not in r
+    r = escribir("300")
+    assert "Te quedan $300.00" in r and "Luis" in r
+    assert "entre 0 y 300" in escribir("400")
+    r = escribir("$200")
+    assert "Total: $300.00" in r and "Luis: $200.00" in r and "Ana: $100.00" in r  # a Ana, el resto
+    assert "1 Confirmar" in r
     r = escribir("1")
     assert "https://mp.test/checkout" in r and "30 minutos" in r
     rec = db.query(Recarga).one()
-    assert rec.total == 200 and len(rec.reparto) == 2
+    assert rec.total == 300 and {p["nombre"]: p["importe"] for p in rec.reparto} == {
+        "Luis": 200, "Ana": 100}
+
+
+def test_recargar_todo_a_un_hijo_no_pregunta_por_los_demas(db, hijos, escribir, mp):
+    escribir("hola")
+    escribir("2")
+    escribir("1,000")
+    r = escribir("1000")
+    assert "Luis: $1,000.00" in r and "Ana" not in r and "Total: $1,000.00" in r
 
 
 def test_recargar_respeta_el_minimo_y_cancelar_no_crea_nada(db, hijos, escribir):
     escribir("hola")
     escribir("2")
-    escribir("1")
     assert "$50" in escribir("30")
-    assert "Total: $50.00" in escribir("50")
+    assert "$2,000" in escribir("2001")
+    escribir("50")
+    assert "Total: $50.00" in escribir("0")  # todo a Ana
     assert "no se hizo nada" in escribir("2")
     assert db.query(Recarga).count() == 0
+
+
+def test_recargar_con_un_solo_hijo_pregunta_directo(db, tutor, tpv, escribir):
+    tpv.agregar_hijo(tutor.tutor_ref, "Luis", disponible=0)
+    escribir("hola")
+    r = escribir("2")
+    assert "¿Cuánto le recargas a Luis?" in r
 
 
 def _pedir_torta(escribir, dia="2"):
@@ -356,8 +376,8 @@ def test_un_mensaje_espera_al_otro_del_mismo_papa(engine, db, op, tutor, hijos, 
 def test_recarga_a_un_hijo_desvinculado_no_se_crea(db, tutor, hijos, escribir, tpv):
     escribir("hola")
     escribir("2")
-    escribir("2")  # Ana
     escribir("100")
+    escribir("0")  # nada a Luis: todo a Ana
     tpv.tutores[tutor.tutor_ref]["alumnos"].remove(hijos[1])  # la administración la desvincula
     assert "ya no aparece" in escribir("1")
     assert db.query(Recarga).count() == 0
@@ -441,8 +461,8 @@ def test_bot_si_cambia_el_precio_no_pide(hijos, escribir, tpv):
 def test_bot_reintento_de_recarga_revalida_hijos(db, tutor, hijos, escribir, mp, tpv):
     escribir("hola")
     escribir("2")
-    escribir("2")  # Ana
     escribir("100")
+    escribir("0")  # nada a Luis: todo a Ana
     mp.fallar.add("preferencia")
     assert "reintentar" in escribir("1")
     mp.fallar.clear()
@@ -512,3 +532,31 @@ def test_despedirse_en_cualquier_paso(hijos, escribir, tpv):
     assert "hasta pronto" in escribir("Gracias")
     assert "Hola Ana." in escribir("1")
     assert tpv.cuerpos_precompra == []
+
+
+def test_cero_vuelve_al_menu_fuera_del_reparto(hijos, escribir):
+    escribir("hola")
+    escribir("3")  # Pedir: ¿De quién?
+    assert "¿Qué deseas hacer?" in escribir("0")
+    escribir("2")
+    escribir("300")
+    r = escribir("0")  # en el reparto, «0» es nada para Luis
+    assert "Ana: $300.00" in r and "¿Qué deseas hacer?" not in r
+
+
+def test_desvincular_a_mitad_del_reparto_no_recorre_montos(db, tutor, hijos, escribir, tpv):
+    escribir("hola")
+    escribir("2")
+    escribir("300")  # pregunta por Luis
+    tpv.tutores[tutor.tutor_ref]["alumnos"].remove(hijos[0])
+    r = escribir("100")
+    assert "ya no aparece" in r and "Recarga:" not in r
+    assert db.query(Recarga).count() == 0
+
+
+def test_todos_por_igual_de_una_conversacion_anterior_lleva_al_reparto(db, tutor, hijos, escribir):
+    escribir("hola")
+    c = db.query(BotConversacion).one()
+    c.datos = {"accion": "recargar", "paso": "hijo", "opciones": [h["id"] for h in hijos]}
+    db.commit()
+    assert "¿Cuánto vas a recargar en total?" in escribir("3")
