@@ -133,9 +133,13 @@ def _pedir_torta(escribir, dia="2"):
     r = escribir("1")  # Luis
     assert "1 Hoy" in r and "2 Mañana" in r
     r = escribir(dia)
-    assert "1 Torta $45.00" in r
+    assert "1 Almuerzo (1)" in r and "2 Bebidas (1)" in r  # por categoría
+    assert "1 Torta $45.00" in escribir("1")
     assert "2 × Torta" in escribir("1 2")
-    assert "1 × Agua" in escribir("2")
+    r = escribir("categorías")
+    assert "Llevas:" in r and "2 × Torta" in r
+    assert "1 Agua $15.00" in escribir("2")
+    assert "1 × Agua" in escribir("1")
     r = escribir("listo")
     assert "Total: $105.00" in r
     return escribir("1")
@@ -358,6 +362,7 @@ def test_bot_si_cambia_el_precio_no_pide(hijos, escribir, tpv):
     escribir("3")
     escribir("1")
     escribir("2")
+    escribir("1")  # Almuerzo
     escribir("1 2")
     escribir("listo")
     tpv.productos[0]["precio"] = 50
@@ -384,9 +389,58 @@ def test_confirmacion_guardada_sin_total_sigue_funcionando(db, hijos, escribir, 
     escribir("3")
     escribir("1")
     escribir("2")
+    escribir("1")  # Almuerzo
     escribir("1 2")
     escribir("listo")
     conv = db.query(BotConversacion).one()
     conv.datos = {k: v for k, v in conv.datos.items() if k != "total"}  # formato anterior
     db.commit()
     assert "¡Listo!" in escribir("1")
+
+
+
+# -- categorías y terminar (pedido del usuario, 2026-11-07) ----------------------------------------
+def test_una_sola_categoria_va_directo_a_los_productos(hijos, escribir, tpv):
+    tpv.productos = [{"id": 10, "nombre": "Torta", "categoria": "Almuerzo", "precio": 45}]
+    escribir("hola")
+    escribir("3")
+    escribir("1")
+    r = escribir("2")
+    assert "Almuerzo:" in r and "1 Torta $45.00" in r and "categorías" not in r
+
+
+def test_listo_desde_la_lista_de_categorias(hijos, escribir):
+    escribir("hola")
+    escribir("3")
+    escribir("1")
+    escribir("2")
+    assert "Todavía no agregas nada" in escribir("listo")
+    escribir("2")  # Bebidas
+    escribir("1 3")
+    r = escribir("categorias")
+    assert "Escribe «listo» para terminar" in r
+    assert "Total: $45.00" in escribir("listo")
+
+
+def test_categoria_inexistente(hijos, escribir):
+    escribir("hola")
+    escribir("3")
+    escribir("1")
+    escribir("2")
+    assert "No entendí" in escribir("9")
+
+
+def test_terminar_desde_el_menu(hijos, escribir):
+    escribir("hola")
+    assert "8 Terminar" in escribir("menu")
+    assert "hasta pronto" in escribir("8")
+    assert "Hola Ana." in escribir("quiero pedir")
+
+
+def test_despedirse_en_cualquier_paso(hijos, escribir, tpv):
+    escribir("hola")
+    escribir("3")
+    escribir("1")
+    assert "hasta pronto" in escribir("Gracias")
+    assert "Hola Ana." in escribir("1")
+    assert tpv.cuerpos_precompra == []
