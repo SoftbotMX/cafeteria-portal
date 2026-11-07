@@ -29,9 +29,13 @@ DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 
 MENU = [("saldo", "Ver saldo"), ("recargar", "Recargar"), ("pedir", "Pedir"),
         ("pedidos", "Mis pedidos (cancelar)"), ("transferir", "Transferir saldo"),
-        ("permiso", "Compras sin pedido"), ("tarjetas", "Tarjetas (bloquear/desbloquear)")]
+        ("permiso", "Compras sin pedido"), ("tarjetas", "Tarjetas (bloquear/desbloquear)"),
+        ("terminar", "Terminar")]
 ESCRITURAS = {"recargar", "pedir", "pedidos", "transferir", "permiso", "tarjetas"}
 PIE = "\n\nEscribe «menú» para volver al inicio."
+DESPEDIDAS = {"salir", "terminar", "adios", "gracias", "bye", "fin"}
+DESPEDIDA = "Gracias, hasta pronto. Cuando quieras volver, escríbeme «hola»."
+VOLVER_CATEGORIAS = {"categorias", "categoria", "otra", "volver"}
 NO_REGISTRADO = ("Este número no está registrado en la cafetería. Pide a la administración que "
                  "lo dé de alta.")
 
@@ -107,7 +111,9 @@ class Bot:
         datos = dict(c.datos or {})
         viejo = c.actualizada and datetime.now(timezone.utc) - c.actualizada > OLVIDO
         t = _normal(texto)
-        if viejo or t in ("menu", "0", "inicio", "hola", "cancelar") or not datos.get("paso"):
+        if t in DESPEDIDAS:
+            datos, respuesta = {"paso": "fin"}, DESPEDIDA
+        elif viejo or t in ("menu", "0", "inicio", "hola", "cancelar") or not datos.get("paso"):
             datos = {"paso": "menu"}
             respuesta = self._menu(saludo=True)
         else:
@@ -144,11 +150,17 @@ class Bot:
             return {"paso": "menu"}, self._menu()
         return manejador(datos, texto)
 
+    def _p_fin(self, datos, texto):
+        """Tras despedirse: lo que escriba el papá vuelve a empezar con el saludo."""
+        return {"paso": "menu"}, self._menu(saludo=True)
+
     def _p_menu(self, datos, texto):
         n = _numero(texto, len(MENU))
         if n is None:
             return datos, self._menu(antes="No entendí. ")
         accion = MENU[n - 1][0]
+        if accion == "terminar":
+            return {"paso": "fin"}, DESPEDIDA
         if accion in ESCRITURAS and not self.op.bot_escrituras:
             return self._al_menu(f"Por ahora por WhatsApp sólo puedes ver el saldo. Para eso entra "
                                  f"a https://{self.op.host}")
@@ -277,19 +289,60 @@ class Bot:
             return datos, MSG_SIN_MENU + PIE
         if not carta:
             return self._al_menu("El menú está vacío por ahora.")
-        carta = carta[:30]
-        return {**datos, "paso": "ped_productos", "dia": datos["dias"][n - 1],
-                "productos": [[p["id"], p["nombre"], str(p["precio"])] for p in carta],
-                "carrito": {}}, self._carta(carta)
+        carta = carta[:80]
+        todos = [[p["id"], p["nombre"], str(p["precio"]), p.get("categoria") or "Otros"]
+                 for p in carta]
+        cats = list(dict.fromkeys(c for *_, c in todos))
+        datos = {**datos, "dia": datos["dias"][n - 1], "todos": todos, "cats": cats,
+                 "carrito": {}}
+        if len(cats) == 1:  # una sola categoría: directo a los productos
+            return self._categoria(datos, cats[0])
+        return {**datos, "paso": "ped_categoria"}, self._lista_categorias(datos)
 
-    def _carta(self, carta) -> str:
-        lineas = [f"{p['nombre']} {dinero(p['precio'])}" for p in carta]
-        return ("Menú:\n" + _numerada(lineas) + "\n\nEscribe el número del producto y la cantidad, "
-                "por ejemplo «1 2» (dos del producto 1). Un producto por mensaje. Escribe «listo» "
-                "al terminar o «quitar 1» para quitar el producto 1." + PIE)
+    def _lista_categorias(self, datos, antes: str = "") -> str:
+        cuenta = {c: sum(1 for *_, x in datos["todos"] if x == c) for c in datos["cats"]}
+        lineas = [f"{c} ({cuenta[c]})" for c in datos["cats"]]
+        pie = "Escribe el número de la categoría."
+        if datos["carrito"]:
+            resumen, total = self._resumen_carrito(datos)
+            antes += f"Llevas:\n{resumen}\nTotal: {dinero(total)}\n\n"
+            pie += " Escribe «listo» para terminar el pedido."
+        return f"{antes}¿Qué quieres ver?\n" + _numerada(lineas) + "\n\n" + pie + PIE
+
+    def _categoria(self, datos, cat) -> tuple[dict, str]:
+        """Los productos de una categoría; el carrito se conserva al cambiar de categoría."""
+        productos = [[i, nom, pre] for i, nom, pre, c in datos["todos"] if c == cat]
+        datos = {**datos, "paso": "ped_productos", "productos": productos}
+        lineas = [f"{nom} {dinero(Decimal(pre))}" for _, nom, pre in productos]
+        otras = (" Escribe «categorías» para ver otra categoría."
+                 if len(datos.get("cats") or []) > 1 else "")
+        return datos, (f"{cat}:\n" + _numerada(lineas) + "\n\nEscribe el número del producto y "
+                       "la cantidad, por ejemplo «1 2» (dos del producto 1). Un producto por mensaje. "
+                       "Escribe «listo» al terminar o «quitar 1» para quitar el producto 1." + otras
+                       + PIE)
+
+    def _p_ped_categoria(self, datos, texto):
+        if _normal(texto) == "listo":
+            return self._terminar_pedido(datos)
+        n = _numero(texto, len(datos["cats"]))
+        if n is None:
+            return datos, self._lista_categorias(datos, "No entendí. ")
+        return self._categoria(datos, datos["cats"][n - 1])
+
+    def _terminar_pedido(self, datos) -> tuple[dict, str]:
+        if not datos["carrito"]:
+            return datos, "Todavía no agregas nada. Elige productos primero." + PIE
+        resumen, total = self._resumen_carrito(datos)
+        dia = date.fromisoformat(datos["dia"])
+        return {**datos, "paso": "ped_confirmar", "llave": uuid.uuid4().hex,
+                "total": str(total)}, (
+            f"Pedido para el {DIAS[dia.weekday()]} {dia.day:02d}/{dia.month:02d}:\n{resumen}\n"
+            f"Total: {dinero(total)}\n\n1 Confirmar\n2 Cancelar")
 
     def _resumen_carrito(self, datos) -> tuple[str, Decimal]:
-        nombres = {str(i): (n, Decimal(p)) for i, n, p in datos["productos"]}
+        # `todos` (con categorías); conversaciones guardadas antes sólo tienen `productos`.
+        filas = [f[:3] for f in datos["todos"]] if datos.get("todos") else datos["productos"]
+        nombres = {str(i): (n, Decimal(p)) for i, n, p in filas}
         total = Decimal(0)
         lineas = []
         for pid, cant in datos["carrito"].items():
@@ -305,12 +358,9 @@ class Bot:
         if t == "listo":
             if not carrito:
                 return datos, "Todavía no agregas nada. Escribe por ejemplo «1 2»." + PIE
-            resumen, total = self._resumen_carrito(datos)
-            dia = date.fromisoformat(datos["dia"])
-            return {**datos, "paso": "ped_confirmar", "llave": uuid.uuid4().hex,
-                    "total": str(total)}, (
-                f"Pedido para el {DIAS[dia.weekday()]} {dia.day:02d}/{dia.month:02d}:\n{resumen}\n"
-                f"Total: {dinero(total)}\n\n1 Confirmar\n2 Cancelar")
+            return self._terminar_pedido(datos)
+        if t in VOLVER_CATEGORIAS and len(datos.get("cats") or []) > 1:
+            return {**datos, "paso": "ped_categoria"}, self._lista_categorias(datos)
         m = re.fullmatch(r"quitar\s+(\d+)", t)
         if m:
             i = int(m.group(1))
@@ -332,7 +382,9 @@ class Bot:
         if not datos["carrito"]:
             return "Tu pedido está vacío. Escribe por ejemplo «1 2»." + PIE
         resumen, total = self._resumen_carrito(datos)
-        return f"Llevas:\n{resumen}\nTotal: {dinero(total)}\n\nAgrega otro o escribe «listo»." + PIE
+        otras = " o «categorías» para ver otra" if len(datos.get("cats") or []) > 1 else ""
+        return (f"Llevas:\n{resumen}\nTotal: {dinero(total)}\n\nAgrega otro, escribe «listo»"
+                f"{otras}." + PIE)
 
     def _p_ped_confirmar(self, datos, texto):
         def hacer():
