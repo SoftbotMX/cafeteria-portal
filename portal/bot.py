@@ -304,9 +304,8 @@ class Bot:
         lineas = [f"{c} ({cuenta[c]})" for c in datos["cats"]]
         pie = "Escribe el número de la categoría."
         if datos["carrito"]:
-            resumen, total = self._resumen_carrito(datos)
-            antes += f"Llevas:\n{resumen}\nTotal: {dinero(total)}\n\n"
-            pie += " Escribe «listo» para terminar el pedido."
+            antes += self._llevas(datos) + "\n\n"
+            pie += " «quitar 1» quita el producto 1 de tu pedido; «listo» lo termina."
         return f"{antes}¿Qué quieres ver?\n" + _numerada(lineas) + "\n\n" + pie + PIE
 
     def _categoria(self, datos, cat) -> tuple[dict, str]:
@@ -316,14 +315,16 @@ class Bot:
         lineas = [f"{nom} {dinero(Decimal(pre))}" for _, nom, pre in productos]
         otras = (" Escribe «categorías» para ver otra categoría."
                  if len(datos.get("cats") or []) > 1 else "")
-        return datos, (f"{cat}:\n" + _numerada(lineas) + "\n\nEscribe el número del producto y "
-                       "la cantidad, por ejemplo «1 2» (dos del producto 1). Un producto por mensaje. "
-                       "Escribe «listo» al terminar o «quitar 1» para quitar el producto 1." + otras
-                       + PIE)
+        return datos, (f"{cat}:\n" + _numerada(lineas) + "\n\nEscribe el número del producto para "
+                       "agregarlo; repítelo para sumar otro igual. Tip: «2 3» agrega 3 del producto 2."
+                       + otras + PIE)
 
     def _p_ped_categoria(self, datos, texto):
         if _normal(texto) == "listo":
             return self._terminar_pedido(datos)
+        quitado = self._quitar(datos, texto)
+        if quitado is not None:
+            return quitado[0], self._lista_categorias(quitado[0], quitado[1])
         n = _numero(texto, len(datos["cats"]))
         if n is None:
             return datos, self._lista_categorias(datos, "No entendí. ")
@@ -339,17 +340,37 @@ class Bot:
             f"Pedido para el {DIAS[dia.weekday()]} {dia.day:02d}/{dia.month:02d}:\n{resumen}\n"
             f"Total: {dinero(total)}\n\n1 Confirmar\n2 Cancelar")
 
-    def _resumen_carrito(self, datos) -> tuple[str, Decimal]:
+    def _lineas_carrito(self, datos) -> list[tuple[str, str, Decimal, int]]:
+        """(id, nombre, precio, cantidad) en el orden del menú: el carrito vive en JSONB, que no
+        conserva el orden de las llaves, y «quitar N» necesita una numeración estable."""
         # `todos` (con categorías); conversaciones guardadas antes sólo tienen `productos`.
         filas = [f[:3] for f in datos["todos"]] if datos.get("todos") else datos["productos"]
-        nombres = {str(i): (n, Decimal(p)) for i, n, p in filas}
-        total = Decimal(0)
-        lineas = []
-        for pid, cant in datos["carrito"].items():
-            nombre, precio = nombres[pid]
-            total += precio * cant
-            lineas.append(f"{cant} × {nombre}")
-        return "\n".join(lineas), total
+        carrito = datos["carrito"]
+        return [(str(i), n, Decimal(p), carrito[str(i)]) for i, n, p in filas if str(i) in carrito]
+
+    def _resumen_carrito(self, datos) -> tuple[str, Decimal]:
+        lineas = self._lineas_carrito(datos)
+        total = sum((p * c for _, _, p, c in lineas), Decimal(0))
+        return "\n".join(f"{c} × {n}" for _, n, _, c in lineas), total
+
+    def _llevas(self, datos) -> str:
+        """El carrito numerado, para que «quitar N» se entienda."""
+        lineas = self._lineas_carrito(datos)
+        total = sum((p * c for _, _, p, c in lineas), Decimal(0))
+        return ("Llevas:\n" + _numerada([f"{n} × {c}" for _, n, _, c in lineas])
+                + f"\nTotal: {dinero(total)}")
+
+    def _quitar(self, datos, texto) -> tuple[dict, str] | None:
+        """«quitar N» saca la línea N del carrito (la numeración de «Llevas»). None si no aplica."""
+        m = re.fullmatch(r"(?:quitar|quita|eliminar|borrar)\s+(\d+)", _normal(texto))
+        if not m:
+            return None
+        lineas = self._lineas_carrito(datos)
+        i = int(m.group(1))
+        if not 1 <= i <= len(lineas):
+            return datos, f"No tienes un producto {i} en tu pedido. "
+        carrito = {k: v for k, v in datos["carrito"].items() if k != lineas[i - 1][0]}
+        return {**datos, "carrito": carrito}, f"Quité {lineas[i - 1][1]}. "
 
     def _p_ped_productos(self, datos, texto):
         t = _normal(texto)
@@ -361,30 +382,28 @@ class Bot:
             return self._terminar_pedido(datos)
         if t in VOLVER_CATEGORIAS and len(datos.get("cats") or []) > 1:
             return {**datos, "paso": "ped_categoria"}, self._lista_categorias(datos)
-        m = re.fullmatch(r"quitar\s+(\d+)", t)
-        if m:
-            i = int(m.group(1))
-            if 1 <= i <= len(productos):
-                carrito.pop(str(productos[i - 1][0]), None)
-            datos = {**datos, "carrito": carrito}
-            return datos, self._eco(datos)
+        quitado = self._quitar(datos, texto)
+        if quitado is not None:
+            return quitado[0], quitado[1] + self._eco(quitado[0])
         m = re.fullmatch(r"(\d+)(?:\s*(?:x|\s)\s*(\d+))?", t)
         if not m or not 1 <= int(m.group(1)) <= len(productos):
             return datos, "No entendí. Escribe el número del producto y la cantidad, por ejemplo «1 2»." + PIE
         cant = int(m.group(2) or 1)
         if not 1 <= cant <= MAX_POR_LINEA:
             return datos, f"La cantidad va de 1 a {MAX_POR_LINEA}." + PIE
-        carrito[str(productos[int(m.group(1)) - 1][0])] = cant
+        pid = str(productos[int(m.group(1)) - 1][0])
+        if carrito.get(pid, 0) + cant > MAX_POR_LINEA:
+            return datos, f"Máximo {MAX_POR_LINEA} de cada producto." + PIE
+        carrito[pid] = carrito.get(pid, 0) + cant  # repetir la selección suma
         datos = {**datos, "carrito": carrito}
         return datos, self._eco(datos)
 
     def _eco(self, datos) -> str:
         if not datos["carrito"]:
             return "Tu pedido está vacío. Escribe por ejemplo «1 2»." + PIE
-        resumen, total = self._resumen_carrito(datos)
-        otras = " o «categorías» para ver otra" if len(datos.get("cats") or []) > 1 else ""
-        return (f"Llevas:\n{resumen}\nTotal: {dinero(total)}\n\nAgrega otro, escribe «listo»"
-                f"{otras}." + PIE)
+        otras = ", «categorías» para ver otra" if len(datos.get("cats") or []) > 1 else ""
+        return (self._llevas(datos) + f"\n\nAgrega otro, «quitar 1» quita el 1{otras} o «listo» "
+                "para terminar." + PIE)
 
     def _p_ped_confirmar(self, datos, texto):
         def hacer():
