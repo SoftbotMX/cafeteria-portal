@@ -72,6 +72,9 @@ def _numero(texto: str, maximo: int) -> int | None:
     return None
 
 
+_RANGO = f"De ${recargas.MINIMO} a ${recargas.MAXIMO:,}, sin centavos."
+
+
 def _pesos(texto: str) -> int | None:
     """«300», «$300», «1,000» → pesos enteros; None si no es eso."""
     t = _normal(texto).replace("$", "").replace(",", "").replace(" ", "")
@@ -187,8 +190,7 @@ class Bot:
     def _inicio_recarga(self, ids: list[int]) -> tuple[dict, str]:
         """Como en el portal: un solo pago del papá, que él reparte entre sus hijos."""
         return {"accion": "recargar", "paso": "rec_total", "hijos": ids}, (
-            f"¿Cuánto vas a recargar en total? Pesos enteros, de ${recargas.MINIMO} a "
-            f"${recargas.MAXIMO:,}. Después me dices cuánto le toca a cada hijo." + PIE)
+            "*¿Cuánto vas a recargar en total?*\n" + _RANGO + PIE)
 
     # -- elegir hijo (común) --------------------------------------------------------------
     def _elegir_hijo(self, datos: dict, hijos: list[dict], excluir: int | None = None,
@@ -232,8 +234,7 @@ class Bot:
         datos = {"accion": accion, "alumno_id": hijo["id"]}
         if accion == "recargar":
             return {**datos, "paso": "rec_monto", "hijos": [hijo["id"]]}, (
-                f"¿Cuánto le recargas a {hijo['nombre']}? Pesos enteros, de ${recargas.MINIMO} a "
-                f"${recargas.MAXIMO:,}." + PIE)
+                f"*¿Cuánto le recargas a {hijo['nombre']}?*\n" + _RANGO + PIE)
         if accion == "pedir":
             return self._pedir_dia(datos, hijo)
         if accion == "pedidos":
@@ -258,7 +259,7 @@ class Bot:
         lineas = "\n".join(f"{p['nombre']}: {dinero(p['importe'])}" for p in reparto)
         return {**datos, "paso": "rec_confirmar", "reparto": reparto, "total": str(total),
                 "llave": uuid.uuid4().hex}, (
-            f"Recarga:\n{lineas}\nTotal: {dinero(total)}\n\n1 Confirmar y recibir la liga de pago"
+            f"*Recarga:*\n{lineas}\n\n*Total a pagar: {dinero(total)}*\n\n1 Confirmar y recibir la liga de pago"
             f"\n2 Cancelar")
 
     def _p_rec_total(self, datos, texto):
@@ -284,8 +285,8 @@ class Bot:
             return self._resumen_recarga(datos, hijos, montos)
         h = hijos[faltan[0]]
         return datos, (
-            f"Te quedan {dinero(resta)} por repartir. ¿Cuánto para {h['nombre']}? "
-            f"(tiene {dinero(h.get('disponible'))}). Escribe 0 si nada." + PIE)
+            f"*Te quedan {dinero(resta)} por repartir.*\n¿Cuánto asignas a {h['nombre']}?\n"
+            f"Actualmente tiene {dinero(h.get('disponible'))}.\nEscribe 0 si nada.")
 
     def _p_rec_reparte(self, datos, texto):
         if _pesos(texto) is not None:
@@ -309,7 +310,7 @@ class Bot:
         lineas = "\n".join(f"{p['nombre']}: {dinero(p['importe'])}" for p in reparto)
         return {"accion": "recargar", "paso": "rec_confirmar", "reparto": reparto,
                 "total": str(total), "llave": uuid.uuid4().hex}, (
-            f"Recarga:\n{lineas}\nTotal: {dinero(total)}\n\n1 Confirmar y recibir la liga de pago"
+            f"*Recarga:*\n{lineas}\n\n*Total a pagar: {dinero(total)}*\n\n1 Confirmar y recibir la liga de pago"
             f"\n2 Cancelar")
 
     def _p_rec_confirmar(self, datos, texto):
@@ -327,7 +328,14 @@ class Bot:
                                    "otra vez.")
             return acciones.recargar(self.db, self.app, self.op, self.tutor, datos["reparto"],
                                      Decimal(datos["total"]), datos["llave"])
-        return self._confirmar(datos, texto, hacer)
+
+        def liga(r) -> tuple[dict, str]:
+            # La conversación termina: lo que sigue es pagar, y el aviso del TPV llega solo.
+            return {"paso": "fin"}, (
+                f"*Paga {dinero(Decimal(datos['total']))} aquí:*\n{r.datos['url']}\n"
+                "*La liga vence en 30 minutos.*\n\n"
+                "*Conversación terminada, recibirás un mensaje cuando se acredite.*")
+        return self._confirmar(datos, texto, hacer, liga)
 
     # -- pedir ----------------------------------------------------------------------------
     def _pedir_dia(self, datos, hijo):
@@ -658,7 +666,7 @@ class Bot:
         return next((h for h in acciones.hijos(self.app, self.op, self.tutor)
                      if h["id"] == alumno_id), None)
 
-    def _confirmar(self, datos, texto, hacer) -> tuple[dict, str]:
+    def _confirmar(self, datos, texto, hacer, al_terminar=None) -> tuple[dict, str]:
         n = _numero(texto, 2)
         if n == 2:
             return self._al_menu("Listo, no se hizo nada.")
@@ -669,6 +677,8 @@ class Bot:
         r = hacer()
         if r.estado == "incierto":
             return datos, r.texto  # misma llave: el reintento no duplica
+        if r.estado == "ok" and al_terminar is not None:
+            return al_terminar(r)
         return self._al_menu(r.texto)
 
     def _saldos(self) -> str:
