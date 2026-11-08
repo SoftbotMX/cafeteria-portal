@@ -58,35 +58,53 @@ def plantilla_codigo(codigo: str) -> dict:
          "parameters": [{"type": "text", "text": codigo}]}])
 
 
+def _por_correo(settings, tutor: Tutor, asunto: str, texto: str) -> tuple[str, str]:
+    try:
+        enviar_correo(settings, tutor.correo, asunto, texto)
+    except ErrorEnvio as e:
+        return "error", str(e)
+    return "enviado", "Enviado por correo."
+
+
 def enviar_al_tutor(db: Session, app, operador: Operador, tutor: Tutor, texto: str,
                     llave: str, asunto: str = "Tu acceso al portal de la cafetería",
                     plantilla: dict | None = None) -> tuple[str | None, str, str]:
-    """(canal, estado, detalle). WhatsApp si hay teléfono y Conduit; si no, correo si hay SMTP.
+    """(canal, estado, detalle). WhatsApp si hay teléfono y Conduit; correo si hay SMTP.
+
     `plantilla` se usa en WhatsApp sólo si el operador ya tiene sus plantillas aprobadas
-    (`wa_plantillas`); el correo siempre lleva `texto`."""
+    (`wa_plantillas`). SIN plantilla, el WhatsApp va como texto libre y Meta sólo lo entrega si el
+    papá escribió en las últimas 24 h (Conduit lo acepta igual): entonces también va por correo,
+    si hay. El correo siempre lleva `texto`."""
     settings = app.state.settings
+    hay_correo = bool(tutor.correo and settings.smtp_host)
     if tutor.telefono and operador.conduit_url and operador.conduit_client_id \
             and operador.conduit_secreto_cif:
+        con_plantilla = bool(plantilla and operador.wa_plantillas)
         # Sólo aquí se descifra: un secreto de Conduit roto no debe afectar a quien va por correo.
         try:
             secreto = _secreto_conduit(operador, settings.fernet_key)
-        except ErrorEntrega as e:
-            return "whatsapp", "error", str(e)
-        try:
             estado = enviar_whatsapp(
                 operador.conduit_url, operador.conduit_client_id, secreto, tutor.telefono, texto,
                 f"{settings.instancia}:{llave}", transport=app.state.conduit_transport,
-                plantilla=plantilla if operador.wa_plantillas else None)
-        except ErrorEnvio as e:
-            return "whatsapp", "error", str(e)
-        return "whatsapp", estado, ("Conduit lo está procesando." if estado == "en_curso"
-                                    else "Enviado por WhatsApp.")
-    if tutor.correo and settings.smtp_host:
-        try:
-            enviar_correo(settings, tutor.correo, asunto, texto)
-        except ErrorEnvio as e:
-            return "correo", "error", str(e)
-        return "correo", "enviado", "Enviado por correo."
+                plantilla=plantilla if con_plantilla else None)
+            detalle = ("Conduit lo está procesando." if estado == "en_curso"
+                       else "Enviado por WhatsApp.")
+        except (ErrorEntrega, ErrorEnvio) as e:
+            estado, detalle = "error", str(e)
+        # Con plantilla aprobada el WhatsApp llega solo; el correo sólo hace falta si falló.
+        if not hay_correo or (con_plantilla and estado != "error"):
+            return "whatsapp", estado, detalle
+        c_estado, c_detalle = _por_correo(settings, tutor, asunto, texto)
+        if c_estado != "enviado":
+            return "whatsapp", estado, f"{detalle} El correo falló: {c_detalle}"
+        if estado == "error":
+            return "correo", "enviado", f"Enviado por correo (WhatsApp falló: {detalle})"
+        if estado == "en_curso":
+            return "whatsapp y correo", "enviado", "Enviado por correo; WhatsApp en proceso."
+        return "whatsapp y correo", "enviado", "Enviado por WhatsApp y por correo."
+    if hay_correo:
+        c_estado, c_detalle = _por_correo(settings, tutor, asunto, texto)
+        return "correo", c_estado, c_detalle
     return None, "sin_canal", SIN_CANAL
 
 
@@ -120,8 +138,8 @@ def siguiente_intento(db: Session, operador_id: int, tutor_id: int) -> int:
 def entregar_credenciales(db: Session, app, operador: Operador, tutor: Tutor, intento: int,
                           actor: str = "admin", operacion: str = "entregar_acceso") -> ResultadoEntrega:
     # Antes de tocar la contraseña: si el secreto no se puede leer, no queda un acceso «entregado»
-    # que nadie recibió.
-    if tutor.telefono:
+    # que nadie recibió. Con correo de respaldo no hace falta: el acceso llega por correo.
+    if tutor.telefono and not (tutor.correo and app.state.settings.smtp_host):
         _secreto_conduit(operador, app.state.settings.fernet_key)
     contrasena = generar_temporal()
     tutor.contrasena_hash = hash_contrasena(contrasena)
