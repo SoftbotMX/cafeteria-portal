@@ -272,11 +272,13 @@ def test_transferir(hijos, escribir):
     r = escribir("5")
     assert r.startswith("*Transferir saldo entre alumnos*, ¿de quién?\n*1*) Luis")
     r = escribir("1")
-    assert "¿Monto a transferir de Luis hacia Ana?\nDisponible: $200.00.\n\nDigita el monto sin centavos." in r
+    assert r.startswith("*Monto a transferir*\nDe Luis hacia Ana\nDisponible: $200.00.\n\n"
+                        "Digita el monto sin centavos.\n\nEscribe *menú* para volver al inicio.")
     assert "sin centavos" in escribir("50.50")
     assert "sin centavos" in escribir("9" * 30)  # tope de nueve dígitos («0» lleva al menú)
     r = escribir("50")
-    assert "Pasar $50.00 de Luis a Ana" in r and "Digita *1* o *2*." in r
+    assert r == ("*Transferir $50.00 de Luis a Ana*\n*1*) Confirmar\n*2*) Cancelar\n\n"
+                 "Digita *1* o *2*.\n\nEscribe *menú* para volver al inicio.")
     r = escribir("1")
     assert "Disponible de Luis: $150.00" in r and "de Ana: $100.00" in r
 
@@ -603,7 +605,7 @@ def test_nombre_corto_sin_apellidos(tutor, tpv, escribir):
     escribir("hola")
     escribir("5")
     r = escribir("1")
-    assert "¿Monto a transferir de Isabella Guadalupe hacia Gerardo Caleb?" in r
+    assert "De Isabella Guadalupe hacia Gerardo Caleb" in r
 
 
 def test_corto_usa_nombres_del_tpv_si_vienen():
