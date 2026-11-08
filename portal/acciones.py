@@ -194,7 +194,10 @@ def transferir(db: Session, app: FastAPI, operador: Operador, tutor: Tutor, orig
     return Resultado("ok", f"Listo, pasaste {dinero(importe)} de {origen['nombre']} a "
                            f"{destino['nombre']}. Disponible de {origen['nombre']}: "
                            f"{dinero(o['disponible'])}; de {destino['nombre']}: "
-                           f"{dinero(d['disponible'])}.")
+                           f"{dinero(d['disponible'])}.",
+                     {"importe": str(importe),
+                      "disponibles": [[origen["nombre"], o["disponible"]],
+                                      [destino["nombre"], d["disponible"]]]})
 
 
 def _cambiar(db, app, operador, tutor, hijo, operacion, cuerpo, llave, leer, objetivo,
