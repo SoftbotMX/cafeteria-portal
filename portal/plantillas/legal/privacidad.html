@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block titulo %}Aviso de privacidad · Portal de la cafetería{% endblock %}
+{% block contenido %}
+<h1>Aviso de privacidad</h1>
+<p>Este aviso explica cómo se tratan los datos personales en el portal de tutores de la cafetería
+escolar (<strong>cafeteria.softbot.com.mx</strong>) y en su asistente de WhatsApp, conforme a la
+Ley Federal de Protección de Datos Personales en Posesión de los Particulares.</p>
+
+<h2>Responsable</h2>
+<p><strong>{{ r.nombre }}</strong>, con domicilio en {{ r.domicilio }}, es responsable del
+tratamiento de sus datos personales. Contacto: <a href="mailto:{{ r.correo }}">{{ r.correo }}</a>.</p>
+
+<h2>Datos que tratamos</h2>
+<ul>
+  <li><strong>Del padre, madre o tutor:</strong> nombre, número de teléfono celular, correo
+    electrónico y contraseña de acceso. La contraseña se guarda transformada con un algoritmo de un
+    solo sentido (hash), por lo que nadie puede consultarla; la contraseña temporal del alta se le
+    envía por WhatsApp o correo.</li>
+  <li><strong>De los alumnos:</strong> nombre, matrícula, saldo, recargas, consumos, pedidos y las
+    credenciales con las que pagan en la cafetería. Estos datos los proporciona el tutor o la
+    escuela.</li>
+  <li><strong>De pagos:</strong> monto, fecha, estado y número de operación de Mercado Pago. Los
+    datos de la tarjeta los captura y procesa Mercado Pago; no guardamos el número de la tarjeta ni
+    su código de seguridad.</li>
+  <li><strong>De WhatsApp:</strong> su número, el punto en que va su conversación con el asistente
+    (por ejemplo, el pedido que está armando) y, por dos días, las respuestas que le dio el
+    asistente, para no procesar dos veces el mismo mensaje. Nuestro sistema de mensajería guarda
+    los mensajes que usted envía hasta entregarlos al asistente y los borra a los siete días.</li>
+  <li><strong>Técnicos:</strong> dirección IP y cookies de sesión, para mantenerle conectado y
+    proteger la cuenta contra accesos indebidos.</li>
+</ul>
+<p>No solicitamos datos personales sensibles. Le pedimos no enviarlos por WhatsApp; si llegan, se
+eliminan.</p>
+
+<h2>Para qué los usamos</h2>
+<p>Finalidades necesarias para el servicio:</p>
+<ul>
+  <li>Dar acceso al portal y al asistente de WhatsApp, y verificar su identidad.</li>
+  <li>Mostrar saldos y movimientos, registrar pedidos y recargas, y transferir saldo entre sus
+    hijos.</li>
+  <li>Procesar los pagos de recargas con Mercado Pago y acreditarlos.</li>
+  <li>Enviarle avisos de recargas, consumos y pedidos por WhatsApp o correo.</li>
+  <li>Atender aclaraciones y cumplir obligaciones legales y fiscales.</li>
+</ul>
+<p>No usamos sus datos para publicidad ni los vendemos.</p>
+
+<h2>Con quién los compartimos</h2>
+<p>Comunicamos sus datos sólo en la medida necesaria para prestarle el servicio que usted
+solicitó:</p>
+<ul>
+  <li><strong>La cafetería escolar</strong> que opera el servicio: nombre y teléfono del tutor, datos
+    de los alumnos, pedidos, recargas y consumos, para cobrar y entregar los pedidos.</li>
+  <li><strong>Mercado Pago</strong>: el monto y la referencia de cada recarga, para procesar el
+    pago.</li>
+  <li><strong>Meta (WhatsApp)</strong>: su número y el contenido de los mensajes que intercambia con
+    el asistente y de los avisos que le enviamos.</li>
+  <li>Autoridades, cuando una ley lo exija.</li>
+</ul>
+<p>Además, nuestros proveedores de servidores y de correo, y nuestro propio sistema de mensajería,
+tratan los datos únicamente por nuestra cuenta y para este servicio.</p>
+
+<h2>Sus derechos (ARCO)</h2>
+<p>Puede <strong>acceder</strong> a sus datos, <strong>rectificarlos</strong>,
+<strong>cancelarlos</strong> u <strong>oponerse</strong> a su uso, así como revocar su
+consentimiento. Como padre, madre o tutor, también puede ejercer estos derechos por sus hijos
+menores de edad.</p>
+<p>Escriba a <a href="mailto:{{ r.correo }}">{{ r.correo }}</a> indicando su nombre, lo que solicita,
+los datos de que se trata y, si aplica, la corrección. Para acreditar su identidad, escriba desde el
+correo registrado o indique el teléfono registrado; si actúa por un menor o por otra persona, adjunte
+el documento que acredite la representación. Le responderemos por el mismo medio en un máximo de 20
+días hábiles y, si procede, lo haremos efectivo dentro de los 15 días hábiles siguientes. Para borrar
+su cuenta vea <a href="/eliminar-datos">Eliminar mis datos</a>.</p>
+
+<h2>Conservación</h2>
+<p>Conservamos los datos mientras la cuenta esté activa y, después, sólo el tiempo que exijan las
+obligaciones fiscales y legales sobre los pagos y consumos.</p>
+
+<h2>Cookies</h2>
+<p>El portal usa únicamente cookies necesarias para la sesión y la seguridad. No usamos cookies de
+publicidad ni de rastreo.</p>
+
+<h2>Cambios a este aviso</h2>
+<p>Publicaremos cualquier cambio en esta misma página.</p>
+{% include "legal/_pie.html" %}
+{% endblock %}

@@ -263,7 +263,9 @@ def test_cambio_con_csrf_vencido_muestra_formulario(db, op, c):
 EXENTAS = {"/entrar", "/salir", "/cambiar-contrasena", "/salud", "/openapi.json", "/docs",
            "/docs/oauth2-redirect", "/redoc",
            # Lo llama MercadoPago, sin sesión: no se le cree, se consulta el pago en su API.
-           "/mp/aviso"}
+           "/mp/aviso",
+           # Páginas legales públicas: Meta las revisa sin iniciar sesión; no leen datos.
+           "/privacidad", "/terminos", "/eliminar-datos"}
 # /api/conduit: lo llama Conduit (Broker Mode), firmado con HMAC, sin sesión de papá.
 # /mcp: lo llama la IA con su token (Bearer), sin sesión de papá.
 PREFIJOS_EXENTOS = ("/estatico", "/admin", "/recuperar", "/api/conduit", "/mcp")
@@ -297,3 +299,8 @@ def test_toda_ruta_de_tutor_exige_tutor_listo(app):
         revisadas.append(path)
         assert _depende_de(r.dependant, tutor_listo), f"{path} no usa tutor_listo"
     assert "/" in revisadas
+
+
+def test_entrar_enlaza_al_aviso_de_privacidad(op, c):
+    r = c.get("/entrar")
+    assert 'href="/privacidad"' in r.text and 'href="/terminos"' in r.text

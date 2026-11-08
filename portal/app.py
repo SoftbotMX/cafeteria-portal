@@ -57,7 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"ok": True}
 
     from portal.rutas import (
-        acceso, admin, conduit_entrante, pedidos, recargas, recuperar, transferir, tutor)
+        acceso, admin, conduit_entrante, legal, pedidos, recargas, recuperar, transferir, tutor)
 
     app.include_router(acceso.router)
     app.include_router(recuperar.router)
@@ -67,4 +67,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(transferir.router)
     app.include_router(recargas.router)
     app.include_router(conduit_entrante.router)
+    app.include_router(legal.router)
     return app
