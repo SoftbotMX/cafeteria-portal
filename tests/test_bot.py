@@ -270,9 +270,13 @@ def test_cancelar_un_pedido(hijos, escribir, tpv):
 def test_transferir(hijos, escribir):
     escribir("hola")
     r = escribir("5")
-    assert "*1*) Luis" in r and "*2*) Ana" in r
-    assert "¿Cuánto le pasas de Luis a Ana?" in escribir("1")
-    assert "Pasar $50.00 de Luis a Ana" in escribir("50")
+    assert r.startswith("*Transferir saldo entre alumnos*, ¿de quién?\n*1*) Luis")
+    r = escribir("1")
+    assert "¿Monto a transferir de Luis hacia Ana?\nDisponible: $200.00.\n\nDigita el monto sin centavos." in r
+    assert "sin centavos" in escribir("50.50")
+    assert "sin centavos" in escribir("9" * 30) and "sin centavos" in escribir("0")
+    r = escribir("50")
+    assert "Pasar $50.00 de Luis a Ana" in r and "Digita *1* o *2*." in r
     r = escribir("1")
     assert "Disponible de Luis: $150.00" in r and "de Ana: $100.00" in r
 
@@ -591,3 +595,36 @@ def test_listas_numeradas_en_negritas_con_pie_de_seleccion(hijos, escribir):
     assert "*1*) Luis" in r and "Escribe el número de tu selección.\n\nEscribe *menú*" in r
     r = escribir("1")  # días
     assert "*1*) Hoy" in r and "Escribe el número de tu selección." in r
+
+
+def test_nombre_corto_sin_apellidos(tutor, tpv, escribir):
+    tpv.agregar_hijo(tutor.tutor_ref, "Isabella Guadalupe Valdez Aguirre", disponible=195)
+    tpv.agregar_hijo(tutor.tutor_ref, "Gerardo Caleb Valdez Aguirre", disponible=152)
+    escribir("hola")
+    escribir("5")
+    r = escribir("1")
+    assert "¿Monto a transferir de Isabella Guadalupe hacia Gerardo Caleb?" in r
+
+
+def test_corto_usa_nombres_del_tpv_si_vienen():
+    from portal.bot import _corto
+    assert _corto({"nombre": "Ana María de la Cruz López", "nombres": "Ana María"}) == "Ana María"
+    assert _corto({"nombre": "Luis Pérez"}) == "Luis Pérez"
+
+
+def test_cancelar_confirma_con_fecha_larga_y_digita(hijos, escribir, tpv):
+    escribir("hola")
+    escribir("3")
+    escribir("1")
+    escribir("2")  # mañana: 22/10/2026, jueves
+    escribir("1")
+    escribir("1")
+    escribir("listo")
+    escribir("1")
+    escribir("hola")
+    r = escribir("4")
+    assert r.startswith("*Cancelar pedidos*, ¿de quién?")
+    escribir("1")
+    r = escribir("1")
+    assert "del jueves 22 de octubre?\nEl dinero vuelve al disponible." in r
+    assert "*1*) Sí, cancelar\n*2*) No\n\nDigita *1* o *2*.\n\nEscribe *menú*" in r
