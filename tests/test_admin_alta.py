@@ -543,4 +543,4 @@ def test_con_plantilla_y_whatsapp_fallido_usa_el_correo(db, op, admin, tpv, cond
 def test_alta_hijo_sin_apellido_paterno_no_pasa(db, op, admin, tpv):
     r = admin.post("/admin/alta", data=datos_alta(
         admin.get("/admin/alta"), hijo_paterno=["", "Pérez", "", "", ""]))
-    assert r.status_code == 400 and "apellido paterno" in r.text and tpv.alumnos == {}
+    assert r.status_code == 400 and "apellido 1" in r.text and tpv.alumnos == {}

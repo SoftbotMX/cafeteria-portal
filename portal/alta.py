@@ -30,8 +30,8 @@ class Hijo:
         return c
 
 
-MSG_HIJO = ("Cada hijo necesita nombre(s) y apellido paterno (máximo 100 caracteres cada uno); el "
-            "apellido materno es opcional y la matrícula de hasta 50.")
+MSG_HIJO = ("Cada hijo necesita nombre(s) y apellido 1 (máximo 100 caracteres cada uno); el "
+            "apellido 2 es opcional y la matrícula de hasta 50.")
 
 
 def validar_hijo(nombres: str, paterno: str, materno: str, matricula: str) -> "Hijo | str | None":
