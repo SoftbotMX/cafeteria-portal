@@ -254,7 +254,7 @@ class Bot:
                 return self._al_menu("Ese hijo ya no aparece en tu cuenta.")
             return {"accion": accion, "paso": "tra_monto", "origen": origen["id"],
                     "alumno_id": hijo["id"]}, (
-                f"¿Monto a transferir de {_corto(origen)} hacia {_corto(hijo)}?\n"
+                f"*Monto a transferir*\nDe {_corto(origen)} hacia {_corto(hijo)}\n"
                 f"Disponible: {dinero(origen.get('disponible'))}.\n\n"
                 "Digita el monto sin centavos." + PIE)
         datos = {"accion": accion, "alumno_id": hijo["id"]}
@@ -623,8 +623,8 @@ class Bot:
             return self._al_menu("Uno de tus hijos ya no aparece en tu cuenta.")
         return {**datos, "paso": "tra_confirmar", "importe": str(importe),
                 "llave": uuid.uuid4().hex}, (
-            f"Pasar {dinero(importe)} de {_corto(o)} a {_corto(d)}. No se puede deshacer "
-            f"desde aquí.\n\n" + _numerada(["Confirmar", "Cancelar"]) + CONFIRMA + PIE)
+            f"*Transferir {dinero(importe)} de {_corto(o)} a {_corto(d)}*\n"
+            + _numerada(["Confirmar", "Cancelar"]) + CONFIRMA + PIE)
 
     def _p_tra_confirmar(self, datos, texto):
         def hacer():
