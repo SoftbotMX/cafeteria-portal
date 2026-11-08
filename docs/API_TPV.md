@@ -59,7 +59,7 @@ secreto configurado.
 | `credencial/bloquear` · `credencial/desbloquear` | `tutor_ref, credencial_id, llave` | `alumno` |
 | `recarga` | `tutor_ref, pago_ref, total, reparto: [{alumno_id, importe}]` | `pago_ref, alumnos` |
 
-`ficha` = `{id, nombre, matricula, codigo, compra_sin_pedido, disponible, retenido, credenciales: [{id, tipo, bloqueada}]}`
+`ficha` = `{id, nombre, nombres, apellido_paterno, apellido_materno, matricula, codigo, compra_sin_pedido, disponible, retenido, credenciales: [{id, tipo, bloqueada}]}`
 (`codigo` es el que el alumno dice en la caja; `compra_sin_pedido`: si está en `false`, con su
 saldo sólo se le cobra lo que sus tutores pidieron; nace en `true`).
 
@@ -70,8 +70,8 @@ saldo sólo se le cobra lo que sus tutores pidieron; nace en `true`).
 | `admin/tutor/crear` | `nombre, telefono?, correo?, llave` | `tutor` |
 | `admin/tutor/editar` | `tutor_ref, nombre?, telefono?, correo?, llave` | `tutor` |
 | `admin/tutor/detalle` | `tutor_ref` | `tutor` |
-| `admin/alumno/crear` | `nombre, matricula?, tutores: [tutor_ref], llave` | `alumno` (con su `codigo` generado) |
-| `admin/alumno/editar` | `alumno_id, nombre?, matricula?, llave` | `alumno` |
+| `admin/alumno/crear` | `nombres, apellido_paterno, apellido_materno?, matricula?, tutores: [tutor_ref], llave` (o, como antes, `nombre` completo: se separa con las dos últimas palabras como apellidos) | `alumno` (con su `codigo` generado) |
+| `admin/alumno/editar` | `alumno_id, nombres?, apellido_paterno?, apellido_materno?, nombre?, matricula?, llave` (sólo cambian las partes que vengan) | `alumno` |
 | `admin/vincular` | `tutor_ref, alumno_id, activo (bool, true por omisión), llave` | `tutor` |
 
 `tutor` = `{tutor_ref, nombre, telefono, correo, activo, alumnos: [ficha]}`. Toda escritura de

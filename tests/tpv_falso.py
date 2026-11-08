@@ -452,7 +452,10 @@ class TPVFalso:
                 if ref not in self.tutores:
                     return _err("no_encontrado", "Tutor desconocido.", 404)
             aid = len(self.alumnos) + 1
-            al = {"id": aid, "nombre": d["nombre"], "matricula": d.get("matricula"),
+            nombre = d.get("nombre") or " ".join(
+                x for x in (d.get("nombres"), d.get("apellido_paterno"), d.get("apellido_materno")) if x)
+            al = {"id": aid, "nombre": nombre, "nombres": d.get("nombres"),
+                  "matricula": d.get("matricula"),
                   "codigo": f"C{aid:04d}", "compra_sin_pedido": True, "disponible": 0,
                   "retenido": 0, "credenciales": []}
             self.alumnos[aid] = al

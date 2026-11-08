@@ -9,7 +9,9 @@ from tests.conduit_falso import ConduitFalso
 from tests.fabricas import crear_admin, crear_operador, crear_tutor, csrf_de, entrar_tutor
 from tests.tpv_falso import TPVFalso
 
-HIJOS = {"hijo_nombre": ["Luis Pérez", "Sofía Pérez", "", "", ""],
+HIJOS = {"hijo_nombres": ["Luis", "Sofía", "", "", ""],
+         "hijo_paterno": ["Pérez", "Pérez", "", "", ""],
+         "hijo_materno": ["", "Ruiz", "", "", ""],
          "hijo_matricula": ["A-1", "", "", "", ""]}
 
 
@@ -140,7 +142,9 @@ def test_alta_crea_tutor_e_hijos_en_tpv(db, op, admin, tpv, conduit):
     assert _escrituras_tpv(db) == 3
     assert "C0001" in r.text and "C0002" in r.text and "Luis Pérez" in r.text
     assert r.headers["cache-control"] == "no-store"
-    assert "matricula" not in [v[1] for v in tpv.guardado.values() if v[1]["nombre"] == "Sofía Pérez"][0]
+    assert "matricula" not in [v[1] for v in tpv.guardado.values() if v[1].get("nombres") == "Sofía"][0]
+    luis = [v[1] for v in tpv.guardado.values() if v[1].get("nombres") == "Luis"][0]
+    assert luis["apellido_paterno"] == "Pérez" and "apellido_materno" not in luis
 
 
 def test_alta_guarda_hash_de_la_contrasena_mostrada(db, op, admin, tpv, conduit):
@@ -199,7 +203,7 @@ def test_alta_que_falla_a_medias_se_completa_al_reintentar(db, op, admin, tpv, c
     tpv.fallar_en = {"admin/alumno/crear"}
     r = admin.post("/admin/alta", data=datos)
     assert r.status_code >= 400 and "TPV" in r.text
-    assert _llave(r) == datos["llave"] and "María Pérez" in r.text and "Luis Pérez" in r.text
+    assert _llave(r) == datos["llave"] and "María Pérez" in r.text and 'value="Luis"' in r.text
     assert 'id="contrasena"' not in r.text and conduit.enviados == []
     t = db.query(Tutor).one()
     assert t.alta_llave == datos["llave"]
@@ -251,7 +255,8 @@ def test_alta_requiere_nombre_y_un_hijo(db, op, admin, tpv):
     r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta"), nombre="  "))
     assert r.status_code == 400
     r = admin.post("/admin/alta", data=datos_alta(
-        admin.get("/admin/alta"), hijo_nombre=["", "", "", "", ""]))
+        admin.get("/admin/alta"), hijo_nombres=["", "", "", "", ""], hijo_paterno=["", "", "", "", ""],
+        hijo_materno=["", "", "", "", ""]))
     assert r.status_code == 400 and tpv.llamadas == {}
 
 
@@ -333,15 +338,15 @@ def _falla_en_hijo_2(admin, tpv):
 def test_falla_a_medias_vuelve_con_formulario_de_solo_lectura(db, op, admin, tpv):
     datos, r = _falla_en_hijo_2(admin, tpv)
     assert "Reintenta sin cambiar nada. Si algo está mal, termina el alta y corrígelo desde la ficha del tutor." in r.text
-    assert len(re.findall(r"<input[^>]* readonly", r.text)) == 3 + 2 * 2  # tutor + 2 hijos
-    assert r.text.count('name="hijo_nombre"') == 2  # sin filas vacías
+    assert len(re.findall(r"<input[^>]* readonly", r.text)) == 3 + 2 * 4  # tutor + 2 hijos (nombres, paterno, materno, matrícula)
+    assert r.text.count('name="hijo_nombres"') == 2  # sin filas vacías
 
 
 def test_falla_antes_del_tutor_deja_el_formulario_editable(db, op, admin, tpv):
     tpv.fallar_en = {"admin/tutor/crear"}
     r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta")))
     assert "readonly" not in r.text and "Reintenta sin cambiar nada" not in r.text
-    assert r.text.count('name="hijo_nombre"') == 5
+    assert r.text.count('name="hijo_nombres"') == 5
 
 
 def test_hijo_editado_tras_exito_parcial_no_duplica(db, op, admin, tpv, conduit):
@@ -350,7 +355,7 @@ def test_hijo_editado_tras_exito_parcial_no_duplica(db, op, admin, tpv, conduit)
     original = tpv._operar
 
     def _operar(op_, d):
-        if op_ == "admin/alumno/crear" and d["nombre"] == "Sofía Pérez" and tpv.fallar_hijo2:
+        if op_ == "admin/alumno/crear" and d.get("nombres") == "Sofía" and tpv.fallar_hijo2:
             import httpx
             return httpx.Response(503, json={"ok": False, "error": {"codigo": "x", "mensaje": "x"}})
         return original(op_, d)
@@ -361,7 +366,7 @@ def test_hijo_editado_tras_exito_parcial_no_duplica(db, op, admin, tpv, conduit)
     assert r.status_code == 400 and len(tpv.alumnos) == 1
     tpv.fallar_hijo2 = False
     datos.update(csrf=csrf_de(r))
-    datos["hijo_nombre"] = ["Luis EDITADO", "Sofía Pérez", "", "", ""]
+    datos["hijo_nombres"] = ["Luis EDITADO", "Sofía", "", "", ""]
     r2 = admin.post("/admin/alta", data=datos)
     assert r2.status_code == 400
     assert "Los datos cambiaron desde el primer intento. Reintenta con los datos originales o corrige desde la ficha del tutor." in r2.text
@@ -533,3 +538,9 @@ def test_con_plantilla_y_whatsapp_fallido_usa_el_correo(db, op, admin, tpv, cond
     r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta"), correo="mama@mail.com"))
     assert enviados == ["mama@mail.com"]
     assert 'id="canal">correo<' in r.text and 'id="estado">enviado<' in r.text
+
+
+def test_alta_hijo_sin_apellido_paterno_no_pasa(db, op, admin, tpv):
+    r = admin.post("/admin/alta", data=datos_alta(
+        admin.get("/admin/alta"), hijo_paterno=["", "Pérez", "", "", ""]))
+    assert r.status_code == 400 and "apellido paterno" in r.text and tpv.alumnos == {}

@@ -9,6 +9,42 @@ from portal.models import Operador, Tutor
 from portal.tpv import ClienteTPV, ErrorTPV, registrar_escritura
 
 
+@dataclass
+class Hijo:
+    nombres: str
+    paterno: str
+    materno: str | None
+    matricula: str | None
+
+    @property
+    def nombre(self) -> str:
+        return " ".join(x for x in (self.nombres, self.paterno, self.materno) if x)
+
+    def cuerpo(self) -> dict:
+        """Para `admin/alumno/crear` del TPV (nombre por partes)."""
+        c = {"nombres": self.nombres, "apellido_paterno": self.paterno}
+        if self.materno:
+            c["apellido_materno"] = self.materno
+        if self.matricula:
+            c["matricula"] = self.matricula
+        return c
+
+
+MSG_HIJO = ("Cada hijo necesita nombre(s) y apellido paterno (máximo 100 caracteres cada uno); el "
+            "apellido materno es opcional y la matrícula de hasta 50.")
+
+
+def validar_hijo(nombres: str, paterno: str, materno: str, matricula: str) -> "Hijo | str | None":
+    """El hijo, None si la fila viene vacía, o el mensaje de error."""
+    nombres, paterno, materno, matricula = (x.strip() for x in (nombres, paterno, materno, matricula))
+    if not (nombres or paterno or materno or matricula):
+        return None
+    if not nombres or not paterno or any(len(x) > 100 for x in (nombres, paterno, materno)) \
+            or len(matricula) > 50:
+        return MSG_HIJO
+    return Hijo(nombres, paterno, materno or None, matricula or None)
+
+
 class ErrorAlta(Exception):
     """Mensaje para la administración. Lo hecho hasta aquí es verdad y debe confirmarse."""
 
@@ -18,7 +54,7 @@ class DatosAlta:
     nombre: str
     telefono: str | None  # ya normalizado
     correo: str | None  # ya en minúsculas
-    hijos: list[tuple[str, str | None]]
+    hijos: list["Hijo"]
     llave: str
 
 
@@ -106,10 +142,9 @@ def dar_de_alta(db: Session, operador: Operador, cliente: ClienteTPV, actor: str
                             or "Ya hay un tutor con ese teléfono o correo") from None
 
     creados = []
-    for i, (nombre, matricula) in enumerate(datos.hijos):
-        cuerpo = {"nombre": nombre, "tutores": [tutor.tutor_ref], "llave": f"{datos.llave}:alumno:{i}"}
-        if matricula:
-            cuerpo["matricula"] = matricula
+    for i, hijo in enumerate(datos.hijos):
+        nombre = hijo.nombre
+        cuerpo = {**hijo.cuerpo(), "tutores": [tutor.tutor_ref], "llave": f"{datos.llave}:alumno:{i}"}
         try:
             r = escribir_tpv(db, operador, cliente, actor, "admin/alumno/crear", cuerpo)
             creados.append(r["alumno"])

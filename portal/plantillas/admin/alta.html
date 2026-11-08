@@ -21,7 +21,9 @@
   {% for f in filas %}
   <fieldset>
     <legend>Hijo {{ loop.index }}</legend>
-    <label>Nombre <input name="hijo_nombre" value="{{ f.nombre }}"{% if bloqueado %} readonly{% endif %} maxlength="200"></label>
+    <label>Nombre(s) <input name="hijo_nombres" value="{{ f.nombres }}"{% if bloqueado %} readonly{% endif %} maxlength="100"></label>
+    <label>Apellido paterno <input name="hijo_paterno" value="{{ f.paterno }}"{% if bloqueado %} readonly{% endif %} maxlength="100"></label>
+    <label>Apellido materno (opcional) <input name="hijo_materno" value="{{ f.materno }}"{% if bloqueado %} readonly{% endif %} maxlength="100"></label>
     <label>Matrícula (opcional) <input name="hijo_matricula" value="{{ f.matricula }}"{% if bloqueado %} readonly{% endif %} maxlength="50"></label>
   </fieldset>
   {% endfor %}

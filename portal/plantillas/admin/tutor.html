@@ -33,7 +33,9 @@
 <form method="post" action="/admin/tutores/{{ tutor.id }}/hijos" onsubmit="this.querySelector('button[type=submit]').disabled=true">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="llave" value="{{ hijo_form.llave or nueva_llave() }}">
-  <label>Nombre <input name="nombre" value="{{ hijo_form.nombre }}" required maxlength="200"></label>
+  <label>Nombre(s) <input name="nombres" value="{{ hijo_form.nombres }}" required maxlength="100"></label>
+  <label>Apellido paterno <input name="apellido_paterno" value="{{ hijo_form.apellido_paterno }}" required maxlength="100"></label>
+  <label>Apellido materno (opcional) <input name="apellido_materno" value="{{ hijo_form.apellido_materno }}" maxlength="100"></label>
   <label>Matrícula (opcional) <input name="matricula" value="{{ hijo_form.matricula }}" maxlength="50"></label>
   <button type="submit">Agregar hijo</button>
 </form>
