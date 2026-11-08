@@ -177,7 +177,7 @@ def _a_almuerzo(escribir):
 
 def test_instrucciones_de_productos_cortas_con_tip(hijos, escribir):
     r = _a_almuerzo(escribir)
-    assert "repítelo para sumar otro igual" in r and "«2 3» agrega 3 del producto 2" in r
+    assert "repítelo para sumar otro igual" in r and "*2 3* agrega 3 del producto 2" in r
     assert "Un producto por mensaje" not in r
 
 
@@ -187,7 +187,7 @@ def test_repetir_la_seleccion_suma(hijos, escribir):
     assert "1) Torta × 2" in escribir("1")
     r = escribir("1 3")
     assert "1) Torta × 5" in r and "Total: $225.00" in r
-    assert "«quitar 1»" in r and "«listo»" in r and "«categorías»" in r
+    assert "*eliminar 1*" in r and "*listo*" in r and "*categorías*" in r
 
 
 def test_repetir_no_pasa_del_maximo(hijos, escribir):
@@ -206,7 +206,7 @@ def test_quitar_un_producto_del_carrito(hijos, escribir):
     escribir("2")  # Bebidas
     assert "2) Agua × 1" in escribir("1")
     r = escribir("quitar 1")  # la línea 1 del carrito: la torta (una sola: sin preguntar)
-    assert "Quité Torta" in r and "1) Agua × 1" in r and "Torta ×" not in r
+    assert "Eliminé Torta" in r and "1) Agua × 1" in r and "Torta ×" not in r
     assert "No tienes un producto 5" in escribir("quitar 5")
 
 
@@ -214,25 +214,25 @@ def test_quitar_con_varias_pregunta_todas_o_algunas(hijos, escribir):
     _a_almuerzo(escribir)
     escribir("1 5")
     r = escribir("quitar 1")
-    assert "Llevas 5 × Torta" in r and "1 Quitar todas" in r and "2 Quitar algunas" in r
+    assert "Llevas 5 × Torta" in r and "1 Eliminar todas" in r and "2 Eliminar algunas" in r
     assert "No entendí" in escribir("7")
     assert "del 1 al 4" in escribir("2")
     assert "del 1 al 4" in escribir("5")
     r = escribir("3")
-    assert "Quité 3 × Torta" in r and "1) Torta × 2" in r and "Agrega otro" in r
+    assert "Eliminé 3 × Torta" in r and "1) Torta × 2" in r and "Para agregar" in r
     r = escribir("quitar 1")
     assert "Llevas 2 × Torta" in r
     r = escribir("2")  # con dos, «algunas» sólo puede ser una: no pregunta cuántas
-    assert "Quité 1 × Torta" in r and "1) Torta × 1" in r
+    assert "Eliminé 1 × Torta" in r and "1) Torta × 1" in r
 
 
 def test_quitar_todas_desde_categorias_regresa_a_categorias(hijos, escribir):
     _a_almuerzo(escribir)
     escribir("1 3")
     escribir("categorías")
-    assert "Quitar todas" in escribir("quitar 1")
+    assert "Eliminar todas" in escribir("eliminar 1")
     r = escribir("1")
-    assert "Quité Torta" in r and "¿Qué quieres ver?" in r and "Llevas:" not in r
+    assert "Eliminé Torta" in r and "¿Qué quieres ver?" in r and "Llevas:" not in r
 
 
 def test_pedir_para_manana(hijos, escribir, tpv):
@@ -246,7 +246,7 @@ def test_pedir_para_manana(hijos, escribir, tpv):
 def test_pedir_sin_respuesta_reintenta_con_la_misma_llave(hijos, escribir, tpv):
     tpv.fallar_en.add("precompra")
     r = _pedir_torta(escribir)
-    assert "Responde 1 para reintentar" in r
+    assert "Responde *1* para reintentar" in r
     tpv.fallar_en.clear()
     assert "¡Listo!" in escribir("1")
     assert len({c["llave"] for c in tpv.cuerpos_precompra}) == 1
@@ -508,7 +508,7 @@ def test_listo_desde_la_lista_de_categorias(hijos, escribir):
     escribir("2")  # Bebidas
     escribir("1 3")
     r = escribir("categorias")
-    assert "«listo» lo termina" in r
+    assert "Escribe *listo* para terminar el pedido." in r
     assert "Total: $45.00" in escribir("listo")
 
 
@@ -562,3 +562,19 @@ def test_todos_por_igual_de_una_conversacion_anterior_lleva_al_reparto(db, tutor
     c.datos = {"accion": "recargar", "paso": "hijo", "opciones": [h["id"] for h in hijos]}
     db.commit()
     assert "¿Cuánto vas a recargar en total?" in escribir("3")
+
+
+def test_eco_del_carrito_explica_cada_opcion(hijos, escribir):
+    escribir("hola")
+    escribir("3")
+    escribir("1")
+    escribir("2")
+    escribir("1")  # Almuerzo
+    r = escribir("1 4")
+    assert "*Llevas:*\n1) Torta × 4\n*Total: $180.00*" in r
+    assert ("\n\nPara agregar productos al pedido, escribe el número del producto.\n"
+            "Para eliminar productos del pedido, escribe *eliminar* y el número de la línea "
+            "(ej. *eliminar 1*).\n"
+            "Para ver de nuevo las categorías del menú, escribe *categorías*.\n"
+            "Escribe *listo* para terminar el pedido.\n\nEscribe *menú* para volver al inicio.") in r
+    assert "quita el 1" not in r and "«" not in r
