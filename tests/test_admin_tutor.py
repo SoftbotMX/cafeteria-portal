@@ -90,10 +90,11 @@ def test_agregar_hijo(db, op, admin, tpv):
     pagina = admin.get(f"/admin/tutores/{t.id}")
     campos = formulario(pagina, f"/admin/tutores/{t.id}/hijos")
     r = admin.post(f"/admin/tutores/{t.id}/hijos",
-                   data={**campos, "nombre": " Mateo Ruiz ", "matricula": "B-7"})
+                   data={**campos, "nombres": " Mateo ", "apellido_paterno": "Ruiz", "matricula": "B-7"})
     assert r.status_code == 200 and "Mateo Ruiz" in r.text and "C0001" in r.text
     (op_, cuerpo, _), = (v for v in tpv.guardado.values() if v[0] == "admin/alumno/crear")
-    assert cuerpo["tutores"] == [t.tutor_ref] and cuerpo["nombre"] == "Mateo Ruiz"
+    assert cuerpo["tutores"] == [t.tutor_ref] and cuerpo["nombres"] == "Mateo"
+    assert cuerpo["apellido_paterno"] == "Ruiz" and "apellido_materno" not in cuerpo
     assert cuerpo["matricula"] == "B-7" and cuerpo["llave"] == campos["llave"]
     assert db.query(Bitacora).filter_by(operacion="admin/alumno/crear", http_status=200).count() == 1
 
@@ -101,7 +102,7 @@ def test_agregar_hijo(db, op, admin, tpv):
 def test_agregar_hijo_doble_clic_no_duplica(db, op, admin, tpv):
     t = tutor_tpv(db, op, tpv)
     campos = formulario(admin.get(f"/admin/tutores/{t.id}"), f"/admin/tutores/{t.id}/hijos")
-    datos = {**campos, "nombre": "Mateo Ruiz", "matricula": ""}
+    datos = {**campos, "nombres": "Mateo", "apellido_paterno": "Ruiz", "matricula": ""}
     admin.post(f"/admin/tutores/{t.id}/hijos", data=datos)
     admin.post(f"/admin/tutores/{t.id}/hijos", data=datos)
     assert len(tpv.alumnos) == 1
@@ -110,11 +111,11 @@ def test_agregar_hijo_doble_clic_no_duplica(db, op, admin, tpv):
 def test_agregar_hijo_valida_y_no_llama_al_tpv(db, op, admin, tpv):
     t = tutor_tpv(db, op, tpv)
     campos = formulario(admin.get(f"/admin/tutores/{t.id}"), f"/admin/tutores/{t.id}/hijos")
-    r = admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombre": "  ", "matricula": ""})
+    r = admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombres": "  ", "apellido_paterno": "Ruiz", "matricula": ""})
     assert r.status_code == 400 and "nombre" in r.text.lower()
-    r = admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombre": "x", "matricula": "m" * 51})
+    r = admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombres": "x", "apellido_paterno": "y", "matricula": "m" * 51})
     assert r.status_code == 400
-    r = admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombre": "x", "llave": "no valida!"})
+    r = admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombres": "x", "apellido_paterno": "y", "llave": "no valida!"})
     assert r.status_code == 400
     assert "admin/alumno/crear" not in tpv.llamadas
 
@@ -123,7 +124,7 @@ def test_agregar_hijo_error_del_tpv_usa_el_mensaje_de_alta(db, op, admin, tpv):
     t = tutor_tpv(db, op, tpv)
     campos = formulario(admin.get(f"/admin/tutores/{t.id}"), f"/admin/tutores/{t.id}/hijos")
     tpv.fallar_en = {"admin/alumno/crear"}
-    r = admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombre": "Mateo", "matricula": ""})
+    r = admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombres": "Mateo", "apellido_paterno": "Ruiz", "matricula": ""})
     assert r.status_code == 400
     assert "No se pudo contactar al TPV. Vuelve a intentar en un momento." in r.text
     assert db.query(Bitacora).filter_by(operacion="admin/alumno/crear", http_status=503).count() == 1
@@ -131,7 +132,7 @@ def test_agregar_hijo_error_del_tpv_usa_el_mensaje_de_alta(db, op, admin, tpv):
     retorno = formulario(r, f"/admin/tutores/{t.id}/hijos")
     assert retorno["llave"] == campos["llave"] and 'value="Mateo"' in r.text
     tpv.fallar_en = set()
-    r2 = admin.post(f"/admin/tutores/{t.id}/hijos", data={**retorno, "nombre": "Mateo", "matricula": ""})
+    r2 = admin.post(f"/admin/tutores/{t.id}/hijos", data={**retorno, "nombres": "Mateo", "apellido_paterno": "Ruiz", "matricula": ""})
     assert r2.status_code == 200 and len(tpv.alumnos) == 1
 
 
@@ -332,7 +333,7 @@ def test_reenviar_a_tutor_desactivado_se_rechaza(db, op, admin, tpv, conduit):
 
 def test_los_post_de_la_ficha_exigen_csrf(db, op, admin, tpv):
     t = tutor_tpv(db, op, tpv, hijos=["Luis"])
-    for ruta, extra in (("hijos", {"nombre": "x"}), ("vincular", {"otro_tutor_id": 1, "alumno_id": 1}),
+    for ruta, extra in (("hijos", {"nombres": "x", "apellido_paterno": "y"}), ("vincular", {"otro_tutor_id": 1, "alumno_id": 1}),
                         ("desvincular", {"alumno_id": 1}), ("reenviar", {}), ("activo", {"activo": "0"})):
         r = admin.post(f"/admin/tutores/{t.id}/{ruta}",
                        data={"csrf": "mal", "llave": "11111111-aaaa", **extra})
@@ -448,8 +449,8 @@ def test_tutor_sin_referencia_no_ofrece_hijos_ni_se_ofrece_como_otro(db, op, adm
 def test_llave_reutilizada_en_la_ficha_no_manda_a_la_ficha(db, op, admin, tpv):
     t = tutor_tpv(db, op, tpv)
     campos = formulario(admin.get(f"/admin/tutores/{t.id}"), f"/admin/tutores/{t.id}/hijos")
-    admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombre": "Mateo", "matricula": ""})
-    r = admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombre": "Otro", "matricula": ""})
+    admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombres": "Mateo", "apellido_paterno": "Ruiz", "matricula": ""})
+    r = admin.post(f"/admin/tutores/{t.id}/hijos", data={**campos, "nombres": "Otro", "apellido_paterno": "Ruiz", "matricula": ""})
     assert r.status_code == 400 and "desde la ficha" not in r.text and "Recarga la ficha" in r.text
 
 

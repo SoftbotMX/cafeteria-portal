@@ -9,7 +9,9 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from portal.alta import DatosAlta, ErrorAlta, dar_de_alta, escribir_tpv, mensaje_tpv, tutor_por_llave
+from portal.alta import (
+    MSG_HIJO, DatosAlta, ErrorAlta, Hijo, dar_de_alta, escribir_tpv, mensaje_tpv, tutor_por_llave,
+    validar_hijo)
 from portal.credenciales import (
     ErrorEntrega, entregar_credenciales, entregas_de, recuperacion_bloqueada, siguiente_intento,
     tutores_con_entrega, usuario_de,
@@ -118,10 +120,12 @@ def tutores(request: Request, par: tuple[Sesion, Admin] = Depends(sesion_admin),
              ConfigPedidos.operador_id == admin.operador_id)).first() is None})
 
 
-def _filas(nombres: list[str], matriculas: list[str]) -> list[dict]:
-    filas = [{"nombre": nombres[i] if i < len(nombres) else "",
-              "matricula": matriculas[i] if i < len(matriculas) else ""} for i in range(FILAS_HIJOS)]
-    return filas
+def _filas(nombres: list[str], paternos: list[str], maternos: list[str],
+           matriculas: list[str]) -> list[dict]:
+    def en(lista, i):
+        return lista[i] if i < len(lista) else ""
+    return [{"nombres": en(nombres, i), "paterno": en(paternos, i), "materno": en(maternos, i),
+             "matricula": en(matriculas, i)} for i in range(FILAS_HIJOS)]
 
 
 MSG_BLOQUEADO = ("Reintenta sin cambiar nada. Si algo está mal, termina el alta y corrígelo "
@@ -130,11 +134,11 @@ MSG_BLOQUEADO = ("Reintenta sin cambiar nada. Si algo está mal, termina el alta
 
 def _pagina_alta(request: Request, sesion: Sesion, llave: str, datos: dict | None = None,
                  status: int = 200, error: str | None = None, bloqueado: bool = False):
-    d = {"nombre": "", "telefono": "", "correo": "", "filas": _filas([], [])}
+    d = {"nombre": "", "telefono": "", "correo": "", "filas": _filas([], [], [], [])}
     d.update(datos or {})
     if bloqueado:
         # El TPV ya recibió estos datos: no se editan; sólo se muestran las filas con hijo.
-        d["filas"] = [f for f in d["filas"] if f["nombre"].strip() or f["matricula"].strip()]
+        d["filas"] = [f for f in d["filas"] if any(v.strip() for v in f.values())]
     return templates.TemplateResponse(
         request, "admin/alta.html",
         {"csrf": sesion.csrf, "llave": llave, "error": error, "bloqueado": bloqueado,
@@ -146,8 +150,8 @@ def alta_form(request: Request, par: tuple[Sesion, Admin] = Depends(sesion_admin
     return _pagina_alta(request, par[0], str(uuid.uuid4()))
 
 
-def _validar(nombre: str, telefono: str, correo: str, hijo_nombre: list[str],
-             hijo_matricula: list[str]) -> tuple[DatosAlta | None, str | None]:
+def _validar(nombre: str, telefono: str, correo: str,
+             filas: list[dict]) -> tuple[DatosAlta | None, str | None]:
     nombre = nombre.strip()
     if not nombre or len(nombre) > 200:
         return None, "Escribe el nombre del tutor (máximo 200 caracteres)."
@@ -162,13 +166,13 @@ def _validar(nombre: str, telefono: str, correo: str, hijo_nombre: list[str],
     if tel is None and mail is None:
         return None, "Escribe un teléfono o un correo: es el usuario con el que entrará."
     hijos = []
-    for n in _filas(hijo_nombre, hijo_matricula):
-        nom, mat = n["nombre"].strip(), n["matricula"].strip()
-        if not nom and not mat:
+    for f in filas:
+        hijo = validar_hijo(f["nombres"], f["paterno"], f["materno"], f["matricula"])
+        if hijo is None:
             continue
-        if not nom or len(nom) > 200 or len(mat) > 50:
-            return None, "Cada hijo necesita nombre (máximo 200 caracteres) y matrícula de hasta 50."
-        hijos.append((nom, mat or None))
+        if isinstance(hijo, str):
+            return None, hijo
+        hijos.append(hijo)
     if not hijos:
         return None, "Agrega al menos un hijo."
     return DatosAlta(nombre, tel, mail, hijos, ""), None
@@ -176,13 +180,14 @@ def _validar(nombre: str, telefono: str, correo: str, hijo_nombre: list[str],
 
 @router.post("/alta")
 def alta(request: Request, nombre: str = Form(""), telefono: str = Form(""),
-         correo: str = Form(""), hijo_nombre: list[str] = Form([]),
+         correo: str = Form(""), hijo_nombres: list[str] = Form([]),
+         hijo_paterno: list[str] = Form([]), hijo_materno: list[str] = Form([]),
          hijo_matricula: list[str] = Form([]), llave: str = Form(""), csrf: str = Form(""),
          par: tuple[Sesion, Admin] = Depends(sesion_admin),
          operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
     sesion, admin = par
     ctx = {"nombre": nombre, "telefono": telefono, "correo": correo,
-           "filas": _filas(hijo_nombre, hijo_matricula)}
+           "filas": _filas(hijo_nombres, hijo_paterno, hijo_materno, hijo_matricula)}
     try:
         exigir_csrf(csrf, sesion.csrf)
     except HTTPException:
@@ -206,7 +211,7 @@ def alta(request: Request, nombre: str = Form(""), telefono: str = Form(""),
                 {"csrf": sesion.csrf, "tutor": previo, "admin": admin, "envio": envio})
 
     bloq = previo is not None  # el TPV ya conoce los datos de este alta
-    datos, error = _validar(nombre, telefono, correo, hijo_nombre, hijo_matricula)
+    datos, error = _validar(nombre, telefono, correo, ctx["filas"])
     if error:
         return _pagina_alta(request, sesion, llave, ctx, 400, error, bloq)
     datos.llave = llave
@@ -306,7 +311,8 @@ def _ficha(request: Request, sesion: Sesion, admin: Admin, operador: Operador, d
     resp = templates.TemplateResponse(request, "admin/tutor.html", {
         "csrf": sesion.csrf, "admin": admin, "tutor": tutor, "usuario": usuario_de(tutor),
         "hijos": hijos, "error_tpv": error_tpv, "error": error, "mensajes": mensajes or [],
-        "hijo_form": hijo_form or {"llave": "", "nombre": "", "matricula": ""},
+        "hijo_form": hijo_form or {"llave": "", "nombres": "", "apellido_paterno": "",
+                                   "apellido_materno": "", "matricula": ""},
         "otros": otros, "otro_tutor": otro_tutor, "hijos_otro": hijos_otro,
         "ultima_entrega": ultima_entrega,
         "recuperacion_bloqueada": recuperacion_bloqueada(db, operador.id, tutor.id),
@@ -350,27 +356,29 @@ def _escribir(request, db, operador, admin, tutor, operacion, cuerpo, paso):
 
 
 @router.post("/tutores/{tutor_id}/hijos")
-def agregar_hijo(request: Request, tutor_id: int, nombre: str = Form(""), matricula: str = Form(""),
-                 llave: str = Form(""), csrf: str = Form(""),
+def agregar_hijo(request: Request, tutor_id: int, nombres: str = Form(""),
+                 apellido_paterno: str = Form(""), apellido_materno: str = Form(""),
+                 matricula: str = Form(""), llave: str = Form(""), csrf: str = Form(""),
                  par: tuple[Sesion, Admin] = Depends(sesion_admin),
                  operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
     sesion, admin, tutor = _ctx(request, par, operador, db, tutor_id)
     exigir_csrf(csrf, sesion.csrf)
     if not tutor.tutor_ref:
         return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_SIN_REF)
-    nombre, matricula = nombre.strip(), matricula.strip()
+    campos = {"nombres": nombres.strip(), "apellido_paterno": apellido_paterno.strip(),
+              "apellido_materno": apellido_materno.strip(), "matricula": matricula.strip()}
     if not _LLAVE_OK.match(llave):
         return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_FORM_CADUCO,
-                      hijo_form={"llave": "", "nombre": nombre, "matricula": matricula})
+                      hijo_form={"llave": "", **campos})
     # Se conservan llave y datos al fallar: si el TPV sí creó al hijo pero la respuesta se perdió,
     # reintentar con la misma llave devuelve el original en vez de crear un duplicado.
-    hijo_form = {"llave": llave, "nombre": nombre, "matricula": matricula}
-    if not nombre or len(nombre) > 200 or len(matricula) > 50:
+    hijo_form = {"llave": llave, **campos}
+    hijo = validar_hijo(nombres, apellido_paterno, apellido_materno, matricula)
+    if not isinstance(hijo, Hijo):
         return _ficha(request, sesion, admin, operador, db, tutor, status=400, hijo_form=hijo_form,
-                      error="Escribe el nombre del hijo (máximo 200 caracteres) y una matrícula de hasta 50.")
-    cuerpo = {"nombre": nombre, "tutores": [tutor.tutor_ref], "llave": llave}
-    if matricula:
-        cuerpo["matricula"] = matricula
+                      error=hijo or MSG_HIJO)
+    nombre = hijo.nombre
+    cuerpo = {**hijo.cuerpo(), "tutores": [tutor.tutor_ref], "llave": llave}
     error = _escribir(request, db, operador, admin, tutor, "admin/alumno/crear", cuerpo,
                       f"crear a {nombre}")
     if error:
