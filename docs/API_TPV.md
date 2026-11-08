@@ -70,7 +70,7 @@ saldo sólo se le cobra lo que sus tutores pidieron; nace en `true`).
 | `admin/tutor/crear` | `nombre, telefono?, correo?, llave` | `tutor` |
 | `admin/tutor/editar` | `tutor_ref, nombre?, telefono?, correo?, llave` | `tutor` |
 | `admin/tutor/detalle` | `tutor_ref` | `tutor` |
-| `admin/alumno/crear` | `nombres, apellido_paterno, apellido_materno?, matricula?, tutores: [tutor_ref], llave` (o, como antes, `nombre` completo: se separa con las dos últimas palabras como apellidos) | `alumno` (con su `codigo` generado) |
+| `admin/alumno/crear` | `nombres, apellido_paterno, apellido_materno?, matricula?, tutores: [tutor_ref], llave` (`apellido_paterno` = Apellido 1, `apellido_materno` = Apellido 2; o, como antes, `nombre` completo: se separa con las dos últimas palabras como apellidos) | `alumno` (con su `codigo` generado) |
 | `admin/alumno/editar` | `alumno_id, nombres?, apellido_paterno?, apellido_materno?, nombre?, matricula?, llave` (sólo cambian las partes que vengan) | `alumno` |
 | `admin/vincular` | `tutor_ref, alumno_id, activo (bool, true por omisión), llave` | `tutor` |
 
