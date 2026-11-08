@@ -274,7 +274,7 @@ def test_transferir(hijos, escribir):
     r = escribir("1")
     assert "¿Monto a transferir de Luis hacia Ana?\nDisponible: $200.00.\n\nDigita el monto sin centavos." in r
     assert "sin centavos" in escribir("50.50")
-    assert "sin centavos" in escribir("9" * 30) and "sin centavos" in escribir("0")
+    assert "sin centavos" in escribir("9" * 30)  # tope de nueve dígitos («0» lleva al menú)
     r = escribir("50")
     assert "Pasar $50.00 de Luis a Ana" in r and "Digita *1* o *2*." in r
     r = escribir("1")
