@@ -634,7 +634,12 @@ class Bot:
                 return acciones.Resultado("rechazo", "Uno de tus hijos ya no aparece en tu cuenta.")
             return acciones.transferir(self.db, self.app, self.op, self.tutor, o, d,
                                        Decimal(datos["importe"]), datos["llave"])
-        return self._confirmar(datos, texto, hacer)
+
+        def listo(r) -> tuple[dict, str]:
+            lineas = "\n".join(f"{n}: {dinero(v)}" for n, v in r.datos["disponibles"])
+            return self._al_menu(f"*Listo, transferiste {dinero(Decimal(r.datos['importe']))}*.\n"
+                                 f"Disponibles:\n{lineas}.")
+        return self._confirmar(datos, texto, hacer, listo)
 
     # -- compras sin pedido ---------------------------------------------------------------
     def _permiso(self, datos, hijo):

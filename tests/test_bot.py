@@ -280,7 +280,8 @@ def test_transferir(hijos, escribir):
     assert r == ("*Transferir $50.00 de Luis a Ana*\n*1*) Confirmar\n*2*) Cancelar\n\n"
                  "Digita *1* o *2*.\n\nEscribe *menú* para volver al inicio.")
     r = escribir("1")
-    assert "Disponible de Luis: $150.00" in r and "de Ana: $100.00" in r
+    assert r.startswith("*Listo, transferiste $50.00*.\nDisponibles:\nLuis: $150.00\nAna: $100.00.\n\n"
+                        "¿Qué deseas hacer?\n*1*) Ver saldo")
 
 
 def test_transferir_mas_de_lo_disponible(hijos, escribir):
