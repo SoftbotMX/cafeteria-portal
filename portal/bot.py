@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from portal import acciones, candado, recargas
-from portal.formato import TIPOS_CREDENCIAL, dinero, parse_importe
+from portal.formato import TIPOS_CREDENCIAL, dinero
 from portal.models import BotConversacion, BotMensaje, Operador, Recarga, Tutor
 from portal.tutor_tpv import MSG_SIN_MENU, MSG_SIN_PEDIDOS, MSG_SIN_TPV, SinTPV
 
@@ -26,6 +26,13 @@ ESPERA_CANDADO = 60.0  # s que un mensaje espera a que termine el anterior del m
 MSG_OCUPADO = "Estoy atendiendo tu mensaje anterior. Escríbeme de nuevo en un momento."
 MAX_POR_LINEA = 20
 DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+DIAS_LARGOS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre",
+         "octubre", "noviembre", "diciembre"]
+# Título de cada acción al preguntar «¿de quién?».
+TITULOS = {"recargar": "Recargar", "pedir": "Pedir", "pedidos": "Cancelar pedidos",
+           "transferir": "Transferir saldo entre alumnos", "permiso": "Compras sin pedido",
+           "tarjetas": "Tarjetas"}
 
 MENU = [("saldo", "Ver saldo"), ("recargar", "Recargar"), ("pedir", "Pedir"),
         ("pedidos", "Mis pedidos (cancelar)"), ("transferir", "Transferir saldo"),
@@ -34,6 +41,7 @@ MENU = [("saldo", "Ver saldo"), ("recargar", "Recargar"), ("pedir", "Pedir"),
 ESCRITURAS = {"recargar", "pedir", "pedidos", "transferir", "permiso", "tarjetas"}
 PIE = "\n\nEscribe *menú* para volver al inicio."
 SELECCION = "\n\nEscribe el número de tu selección."
+CONFIRMA = "\n\nDigita *1* o *2*."
 DESPEDIDAS = {"salir", "terminar", "adios", "gracias", "bye", "fin"}
 DESPEDIDA = "Gracias, hasta pronto. Cuando quieras volver, escríbeme *hola*."
 VOLVER_CATEGORIAS = {"categorias", "categoria", "otra", "volver"}
@@ -74,6 +82,19 @@ def _numero(texto: str, maximo: int) -> int | None:
 
 
 _RANGO = f"De ${recargas.MINIMO} a ${recargas.MAXIMO:,}, sin centavos."
+
+
+def _corto(alumno: dict) -> str:
+    """Nombre(s) sin apellidos para las frases del bot. El TPV manda `nombres` cuando el alumno
+    tiene sus campos separados; si no, se quitan las dos últimas palabras (los dos apellidos)."""
+    if isinstance(alumno.get("nombres"), str) and alumno["nombres"].strip():
+        return alumno["nombres"].strip()
+    partes = (alumno.get("nombre") or "").split()
+    return " ".join(partes[:-2]) if len(partes) >= 3 else " ".join(partes)
+
+
+def _fecha_larga(d: date) -> str:
+    return f"{DIAS_LARGOS[d.weekday()]} {d.day} de {MESES[d.month - 1]}"
 
 
 def _pesos(texto: str) -> int | None:
@@ -195,11 +216,14 @@ class Bot:
 
     # -- elegir hijo (común) --------------------------------------------------------------
     def _elegir_hijo(self, datos: dict, hijos: list[dict], excluir: int | None = None,
-                     pregunta: str = "¿De quién?") -> tuple[dict, str]:
+                     pregunta: str | None = None) -> tuple[dict, str]:
         opciones = [h for h in hijos if h["id"] != excluir]
         if len(opciones) == 1 and datos["accion"] != "transferir":
             return self._con_hijo(datos, opciones[0])
         datos = {**datos, "paso": "hijo", "opciones": [h["id"] for h in opciones]}
+        if pregunta is None:
+            titulo = TITULOS.get(datos["accion"])
+            pregunta = f"*{titulo}*, ¿de quién?" if titulo else "¿De quién?"
         lineas = [f"{h['nombre']} ({dinero(h.get('disponible'))} disponible)" for h in opciones]
         return datos, f"{pregunta}\n" + _numerada(lineas) + SELECCION + PIE
 
@@ -222,7 +246,7 @@ class Bot:
             hijos = hijos or {h["id"]: h for h in acciones.hijos(self.app, self.op, self.tutor)}
             return self._elegir_hijo({"accion": "transferir_destino", "origen": hijo["id"]},
                                      list(hijos.values()), excluir=hijo["id"],
-                                     pregunta=f"¿A quién le pasas saldo de {hijo['nombre']}?")
+                                     pregunta=f"¿A quién le pasas saldo de {_corto(hijo)}?")
         if accion == "transferir_destino":
             hijos = hijos or {h["id"]: h for h in acciones.hijos(self.app, self.op, self.tutor)}
             origen = hijos.get(datos["origen"])
@@ -230,12 +254,13 @@ class Bot:
                 return self._al_menu("Ese hijo ya no aparece en tu cuenta.")
             return {"accion": accion, "paso": "tra_monto", "origen": origen["id"],
                     "alumno_id": hijo["id"]}, (
-                f"¿Cuánto le pasas de {origen['nombre']} a {hijo['nombre']}? Disponible de "
-                f"{origen['nombre']}: {dinero(origen.get('disponible'))}." + PIE)
+                f"¿Monto a transferir de {_corto(origen)} hacia {_corto(hijo)}?\n"
+                f"Disponible: {dinero(origen.get('disponible'))}.\n\n"
+                "Digita el monto sin centavos." + PIE)
         datos = {"accion": accion, "alumno_id": hijo["id"]}
         if accion == "recargar":
             return {**datos, "paso": "rec_monto", "hijos": [hijo["id"]]}, (
-                f"*¿Cuánto le recargas a {hijo['nombre']}?*\n" + _RANGO + PIE)
+                f"*¿Cuánto le recargas a {_corto(hijo)}?*\n" + _RANGO + PIE)
         if accion == "pedir":
             return self._pedir_dia(datos, hijo)
         if accion == "pedidos":
@@ -261,7 +286,7 @@ class Bot:
         return {**datos, "paso": "rec_confirmar", "reparto": reparto, "total": str(total),
                 "llave": uuid.uuid4().hex}, (
             f"*Recarga:*\n{lineas}\n\n*Total a pagar: {dinero(total)}*\n\n"
-            + _numerada(["Confirmar y recibir la liga de pago", "Cancelar"]))
+            + _numerada(["Confirmar y recibir la liga de pago", "Cancelar"]) + CONFIRMA + PIE)
 
     def _p_rec_total(self, datos, texto):
         pesos = _pesos(texto)
@@ -286,7 +311,7 @@ class Bot:
             return self._resumen_recarga(datos, hijos, montos)
         h = hijos[faltan[0]]
         return datos, (
-            f"*Te quedan {dinero(resta)} por repartir.*\n¿Cuánto asignas a {h['nombre']}?\n"
+            f"*Te quedan {dinero(resta)} por repartir.*\n¿Cuánto asignas a {_corto(h)}?\n"
             f"Actualmente tiene {dinero(h.get('disponible'))}.\nEscribe *0* si nada.")
 
     def _p_rec_reparte(self, datos, texto):
@@ -312,7 +337,7 @@ class Bot:
         return {"accion": "recargar", "paso": "rec_confirmar", "reparto": reparto,
                 "total": str(total), "llave": uuid.uuid4().hex}, (
             f"*Recarga:*\n{lineas}\n\n*Total a pagar: {dinero(total)}*\n\n"
-            + _numerada(["Confirmar y recibir la liga de pago", "Cancelar"]))
+            + _numerada(["Confirmar y recibir la liga de pago", "Cancelar"]) + CONFIRMA + PIE)
 
     def _p_rec_confirmar(self, datos, texto):
         def hacer():
@@ -347,7 +372,7 @@ class Bot:
             acciones.cargar_reglas(self.db, self.op.id).zona).date()
         dias = dias[:10]
         return {**datos, "paso": "ped_dia", "dias": [d.isoformat() for d in dias]}, (
-            f"¿Para qué día es el pedido de {hijo['nombre']}?\n"
+            f"¿Para qué día es el pedido de {_corto(hijo)}?\n"
             + _numerada([_dia(d, hoy) for d in dias]) + SELECCION + PIE)
 
     def _p_ped_dia(self, datos, texto):
@@ -412,7 +437,7 @@ class Bot:
         return {**datos, "paso": "ped_confirmar", "llave": uuid.uuid4().hex,
                 "total": str(total)}, (
             f"Pedido para el {DIAS[dia.weekday()]} {dia.day:02d}/{dia.month:02d}:\n{resumen}\n"
-            f"Total: {dinero(total)}\n\n" + _numerada(["Confirmar", "Cancelar"]))
+            f"Total: {dinero(total)}\n\n" + _numerada(["Confirmar", "Cancelar"]) + CONFIRMA + PIE)
 
     def _lineas_carrito(self, datos) -> list[tuple[str, str, Decimal, int]]:
         """(id, nombre, precio, cantidad) en el orden del menú: el carrito vive en JSONB, que no
@@ -557,24 +582,25 @@ class Bot:
         except SinTPV:
             return self._al_menu(MSG_SIN_PEDIDOS)
         if not lista:
-            return self._al_menu(f"{hijo['nombre']} no tiene pedidos por recoger.")
+            return self._al_menu(f"{_corto(hijo)} no tiene pedidos por recoger.")
         lista = lista[:15]
         lineas = [f"{p['nombre']} · {DIAS[p['fecha_entrega'].weekday()]} "
                   f"{p['fecha_entrega'].day:02d}/{p['fecha_entrega'].month:02d} · "
                   f"{dinero(p.get('total'))}" for p in lista]
-        return {**datos, "paso": "can_pedido", "pedidos": [[p["id"], p["nombre"]] for p in lista]}, (
-            f"Pedidos por recoger de {hijo['nombre']}. ¿Cuál quieres cancelar?\n"
+        return {**datos, "paso": "can_pedido", "pedidos": [[p["id"], p["nombre"], p["fecha_entrega"].isoformat()] for p in lista]}, (
+            f"Pedidos por recoger de {_corto(hijo)}. ¿Cuál quieres cancelar?\n"
             + _numerada(lineas) + SELECCION + PIE)
 
     def _p_can_pedido(self, datos, texto):
         n = _numero(texto, len(datos["pedidos"]))
         if n is None:
             return datos, "No entendí: escribe el número del pedido." + PIE
-        pid, folio = datos["pedidos"][n - 1]
+        pid, folio, *fecha = datos["pedidos"][n - 1]  # conversaciones previas: sin fecha
+        cuando = f" del {_fecha_larga(date.fromisoformat(fecha[0]))}" if fecha else ""
         return {**datos, "paso": "can_confirmar", "pedido_id": pid, "folio": folio,
                 "llave": uuid.uuid4().hex}, (
-            f"¿Cancelar el pedido {folio}? El dinero vuelve al disponible.\n\n"
-            + _numerada(["Sí, cancelar", "No"]))
+            f"¿Cancelar el pedido {folio}{cuando}?\nEl dinero vuelve al disponible.\n\n"
+            + _numerada(["Sí, cancelar", "No"]) + CONFIRMA + PIE)
 
     def _p_can_confirmar(self, datos, texto):
         def hacer():
@@ -587,17 +613,18 @@ class Bot:
 
     # -- transferir -----------------------------------------------------------------------
     def _p_tra_monto(self, datos, texto):
-        importe = parse_importe(texto.replace("$", "").replace(",", "").strip())
-        if importe is None:
-            return datos, "Escribe el importe, por ejemplo *150* o *150.50*." + PIE
+        pesos = _pesos(texto)
+        if pesos is None or not 0 < pesos <= 999_999_999:
+            return datos, "Digita el monto sin centavos, por ejemplo *150*." + PIE
+        importe = Decimal(pesos)
         hijos = {h["id"]: h for h in acciones.hijos(self.app, self.op, self.tutor)}
         o, d = hijos.get(datos["origen"]), hijos.get(datos["alumno_id"])
         if not o or not d:
             return self._al_menu("Uno de tus hijos ya no aparece en tu cuenta.")
         return {**datos, "paso": "tra_confirmar", "importe": str(importe),
                 "llave": uuid.uuid4().hex}, (
-            f"Pasar {dinero(importe)} de {o['nombre']} a {d['nombre']}. No se puede deshacer "
-            f"desde aquí.\n\n" + _numerada(["Confirmar", "Cancelar"]))
+            f"Pasar {dinero(importe)} de {_corto(o)} a {_corto(d)}. No se puede deshacer "
+            f"desde aquí.\n\n" + _numerada(["Confirmar", "Cancelar"]) + CONFIRMA + PIE)
 
     def _p_tra_confirmar(self, datos, texto):
         def hacer():
@@ -613,13 +640,13 @@ class Bot:
     def _permiso(self, datos, hijo):
         actual = hijo.get("compra_sin_pedido")
         if actual is True:
-            estado, nuevo, accion = (f"{hijo['nombre']} puede comprar sin pedido con su saldo.",
+            estado, nuevo, accion = (f"{_corto(hijo)} puede comprar sin pedido con su saldo.",
                                      False, "Que sólo recoja lo que pidas")
         else:
-            estado, nuevo, accion = (f"{hijo['nombre']} sólo puede recoger lo que pidas.", True,
+            estado, nuevo, accion = (f"{_corto(hijo)} sólo puede recoger lo que pidas.", True,
                                      "Permitir que compre sin pedido")
         return {**datos, "paso": "per_confirmar", "permitir": nuevo, "llave": uuid.uuid4().hex}, (
-            f"{estado}\n\n" + _numerada([accion, "Dejarlo así"]))
+            f"{estado}\n\n" + _numerada([accion, "Dejarlo así"]) + CONFIRMA + PIE)
 
     def _p_per_confirmar(self, datos, texto):
         def hacer():
@@ -635,11 +662,11 @@ class Bot:
         creds = [x for x in hijo.get("credenciales") or [] if isinstance(x, dict)
                  and isinstance(x.get("id"), int) and isinstance(x.get("bloqueada"), bool)]
         if not creds:
-            return self._al_menu(f"{hijo['nombre']} no tiene tarjeta ni código QR.")
+            return self._al_menu(f"{_corto(hijo)} no tiene tarjeta ni código QR.")
         lineas = [f"{TIPOS_CREDENCIAL.get(x.get('tipo'), 'Credencial')} · "
                   f"{'Bloqueada' if x['bloqueada'] else 'Activa'}" for x in creds]
         return {**datos, "paso": "tar_cred", "creds": [x["id"] for x in creds]}, (
-            f"Tarjetas de {hijo['nombre']}. ¿Cuál?\n" + _numerada(lineas) + SELECCION + PIE)
+            f"Tarjetas de {_corto(hijo)}. ¿Cuál?\n" + _numerada(lineas) + SELECCION + PIE)
 
     def _p_tar_cred(self, datos, texto):
         n = _numero(texto, len(datos["creds"]))
@@ -654,9 +681,10 @@ class Bot:
         etiqueta = TIPOS_CREDENCIAL.get(cred.get("tipo"), "Credencial")
         return {**datos, "paso": "tar_confirmar", "cred_id": cred["id"], "bloquear": bloquear,
                 "llave": uuid.uuid4().hex}, (
-            f"¿{'Bloquear' if bloquear else 'Desbloquear'} {etiqueta.lower()} de {hijo['nombre']}?"
+            f"¿{'Bloquear' if bloquear else 'Desbloquear'} {etiqueta.lower()} de {_corto(hijo)}?"
             + (" Nadie podrá pagar con ella hasta que la desbloquees." if bloquear else "")
-            + "\n\n" + _numerada([f"Sí, {'bloquear' if bloquear else 'desbloquear'}", "No"]))
+            + "\n\n" + _numerada([f"Sí, {'bloquear' if bloquear else 'desbloquear'}", "No"])
+            + CONFIRMA + PIE)
 
     def _p_tar_confirmar(self, datos, texto):
         def hacer():
