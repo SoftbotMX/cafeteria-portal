@@ -33,6 +33,7 @@ MENU = [("saldo", "Ver saldo"), ("recargar", "Recargar"), ("pedir", "Pedir"),
         ("terminar", "Terminar")]
 ESCRITURAS = {"recargar", "pedir", "pedidos", "transferir", "permiso", "tarjetas"}
 PIE = "\n\nEscribe *menú* para volver al inicio."
+SELECCION = "\n\nEscribe el número de tu selección."
 DESPEDIDAS = {"salir", "terminar", "adios", "gracias", "bye", "fin"}
 DESPEDIDA = "Gracias, hasta pronto. Cuando quieras volver, escríbeme *hola*."
 VOLVER_CATEGORIAS = {"categorias", "categoria", "otra", "volver"}
@@ -90,7 +91,7 @@ def _dia(d: date, hoy: date) -> str:
 
 
 def _numerada(opciones: list[str]) -> str:
-    return "\n".join(f"{i} {o}" for i, o in enumerate(opciones, 1))
+    return "\n".join(f"*{i}*) {o}" for i, o in enumerate(opciones, 1))
 
 
 class Bot:
@@ -147,7 +148,7 @@ class Bot:
         nombre = (self.tutor.nombre or "").split()[0] if self.tutor.nombre else ""
         cabeza = f"Hola {nombre}. " if saludo and nombre else ""
         return (f"{antes}{cabeza}¿Qué deseas hacer?\n" + _numerada([e for _, e in MENU])
-                + "\n\nEscribe el número.")
+                + SELECCION)
 
     def _al_menu(self, texto: str) -> tuple[dict, str]:
         return {"paso": "menu"}, self._menu(antes=texto + "\n\n")
@@ -200,7 +201,7 @@ class Bot:
             return self._con_hijo(datos, opciones[0])
         datos = {**datos, "paso": "hijo", "opciones": [h["id"] for h in opciones]}
         lineas = [f"{h['nombre']} ({dinero(h.get('disponible'))} disponible)" for h in opciones]
-        return datos, f"{pregunta}\n" + _numerada(lineas) + PIE
+        return datos, f"{pregunta}\n" + _numerada(lineas) + SELECCION + PIE
 
     def _p_hijo(self, datos, texto):
         ids = datos["opciones"]
@@ -259,8 +260,8 @@ class Bot:
         lineas = "\n".join(f"{p['nombre']}: {dinero(p['importe'])}" for p in reparto)
         return {**datos, "paso": "rec_confirmar", "reparto": reparto, "total": str(total),
                 "llave": uuid.uuid4().hex}, (
-            f"*Recarga:*\n{lineas}\n\n*Total a pagar: {dinero(total)}*\n\n1 Confirmar y recibir la liga de pago"
-            f"\n2 Cancelar")
+            f"*Recarga:*\n{lineas}\n\n*Total a pagar: {dinero(total)}*\n\n"
+            + _numerada(["Confirmar y recibir la liga de pago", "Cancelar"]))
 
     def _p_rec_total(self, datos, texto):
         pesos = _pesos(texto)
@@ -310,8 +311,8 @@ class Bot:
         lineas = "\n".join(f"{p['nombre']}: {dinero(p['importe'])}" for p in reparto)
         return {"accion": "recargar", "paso": "rec_confirmar", "reparto": reparto,
                 "total": str(total), "llave": uuid.uuid4().hex}, (
-            f"*Recarga:*\n{lineas}\n\n*Total a pagar: {dinero(total)}*\n\n1 Confirmar y recibir la liga de pago"
-            f"\n2 Cancelar")
+            f"*Recarga:*\n{lineas}\n\n*Total a pagar: {dinero(total)}*\n\n"
+            + _numerada(["Confirmar y recibir la liga de pago", "Cancelar"]))
 
     def _p_rec_confirmar(self, datos, texto):
         def hacer():
@@ -347,7 +348,7 @@ class Bot:
         dias = dias[:10]
         return {**datos, "paso": "ped_dia", "dias": [d.isoformat() for d in dias]}, (
             f"¿Para qué día es el pedido de {hijo['nombre']}?\n"
-            + _numerada([_dia(d, hoy) for d in dias]) + PIE)
+            + _numerada([_dia(d, hoy) for d in dias]) + SELECCION + PIE)
 
     def _p_ped_dia(self, datos, texto):
         n = _numero(texto, len(datos["dias"]))
@@ -372,7 +373,7 @@ class Bot:
     def _lista_categorias(self, datos, antes: str = "") -> str:
         cuenta = {c: sum(1 for *_, x in datos["todos"] if x == c) for c in datos["cats"]}
         lineas = [f"{c} ({cuenta[c]})" for c in datos["cats"]]
-        pie = "Escribe el número de la categoría."
+        pie = "Escribe el número de tu selección."
         if datos["carrito"]:
             antes += self._llevas(datos) + "\n\n"
             pie += ("\nPara eliminar productos del pedido, escribe *eliminar* y el número de la "
@@ -409,7 +410,7 @@ class Bot:
         return {**datos, "paso": "ped_confirmar", "llave": uuid.uuid4().hex,
                 "total": str(total)}, (
             f"Pedido para el {DIAS[dia.weekday()]} {dia.day:02d}/{dia.month:02d}:\n{resumen}\n"
-            f"Total: {dinero(total)}\n\n1 Confirmar\n2 Cancelar")
+            f"Total: {dinero(total)}\n\n" + _numerada(["Confirmar", "Cancelar"]))
 
     def _lineas_carrito(self, datos) -> list[tuple[str, str, Decimal, int]]:
         """(id, nombre, precio, cantidad) en el orden del menú: el carrito vive en JSONB, que no
@@ -428,7 +429,7 @@ class Bot:
         """El carrito numerado, para que «quitar N» se entienda."""
         lineas = self._lineas_carrito(datos)
         total = sum((p * c for _, _, p, c in lineas), Decimal(0))
-        return ("*Llevas:*\n" + "\n".join(f"{i}) {n} × {c}" for i, (_, n, _, c) in enumerate(lineas, 1))
+        return ("*Llevas:*\n" + "\n".join(f"*{i}*) {n} × {c}" for i, (_, n, _, c) in enumerate(lineas, 1))
                 + f"\n*Total: {dinero(total)}*")
 
     def _vista(self, datos, antes: str = "") -> str:
@@ -456,7 +457,7 @@ class Bot:
     def _pregunta_quitar(self, datos, pid) -> str:
         nombre = self._nombre(datos, pid)
         return (f"Llevas {datos['carrito'][pid]} × {nombre}.\n"
-                + _numerada(["Eliminar todas", "Eliminar algunas"]) + PIE)
+                + _numerada(["Eliminar todas", "Eliminar algunas"]) + SELECCION + PIE)
 
     def _nombre(self, datos, pid) -> str:
         return next(n for i, n, _, _ in self._lineas_carrito(datos) if i == pid)
@@ -561,7 +562,7 @@ class Bot:
                   f"{dinero(p.get('total'))}" for p in lista]
         return {**datos, "paso": "can_pedido", "pedidos": [[p["id"], p["nombre"]] for p in lista]}, (
             f"Pedidos por recoger de {hijo['nombre']}. ¿Cuál quieres cancelar?\n"
-            + _numerada(lineas) + PIE)
+            + _numerada(lineas) + SELECCION + PIE)
 
     def _p_can_pedido(self, datos, texto):
         n = _numero(texto, len(datos["pedidos"]))
@@ -570,7 +571,8 @@ class Bot:
         pid, folio = datos["pedidos"][n - 1]
         return {**datos, "paso": "can_confirmar", "pedido_id": pid, "folio": folio,
                 "llave": uuid.uuid4().hex}, (
-            f"¿Cancelar el pedido {folio}? El dinero vuelve al disponible.\n\n1 Sí, cancelar\n2 No")
+            f"¿Cancelar el pedido {folio}? El dinero vuelve al disponible.\n\n"
+            + _numerada(["Sí, cancelar", "No"]))
 
     def _p_can_confirmar(self, datos, texto):
         def hacer():
@@ -593,7 +595,7 @@ class Bot:
         return {**datos, "paso": "tra_confirmar", "importe": str(importe),
                 "llave": uuid.uuid4().hex}, (
             f"Pasar {dinero(importe)} de {o['nombre']} a {d['nombre']}. No se puede deshacer "
-            f"desde aquí.\n\n1 Confirmar\n2 Cancelar")
+            f"desde aquí.\n\n" + _numerada(["Confirmar", "Cancelar"]))
 
     def _p_tra_confirmar(self, datos, texto):
         def hacer():
@@ -615,7 +617,7 @@ class Bot:
             estado, nuevo, accion = (f"{hijo['nombre']} sólo puede recoger lo que pidas.", True,
                                      "Permitir que compre sin pedido")
         return {**datos, "paso": "per_confirmar", "permitir": nuevo, "llave": uuid.uuid4().hex}, (
-            f"{estado}\n\n1 {accion}\n2 Dejarlo así")
+            f"{estado}\n\n" + _numerada([accion, "Dejarlo así"]))
 
     def _p_per_confirmar(self, datos, texto):
         def hacer():
@@ -635,7 +637,7 @@ class Bot:
         lineas = [f"{TIPOS_CREDENCIAL.get(x.get('tipo'), 'Credencial')} · "
                   f"{'Bloqueada' if x['bloqueada'] else 'Activa'}" for x in creds]
         return {**datos, "paso": "tar_cred", "creds": [x["id"] for x in creds]}, (
-            f"Tarjetas de {hijo['nombre']}. ¿Cuál?\n" + _numerada(lineas) + PIE)
+            f"Tarjetas de {hijo['nombre']}. ¿Cuál?\n" + _numerada(lineas) + SELECCION + PIE)
 
     def _p_tar_cred(self, datos, texto):
         n = _numero(texto, len(datos["creds"]))
@@ -652,7 +654,7 @@ class Bot:
                 "llave": uuid.uuid4().hex}, (
             f"¿{'Bloquear' if bloquear else 'Desbloquear'} {etiqueta.lower()} de {hijo['nombre']}?"
             + (" Nadie podrá pagar con ella hasta que la desbloquees." if bloquear else "")
-            + f"\n\n1 Sí, {'bloquear' if bloquear else 'desbloquear'}\n2 No")
+            + "\n\n" + _numerada([f"Sí, {'bloquear' if bloquear else 'desbloquear'}", "No"]))
 
     def _p_tar_confirmar(self, datos, texto):
         def hacer():
