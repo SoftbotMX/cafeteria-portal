@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block titulo %}Condiciones del servicio · Portal de la cafetería{% endblock %}
+{% block contenido %}
+<h1>Condiciones del servicio</h1>
+<p>El portal de tutores (<strong>cafeteria.softbot.com.mx</strong>) y su asistente de WhatsApp los
+proporciona <strong>{{ r.nombre }}</strong> ({{ r.domicilio }}) a la cafetería escolar, para que
+padres, madres y tutores consulten y administren el saldo de sus hijos.</p>
+
+<h2>El servicio</h2>
+<ul>
+  <li>Consultar saldos y movimientos, hacer y cancelar pedidos, recargar saldo, transferirlo entre
+    sus hijos, permitir o no compras sin pedido y bloquear o desbloquear credenciales.</li>
+  <li>Los saldos, precios, horarios de pedido y reglas de la cafetería los define la cafetería
+    escolar. El portal muestra la información del sistema de caja de la cafetería.</li>
+</ul>
+
+<h2>Su cuenta</h2>
+<ul>
+  <li>La cuenta la da de alta la administración de la cafetería. Usted es responsable de cuidar su
+    contraseña y su teléfono.</li>
+  <li>Todo lo que se haga con su cuenta o desde su número de WhatsApp registrado se considera hecho
+    por usted.</li>
+  <li>Si cree que alguien usó su cuenta, cambie su contraseña y avise a la cafetería.</li>
+</ul>
+
+<h2>Recargas y pagos</h2>
+<ul>
+  <li>Las recargas se pagan con Mercado Pago. Normalmente se acreditan en menos de un minuto
+    después de aprobado el pago; si alguna queda pendiente o en revisión, la cafetería la aclara y,
+    si procede, la acredita o la devuelve.</li>
+  <li>Las devoluciones de saldo y las aclaraciones de consumos se atienden con la cafetería escolar,
+    según sus políticas.</li>
+</ul>
+
+<h2>Disponibilidad</h2>
+<p>Procuramos que el servicio esté disponible siempre, pero puede interrumpirse por mantenimiento o
+fallas de terceros (internet, Mercado Pago, WhatsApp). Ante cualquier diferencia, el registro del
+sistema de caja de la cafetería es el que vale.</p>
+
+<h2>Privacidad</h2>
+<p>El uso de sus datos se describe en el <a href="/privacidad">aviso de privacidad</a>.</p>
+
+<h2>Contacto</h2>
+<p><a href="mailto:{{ r.correo }}">{{ r.correo }}</a></p>
+{% include "legal/_pie.html" %}
+{% endblock %}

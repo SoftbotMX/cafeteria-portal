@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block titulo %}Eliminar mis datos · Portal de la cafetería{% endblock %}
+{% block contenido %}
+<h1>Eliminar mis datos</h1>
+<p>Para que borremos su cuenta del portal de la cafetería y los datos asociados:</p>
+<ol>
+  <li>Escriba a <a href="mailto:{{ r.correo }}?subject=Eliminar%20mis%20datos">{{ r.correo }}</a>
+    con el asunto <strong>«Eliminar mis datos»</strong>, desde el correo registrado, o indique el
+    teléfono registrado en el mensaje.</li>
+  <li>Incluya su nombre y el nombre de sus hijos.</li>
+  <li>Confirmaremos su identidad y le responderemos por el mismo medio en un máximo de 20 días
+    hábiles; la eliminación se hará dentro de los 15 días hábiles siguientes.</li>
+</ol>
+<p>Borraremos su cuenta del portal y sus datos de contacto en el sistema de la cafetería y en
+nuestro sistema de mensajería. Los registros de pagos y consumos que la ley obliga a conservar se
+guardan bloqueados sólo por el plazo legal y no se usan para nada más. Si sus hijos tienen saldo, la
+cafetería le indicará cómo devolvérselo.</p>
+<p>Las respuestas del asistente de WhatsApp se borran solas a los dos días y los mensajes que usted
+le envió, a los siete. Si sólo quiere dejar de
+recibir avisos por WhatsApp sin borrar la cuenta, pídalo al mismo correo.</p>
+{% include "legal/_pie.html" %}
+{% endblock %}
