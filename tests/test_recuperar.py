@@ -348,3 +348,16 @@ def test_recuperar_con_plantillas_activas_manda_codigo_verificacion(db, op, c, c
     cod = cuerpo["parameters"][0]["text"]
     assert len(cod) == 6 and cod.isdigit()
     assert boton["sub_type"] == "url" and boton["parameters"][0]["text"] == cod
+
+
+def test_codigo_sin_plantilla_va_tambien_por_correo(db, op, c, conduit, app, monkeypatch):
+    t = crear_tutor(db, op)
+    t.correo = "papa@mail.com"
+    db.commit()
+    monkeypatch.setattr(app.state.settings, "smtp_host", "smtp.test")
+    enviados = []
+    monkeypatch.setattr("portal.credenciales.enviar_correo",
+                        lambda settings, para, asunto, texto: enviados.append((para, asunto, texto)))
+    _pedir(c, "8341445807")
+    cod = _codigo_enviado(conduit)
+    assert enviados and enviados[0][0] == "papa@mail.com" and cod in enviados[0][2]

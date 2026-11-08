@@ -460,3 +460,76 @@ def test_alta_con_plantillas_activas_manda_acceso_portal(db, op, admin, tpv, con
     valores = [p["text"] for p in cuerpo["parameters"]]
     assert valores[1:] == ["https://cafeteria.test", "8341445807", _contrasena(r)]
     assert all(v.strip() and "\n" not in v for v in valores)
+
+
+def test_sin_plantilla_el_acceso_va_por_whatsapp_y_correo(db, op, admin, tpv, conduit, app, monkeypatch):
+    # Texto libre de WhatsApp sólo llega si el papá escribió en 24 h: también va por correo.
+    monkeypatch.setattr(app.state.settings, "smtp_host", "smtp.test")
+    enviados = []
+    monkeypatch.setattr("portal.credenciales.enviar_correo",
+                        lambda settings, para, asunto, texto: enviados.append((para, texto)))
+    r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta"), correo="mama@mail.com"))
+    assert len(conduit.enviados) == 1 and "text" in conduit.enviados[0]
+    assert len(enviados) == 1 and enviados[0][0] == "mama@mail.com"
+    assert _contrasena(r) in enviados[0][1]
+    assert 'id="canal">whatsapp y correo<' in r.text and 'id="estado">enviado<' in r.text
+
+
+def test_con_plantilla_el_acceso_no_duplica_por_correo(db, op, admin, tpv, conduit, app, monkeypatch):
+    op.wa_plantillas = True
+    db.commit()
+    monkeypatch.setattr(app.state.settings, "smtp_host", "smtp.test")
+    enviados = []
+    monkeypatch.setattr("portal.credenciales.enviar_correo",
+                        lambda settings, para, asunto, texto: enviados.append(para))
+    r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta"), correo="mama@mail.com"))
+    assert conduit.enviados[0]["template"]["name"] == "acceso_portal" and enviados == []
+    assert 'id="canal">whatsapp<' in r.text
+
+
+def test_whatsapp_falla_sin_plantilla_pero_llega_por_correo(db, op, admin, tpv, conduit, app, monkeypatch):
+    conduit.responder = 500
+    monkeypatch.setattr(app.state.settings, "smtp_host", "smtp.test")
+    enviados = []
+    monkeypatch.setattr("portal.credenciales.enviar_correo",
+                        lambda settings, para, asunto, texto: enviados.append(para))
+    r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta"), correo="mama@mail.com"))
+    assert enviados == ["mama@mail.com"]
+    assert 'id="canal">correo<' in r.text and 'id="estado">enviado<' in r.text
+
+
+def test_secreto_de_conduit_roto_con_correo_entrega_por_correo(db, op, admin, tpv, conduit, app, monkeypatch):
+    from cryptography.fernet import Fernet
+    from portal.cifrado import cifrar
+    op.conduit_secreto_cif = cifrar("x", Fernet.generate_key().decode())
+    db.commit()
+    monkeypatch.setattr(app.state.settings, "smtp_host", "smtp.test")
+    enviados = []
+    monkeypatch.setattr("portal.credenciales.enviar_correo",
+                        lambda settings, para, asunto, texto: enviados.append(para))
+    r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta"), correo="mama@mail.com"))
+    assert r.status_code == 200 and enviados == ["mama@mail.com"] and conduit.enviados == []
+    assert 'id="canal">correo<' in r.text and 'id="estado">enviado<' in r.text
+
+
+def test_whatsapp_en_proceso_y_correo_enviado_lo_dice(db, op, admin, tpv, conduit, app, monkeypatch):
+    conduit.responder = 409  # Conduit aún procesa ese envío
+    monkeypatch.setattr(app.state.settings, "smtp_host", "smtp.test")
+    monkeypatch.setattr("portal.credenciales.enviar_correo", lambda *a: None)
+    r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta"), correo="mama@mail.com"))
+    assert 'id="estado">enviado<' in r.text and "WhatsApp en proceso" in r.text
+
+
+def test_con_plantilla_y_whatsapp_fallido_usa_el_correo(db, op, admin, tpv, conduit, app, monkeypatch):
+    from cryptography.fernet import Fernet
+    from portal.cifrado import cifrar
+    op.wa_plantillas = True
+    op.conduit_secreto_cif = cifrar("x", Fernet.generate_key().decode())
+    db.commit()
+    monkeypatch.setattr(app.state.settings, "smtp_host", "smtp.test")
+    enviados = []
+    monkeypatch.setattr("portal.credenciales.enviar_correo",
+                        lambda settings, para, asunto, texto: enviados.append(para))
+    r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta"), correo="mama@mail.com"))
+    assert enviados == ["mama@mail.com"]
+    assert 'id="canal">correo<' in r.text and 'id="estado">enviado<' in r.text
