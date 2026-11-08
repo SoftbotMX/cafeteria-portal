@@ -385,10 +385,12 @@ class Bot:
         productos = [[i, nom, pre] for i, nom, pre, c in datos["todos"] if c == cat]
         datos = {**datos, "paso": "ped_productos", "productos": productos}
         lineas = [f"{nom} {dinero(Decimal(pre))}" for _, nom, pre in productos]
-        otras = (" Para ver de nuevo las categorías del menú, escribe *categorías*."
+        otras = ("\n\nPara ver de nuevo las categorías del menú, escribe *categorías*."
                  if len(datos.get("cats") or []) > 1 else "")
         return datos, (f"{cat}:\n" + _numerada(lineas) + "\n\nEscribe el número del producto para "
-                       "agregarlo; repítelo para sumar otro igual. Tip: *2 3* agrega 3 del producto 2."
+                       "agregarlo; repítelo para sumar otro igual.\n"
+                       "_Tip: también puedes escribir el número del producto seguido de las unidades, por "
+                       "ejemplo *2 3* es: producto 2, 3 unidades._"
                        + otras + PIE)
 
     def _p_ped_categoria(self, datos, texto):

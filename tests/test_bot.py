@@ -177,7 +177,11 @@ def _a_almuerzo(escribir):
 
 def test_instrucciones_de_productos_cortas_con_tip(hijos, escribir):
     r = _a_almuerzo(escribir)
-    assert "repítelo para sumar otro igual" in r and "*2 3* agrega 3 del producto 2" in r
+    assert ("Escribe el número del producto para agregarlo; repítelo para sumar otro igual.\n"
+            "_Tip: también puedes escribir el número del producto seguido de las unidades, por "
+            "ejemplo *2 3* es: producto 2, 3 unidades._\n\n"
+            "Para ver de nuevo las categorías del menú, escribe *categorías*.\n\n"
+            "Escribe *menú* para volver al inicio.") in r
     assert "Un producto por mensaje" not in r
 
 
