@@ -32,9 +32,9 @@ MENU = [("saldo", "Ver saldo"), ("recargar", "Recargar"), ("pedir", "Pedir"),
         ("permiso", "Compras sin pedido"), ("tarjetas", "Tarjetas (bloquear/desbloquear)"),
         ("terminar", "Terminar")]
 ESCRITURAS = {"recargar", "pedir", "pedidos", "transferir", "permiso", "tarjetas"}
-PIE = "\n\nEscribe «menú» para volver al inicio."
+PIE = "\n\nEscribe *menú* para volver al inicio."
 DESPEDIDAS = {"salir", "terminar", "adios", "gracias", "bye", "fin"}
-DESPEDIDA = "Gracias, hasta pronto. Cuando quieras volver, escríbeme «hola»."
+DESPEDIDA = "Gracias, hasta pronto. Cuando quieras volver, escríbeme *hola*."
 VOLVER_CATEGORIAS = {"categorias", "categoria", "otra", "volver"}
 NO_REGISTRADO = ("Este número no está registrado en la cafetería. Pide a la administración que "
                  "lo dé de alta.")
@@ -249,7 +249,7 @@ class Bot:
     def _p_rec_monto(self, datos, texto):
         t = _normal(texto).replace("$", "").replace(",", "")
         if not t.isdigit() or int(t) <= 0:
-            return datos, "Escribe sólo el número de pesos, sin centavos (por ejemplo 200)." + PIE
+            return datos, "Escribe sólo el número de pesos, sin centavos (por ejemplo *200*)." + PIE
         hijos = {h["id"]: h for h in acciones.hijos(self.app, self.op, self.tutor)}
         elegidos = [hijos[i] for i in datos["hijos"] if i in hijos]
         armado = recargas.armar_reparto(elegidos, {f"importe_{h['id']}": t for h in elegidos})
@@ -286,7 +286,7 @@ class Bot:
         h = hijos[faltan[0]]
         return datos, (
             f"*Te quedan {dinero(resta)} por repartir.*\n¿Cuánto asignas a {h['nombre']}?\n"
-            f"Actualmente tiene {dinero(h.get('disponible'))}.\nEscribe 0 si nada.")
+            f"Actualmente tiene {dinero(h.get('disponible'))}.\nEscribe *0* si nada.")
 
     def _p_rec_reparte(self, datos, texto):
         if _pesos(texto) is not None:
@@ -375,7 +375,8 @@ class Bot:
         pie = "Escribe el número de la categoría."
         if datos["carrito"]:
             antes += self._llevas(datos) + "\n\n"
-            pie += " «quitar 1» quita el producto 1 de tu pedido; «listo» lo termina."
+            pie += ("\nPara eliminar productos del pedido, escribe *eliminar* y el número de la "
+                    "línea (ej. *eliminar 1*).\nEscribe *listo* para terminar el pedido.")
         return f"{antes}¿Qué quieres ver?\n" + _numerada(lineas) + "\n\n" + pie + PIE
 
     def _categoria(self, datos, cat) -> tuple[dict, str]:
@@ -383,10 +384,10 @@ class Bot:
         productos = [[i, nom, pre] for i, nom, pre, c in datos["todos"] if c == cat]
         datos = {**datos, "paso": "ped_productos", "productos": productos}
         lineas = [f"{nom} {dinero(Decimal(pre))}" for _, nom, pre in productos]
-        otras = (" Escribe «categorías» para ver otra categoría."
+        otras = (" Para ver de nuevo las categorías del menú, escribe *categorías*."
                  if len(datos.get("cats") or []) > 1 else "")
         return datos, (f"{cat}:\n" + _numerada(lineas) + "\n\nEscribe el número del producto para "
-                       "agregarlo; repítelo para sumar otro igual. Tip: «2 3» agrega 3 del producto 2."
+                       "agregarlo; repítelo para sumar otro igual. Tip: *2 3* agrega 3 del producto 2."
                        + otras + PIE)
 
     def _p_ped_categoria(self, datos, texto):
@@ -427,8 +428,8 @@ class Bot:
         """El carrito numerado, para que «quitar N» se entienda."""
         lineas = self._lineas_carrito(datos)
         total = sum((p * c for _, _, p, c in lineas), Decimal(0))
-        return ("Llevas:\n" + "\n".join(f"{i}) {n} × {c}" for i, (_, n, _, c) in enumerate(lineas, 1))
-                + f"\nTotal: {dinero(total)}")
+        return ("*Llevas:*\n" + "\n".join(f"{i}) {n} × {c}" for i, (_, n, _, c) in enumerate(lineas, 1))
+                + f"\n*Total: {dinero(total)}*")
 
     def _vista(self, datos, antes: str = "") -> str:
         """Lo que se ve en el paso de pedido actual (productos o categorías), con un aviso antes."""
@@ -455,7 +456,7 @@ class Bot:
     def _pregunta_quitar(self, datos, pid) -> str:
         nombre = self._nombre(datos, pid)
         return (f"Llevas {datos['carrito'][pid]} × {nombre}.\n"
-                + _numerada(["Quitar todas", "Quitar algunas"]) + PIE)
+                + _numerada(["Eliminar todas", "Eliminar algunas"]) + PIE)
 
     def _nombre(self, datos, pid) -> str:
         return next(n for i, n, _, _ in self._lineas_carrito(datos) if i == pid)
@@ -471,7 +472,7 @@ class Bot:
             carrito.pop(pid)
         datos = {k: v for k, v in datos.items() if k not in ("quitar_pid", "volver")}
         datos = {**datos, "carrito": carrito}
-        aviso = f"Quité {n} × {nombre}. " if quedan > 0 else f"Quité {nombre}. "
+        aviso = f"Eliminé {n} × {nombre}. " if quedan > 0 else f"Eliminé {nombre}. "
         return datos, self._vista(datos, aviso)
 
     def _volver(self, datos) -> dict:
@@ -487,7 +488,7 @@ class Bot:
             if cant == 2:  # sólo cabe quitar una
                 return self._restar(self._volver(datos), pid, 1)
             return {**datos, "paso": "ped_quitar_cuantas"}, (
-                f"¿Cuántas quitas? Escribe un número del 1 al {cant - 1}." + PIE)
+                f"¿Cuántas eliminas? Escribe un número del 1 al {cant - 1}." + PIE)
         return datos, "No entendí. " + self._pregunta_quitar(datos, pid)
 
     def _p_ped_quitar_cuantas(self, datos, texto):
@@ -504,7 +505,7 @@ class Bot:
         carrito = dict(datos["carrito"])
         if t == "listo":
             if not carrito:
-                return datos, "Todavía no agregas nada. Escribe por ejemplo «1 2»." + PIE
+                return datos, "Todavía no agregas nada. Escribe por ejemplo *1 2*." + PIE
             return self._terminar_pedido(datos)
         if t in VOLVER_CATEGORIAS and len(datos.get("cats") or []) > 1:
             return {**datos, "paso": "ped_categoria"}, self._lista_categorias(datos)
@@ -513,7 +514,7 @@ class Bot:
             return quitado
         m = re.fullmatch(r"(\d+)(?:\s*(?:x|\s)\s*(\d+))?", t)
         if not m or not 1 <= int(m.group(1)) <= len(productos):
-            return datos, "No entendí. Escribe el número del producto y la cantidad, por ejemplo «1 2»." + PIE
+            return datos, "No entendí. Escribe el número del producto y la cantidad, por ejemplo *1 2*." + PIE
         cant = int(m.group(2) or 1)
         if not 1 <= cant <= MAX_POR_LINEA:
             return datos, f"La cantidad va de 1 a {MAX_POR_LINEA}." + PIE
@@ -526,10 +527,13 @@ class Bot:
 
     def _eco(self, datos) -> str:
         if not datos["carrito"]:
-            return "Tu pedido está vacío. Escribe por ejemplo «1 2»." + PIE
-        otras = ", «categorías» para ver otra" if len(datos.get("cats") or []) > 1 else ""
-        return (self._llevas(datos) + f"\n\nAgrega otro, «quitar 1» quita el 1{otras} o «listo» "
-                "para terminar." + PIE)
+            return "Tu pedido está vacío. Escribe por ejemplo *1 2*." + PIE
+        otras = ("\nPara ver de nuevo las categorías del menú, escribe *categorías*."
+                 if len(datos.get("cats") or []) > 1 else "")
+        return (self._llevas(datos) + "\n\n"
+                "Para agregar productos al pedido, escribe el número del producto.\n"
+                "Para eliminar productos del pedido, escribe *eliminar* y el número de la línea "
+                f"(ej. *eliminar 1*).{otras}\nEscribe *listo* para terminar el pedido." + PIE)
 
     def _p_ped_confirmar(self, datos, texto):
         def hacer():
@@ -581,7 +585,7 @@ class Bot:
     def _p_tra_monto(self, datos, texto):
         importe = parse_importe(texto.replace("$", "").replace(",", "").strip())
         if importe is None:
-            return datos, "Escribe el importe, por ejemplo 150 o 150.50." + PIE
+            return datos, "Escribe el importe, por ejemplo *150* o *150.50*." + PIE
         hijos = {h["id"]: h for h in acciones.hijos(self.app, self.op, self.tutor)}
         o, d = hijos.get(datos["origen"]), hijos.get(datos["alumno_id"])
         if not o or not d:
@@ -671,7 +675,7 @@ class Bot:
         if n == 2:
             return self._al_menu("Listo, no se hizo nada.")
         if n != 1:
-            return datos, "Responde 1 para confirmar o 2 para cancelar."
+            return datos, "Responde *1* para confirmar o *2* para cancelar."
         if not self.op.bot_escrituras:
             return self._al_menu("Por ahora esta acción no está disponible por WhatsApp.")
         r = hacer()

@@ -23,7 +23,7 @@ from portal.rutas.pedidos import OP_CANCELAR, OP_PEDIR, motivo_no_cancelable, va
 from portal.tutor_tpv import (
     SinTPV, con_aviso, enviar_escritura, intento_incierto, ya_registrado)
 
-MSG_INCIERTO = ("No pudimos confirmar con la cafetería si quedó registrado. Responde 1 para "
+MSG_INCIERTO = ("No pudimos confirmar con la cafetería si quedó registrado. Responde *1* para "
                 "reintentar (no se duplica).")
 
 
@@ -95,7 +95,7 @@ def pedir(db: Session, app: FastAPI, operador: Operador, tutor: Tutor, hijo: dic
     try:
         carta = menu(app, operador)
     except SinTPV:
-        return Resultado("incierto", tutor_tpv.MSG_SIN_MENU + " Responde 1 para reintentar.")
+        return Resultado("incierto", tutor_tpv.MSG_SIN_MENU + " Responde *1* para reintentar.")
     ya_entro = ya_registrado(db, operador, tutor, llave, OP_PEDIR)
     lineas, error = validar_lineas([(str(pid), str(n)) for pid, n in items],
                                    [{"id": pid} for pid, _ in items] if ya_entro else carta,
@@ -138,7 +138,7 @@ def cancelar(db: Session, app: FastAPI, operador: Operador, tutor: Tutor, hijo: 
     try:
         lista = tutor_tpv.pedidos(Ctx(app), operador, tutor, hijo["id"])
     except SinTPV:
-        return Resultado("incierto", tutor_tpv.MSG_SIN_PEDIDOS + " Responde 1 para reintentar.")
+        return Resultado("incierto", tutor_tpv.MSG_SIN_PEDIDOS + " Responde *1* para reintentar.")
     pedido = next((p for p in lista if p["id"] == pedido_id), None)
     if pedido is None:
         return Resultado("rechazo", "Ese pedido ya no aparece.")
@@ -264,7 +264,7 @@ def recargar(db: Session, app: FastAPI, operador: Operador, tutor: Tutor, repart
                                     f"https://{operador.host}")
     except recargas.ErrorMP:
         return Resultado("incierto", "No pudimos abrir Mercado Pago. No se te cobró nada: "
-                                     "responde 1 para reintentar.")
+                                     "responde *1* para reintentar.")
     return Resultado("ok", f"Paga {dinero(total)} aquí: {r.init_point}\nLa liga vence en 30 "
                            "minutos. Te avisamos por aquí cuando se acredite.",
                      {"recarga_id": r.id, "url": r.init_point})
