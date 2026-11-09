@@ -98,6 +98,23 @@ def plantillas_whatsapp(args, settings) -> None:
     engine.dispose()
 
 
+def numero_whatsapp(args, settings) -> None:
+    """El WhatsApp de la cafetería que va en los correos al papá (sólo dígitos, con lada)."""
+    from portal.credenciales import normalizar_wa
+    numero = normalizar_wa(args.numero)
+    if numero is None:
+        sys.exit("El número va con lada de país, p. ej. 19563825162 o +1 956 382 5162.")
+    engine = crear_engine(settings.database_url)
+    with Session(engine) as db:
+        op = db.scalars(select(Operador).where(Operador.host == args.host)).first()
+        if op is None:
+            sys.exit(f"No existe un operador con host {args.host}.")
+        op.wa_numero = numero
+        db.commit()
+        print(f"WhatsApp de {op.host}: {numero}.")
+    engine.dispose()
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="python -m portal.cli")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -120,11 +137,15 @@ def main(argv: list[str] | None = None) -> None:
     g = w.add_mutually_exclusive_group(required=True)
     g.add_argument("--activar", dest="activar", action="store_true")
     g.add_argument("--desactivar", dest="activar", action="store_false")
+    n = sub.add_parser("numero-whatsapp")
+    n.add_argument("--host", required=True)
+    n.add_argument("--numero", required=True)
     args = p.parse_args(argv)
     settings = get_settings()
     {"crear-operador": crear_operador, "crear-admin": crear_admin,
      "guardar-mp": guardar_mp, "crear-token-mcp": crear_token_mcp,
-     "plantillas-whatsapp": plantillas_whatsapp}[args.cmd](args, settings)
+     "plantillas-whatsapp": plantillas_whatsapp,
+     "numero-whatsapp": numero_whatsapp}[args.cmd](args, settings)
 
 
 if __name__ == "__main__":

@@ -648,3 +648,43 @@ def recargas_lista(request: Request, estado: str = "",
         "filas": db.execute(q).all(), "estado": estado, "estados": ESTADOS_RECARGA})
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+# ---- datos de la cafetería ----
+
+def _pagina_cafeteria(request, sesion, admin, operador, numero=None, error=None, mensajes=None,
+                      status=200):
+    from portal.credenciales import enlace_whatsapp, numero_visible
+    guardado = operador.wa_numero or ""
+    resp = templates.TemplateResponse(request, "admin/cafeteria.html", {
+        "csrf": sesion.csrf, "admin": admin, "error": error, "mensajes": mensajes,
+        "numero": numero if numero is not None else (numero_visible(guardado) if guardado else ""),
+        "visible": numero_visible(guardado) if guardado else "", "enlace": enlace_whatsapp(operador),
+    }, status_code=status)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@router.get("/cafeteria")
+def cafeteria_form(request: Request, par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                   operador: Operador = Depends(operador_actual)):
+    return _pagina_cafeteria(request, par[0], par[1], operador)
+
+
+@router.post("/cafeteria")
+def cafeteria_guardar(request: Request, wa_numero: str = Form(""), csrf: str = Form(""),
+                      par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                      operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
+    sesion, admin = par
+    exigir_csrf(csrf, sesion.csrf)
+    from portal.credenciales import normalizar_wa
+    texto = wa_numero.strip()
+    digitos = normalizar_wa(texto) if texto else None
+    if texto and digitos is None:
+        return _pagina_cafeteria(request, sesion, admin, operador, numero=texto, status=400,
+                                 error="Escribe el número con lada de país, por ejemplo +1 956 382 5162 "
+                                       "o +52 834 123 4567.")
+    op = db.get(Operador, operador.id)
+    op.wa_numero = digitos or None
+    db.commit()
+    return _pagina_cafeteria(request, sesion, admin, op, mensajes=["Guardado."])

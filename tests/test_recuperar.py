@@ -361,3 +361,12 @@ def test_codigo_sin_plantilla_va_tambien_por_correo(db, op, c, conduit, app, mon
     _pedir(c, "8341445807")
     cod = _codigo_enviado(conduit)
     assert enviados and enviados[0][0] == "papa@mail.com" and cod in enviados[0][2]
+
+
+def test_codigo_lleva_whatsapp_de_la_cafeteria(db, op, c, conduit):
+    op.wa_numero = "19563825162"
+    db.commit()
+    crear_tutor(db, op)
+    _pedir(c, "8341445807")
+    assert conduit.enviados[0]["text"].endswith(
+        "WhatsApp al +1 956 382 5162:\nhttps://wa.me/19563825162?text=hola")
