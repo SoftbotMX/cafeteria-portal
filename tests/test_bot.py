@@ -91,7 +91,7 @@ def test_saludo_y_saldo(hijos, escribir):
     r = escribir("hola")
     assert "Hola Ana." in r and "*1*) Ver saldo" in r and "*7*) Tarjetas" in r
     r = escribir("1")
-    assert "Luis: $200.00 disponible" in r and "Ana: $50.00 disponible" in r
+    assert "Luis: $200 disponible" in r and "Ana: $50 disponible" in r
     assert "¿Qué deseas hacer?" in r
 
 
@@ -109,13 +109,16 @@ def test_recargar_total_y_repartir_entre_hijos(db, hijos, escribir, mp):
     r = escribir("2")
     assert "¿Cuánto vas a recargar en total?" in r and "¿De quién?" not in r
     r = escribir("300")
-    assert "Te quedan $300.00" in r and "Luis" in r
+    assert r == ("*Distribución de la recarga*\nAlumnos y saldos actuales:\n*1*) Luis: $200\n"
+                 "*2*) Ana: $50\n\n¿Cuánto asignas a Luis?\nSaldo actual: $200.\n"
+                 "_El resto se asigna automáticamente a Ana._\n\nEscribe *0* si nada.\n\n"
+                 "Escribe *menú* para volver al inicio.")
     assert "entre 0 y 300" in escribir("400")
     r = escribir("$200")
-    assert "*Total a pagar: $300.00*" in r and "Luis: $200.00" in r and "Ana: $100.00" in r  # a Ana, el resto
+    assert "*Total a pagar: $300*" in r and "Luis: $200" in r and "Ana: $100" in r  # a Ana, el resto
     assert "*1*) Confirmar" in r
     r = escribir("1")
-    assert r.startswith("*Paga $300.00 aquí:*\nhttps://mp.test/checkout")
+    assert r.startswith("*Paga $300 aquí:*\nhttps://mp.test/checkout")
     assert "*La liga vence en 30 minutos.*" in r and "*Conversación terminada" in r
     assert "¿Qué deseas hacer?" in escribir("hola")  # tras la liga, empieza de nuevo
     rec = db.query(Recarga).one()
@@ -128,7 +131,7 @@ def test_recargar_todo_a_un_hijo_no_pregunta_por_los_demas(db, hijos, escribir, 
     escribir("2")
     escribir("1,000")
     r = escribir("1000")
-    assert "Luis: $1,000.00" in r and "Ana" not in r and "Total a pagar: $1,000.00" in r
+    assert "Luis: $1,000" in r and "Ana" not in r and "Total a pagar: $1,000" in r
 
 
 def test_recargar_respeta_el_minimo_y_cancelar_no_crea_nada(db, hijos, escribir):
@@ -137,7 +140,7 @@ def test_recargar_respeta_el_minimo_y_cancelar_no_crea_nada(db, hijos, escribir)
     assert "$50" in escribir("30")
     assert "$2,000" in escribir("2001")
     escribir("50")
-    assert "Total a pagar: $50.00" in escribir("0")  # todo a Ana
+    assert "Total a pagar: $50" in escribir("0")  # todo a Ana
     assert "no se hizo nada" in escribir("2")
     assert db.query(Recarga).count() == 0
 
@@ -156,14 +159,14 @@ def _pedir_torta(escribir, dia="2"):
     assert "*1*) Hoy" in r and "*2*) Mañana" in r
     r = escribir(dia)
     assert "*1*) Almuerzo (1)" in r and "*2*) Bebidas (1)" in r  # por categoría
-    assert "*1*) Torta $45.00" in escribir("1")
+    assert "*1*) Torta $45" in escribir("1")
     assert "*1*) Torta × 2" in escribir("1 2")
     r = escribir("categorías")
     assert "Llevas:" in r and "*1*) Torta × 2" in r
-    assert "*1*) Agua $15.00" in escribir("2")
+    assert "*1*) Agua $15" in escribir("2")
     assert "*2*) Agua × 1" in escribir("1")
     r = escribir("listo")
-    assert "Total: $105.00" in r
+    assert "Total: $105" in r
     return escribir("1")
 
 
@@ -190,7 +193,7 @@ def test_repetir_la_seleccion_suma(hijos, escribir):
     assert "*1*) Torta × 1" in escribir("1")
     assert "*1*) Torta × 2" in escribir("1")
     r = escribir("1 3")
-    assert "*1*) Torta × 5" in r and "Total: $225.00" in r
+    assert "*1*) Torta × 5" in r and "Total: $225" in r
     assert "*eliminar 1*" in r and "*listo*" in r and "*categorías*" in r
 
 
@@ -261,7 +264,7 @@ def test_cancelar_un_pedido(hijos, escribir, tpv):
     _pedir_torta(escribir)
     escribir("4")
     r = escribir("1")  # Luis
-    assert "PC-" in r and "$105.00" in r
+    assert "PC-" in r and "$105" in r
     assert "¿Cancelar el pedido" in escribir("1")
     assert "cancelaste el pedido" in escribir("1")
     assert tpv.pedidos[0]["estado"] == "cancelada"
@@ -272,15 +275,15 @@ def test_transferir(hijos, escribir):
     r = escribir("5")
     assert r.startswith("*Transferir saldo entre alumnos*, ¿de quién?\n*1*) Luis")
     r = escribir("1")
-    assert r.startswith("*Monto a transferir*\nDe Luis hacia Ana\nDisponible: $200.00.\n\n"
+    assert r.startswith("*Monto a transferir*\nDe Luis hacia Ana\nDisponible: $200.\n\n"
                         "Digita el monto sin centavos.\n\nEscribe *menú* para volver al inicio.")
     assert "sin centavos" in escribir("50.50")
     assert "sin centavos" in escribir("9" * 30)  # tope de nueve dígitos («0» lleva al menú)
     r = escribir("50")
-    assert r == ("*Transferir $50.00 de Luis a Ana*\n*1*) Confirmar\n*2*) Cancelar\n\n"
+    assert r == ("*Transferir $50 de Luis a Ana*\n*1*) Confirmar\n*2*) Cancelar\n\n"
                  "Digita *1* o *2*.\n\nEscribe *menú* para volver al inicio.")
     r = escribir("1")
-    assert r.startswith("*Listo, transferiste $50.00*.\nDisponibles:\nLuis: $150.00\nAna: $100.00.\n\n"
+    assert r.startswith("*Listo, transferiste $50*.\nDisponibles:\nLuis: $150\nAna: $100.\n\n"
                         "¿Qué deseas hacer?\n*1*) Ver saldo")
 
 
@@ -322,7 +325,7 @@ def test_escrituras_apagadas(db, op, hijos, escribir):
     db.commit()
     escribir("hola")
     assert "sólo puedes ver el saldo" in escribir("3")
-    assert "Luis: $200.00" in escribir("1")
+    assert "Luis: $200" in escribir("1")
 
 
 def test_menu_en_cualquier_momento(hijos, escribir):
@@ -383,7 +386,7 @@ def test_un_mensaje_espera_al_otro_del_mismo_papa(engine, db, op, tutor, hijos, 
         otra.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": llave_candado(op.id, tutor.telefono)})
         otra.commit()
     h.join(5)
-    assert "Luis: $200.00" in respuestas[0]
+    assert "Luis: $200" in respuestas[0]
 
 
 def test_recarga_a_un_hijo_desvinculado_no_se_crea(db, tutor, hijos, escribir, tpv):
@@ -409,7 +412,7 @@ def test_si_el_anterior_tarda_demasiado_avisa_y_no_procesa(engine, op, tutor, hi
         assert escribir("1") == bot.MSG_OCUPADO
         otra.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": k})
         otra.commit()
-    assert "Luis: $200.00" in escribir("1")
+    assert "Luis: $200" in escribir("1")
 
 
 def test_mensaje_abandonado_se_atiende_al_repetirse(db, op, hijos, escribir):
@@ -507,7 +510,7 @@ def test_una_sola_categoria_va_directo_a_los_productos(hijos, escribir, tpv):
     escribir("3")
     escribir("1")
     r = escribir("2")
-    assert "Almuerzo:" in r and "*1*) Torta $45.00" in r and "categorías" not in r
+    assert "Almuerzo:" in r and "*1*) Torta $45" in r and "categorías" not in r
 
 
 def test_listo_desde_la_lista_de_categorias(hijos, escribir):
@@ -520,7 +523,7 @@ def test_listo_desde_la_lista_de_categorias(hijos, escribir):
     escribir("1 3")
     r = escribir("categorias")
     assert "Escribe *listo* para terminar el pedido." in r
-    assert "Total: $45.00" in escribir("listo")
+    assert "Total: $45" in escribir("listo")
 
 
 def test_categoria_inexistente(hijos, escribir):
@@ -554,7 +557,7 @@ def test_cero_vuelve_al_menu_fuera_del_reparto(hijos, escribir):
     escribir("2")
     escribir("300")
     r = escribir("0")  # en el reparto, «0» es nada para Luis
-    assert "Ana: $300.00" in r and "¿Qué deseas hacer?" not in r
+    assert "Ana: $300" in r and "¿Qué deseas hacer?" not in r
 
 
 def test_desvincular_a_mitad_del_reparto_no_recorre_montos(db, tutor, hijos, escribir, tpv):
@@ -582,7 +585,7 @@ def test_eco_del_carrito_explica_cada_opcion(hijos, escribir):
     escribir("2")
     escribir("1")  # Almuerzo
     r = escribir("1 4")
-    assert "*Llevas:*\n*1*) Torta × 4\n*Total: $180.00*" in r
+    assert "*Llevas:*\n*1*) Torta × 4\n*Total: $180*" in r
     assert ("\n\nPara agregar productos al pedido, escribe el número del producto.\n"
             "Para eliminar productos del pedido, escribe *eliminar* y el número de la línea "
             "(ej. *eliminar 1*).\n"
@@ -631,3 +634,25 @@ def test_cancelar_confirma_con_fecha_larga_y_digita(hijos, escribir, tpv):
     r = escribir("1")
     assert "del jueves 22 de octubre?\nEl dinero vuelve al disponible." in r
     assert "*1*) Sí, cancelar\n*2*) No\n\nDigita *1* o *2*.\n\nEscribe *menú*" in r
+
+
+def test_reparto_con_tres_hijos(tutor, tpv, escribir, mp):
+    for n, d in (("Ana", 80), ("Luis", 50), ("Sofía", 20)):
+        tpv.agregar_hijo(tutor.tutor_ref, n, disponible=d)
+    escribir("hola")
+    escribir("2")
+    r = escribir("300")
+    assert "*3*) Sofía: $20" in r and "¿Cuánto asignas a Ana?" in r and "El resto" not in r
+    assert "Recarga:" not in r  # la línea de montos va desde la segunda pregunta
+    r = escribir("100")
+    assert r.startswith("*Distribución de la recarga*\n"
+                        "Recarga: *$300* - Asignado: *$100* - Pendiente: *$200*.\n"
+                        "¿Cuánto asignas a Luis?\nSaldo actual: $50.\n"
+                        "_El resto se asigna automáticamente a Sofía._")
+    r = escribir("50")
+    assert "Sofía: $150" in r and "*Total a pagar: $300*" in r
+
+
+def test_sin_centavos_conserva_centavos_reales():
+    from portal.bot import _sin_centavos
+    assert _sin_centavos("Total: $1,000.00 y $22.50; $5.005") == "Total: $1,000 y $22.50; $5.005"
