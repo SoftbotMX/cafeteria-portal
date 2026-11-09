@@ -84,6 +84,14 @@ def _numero(texto: str, maximo: int) -> int | None:
 _RANGO = f"De ${recargas.MINIMO} a ${recargas.MAXIMO:,}, sin centavos."
 
 
+_CENTAVOS_CERO = re.compile(r"(\$[\s\u00a0]?[\d,]+)\.00(?!\d)")
+
+
+def _sin_centavos(texto: str) -> str:
+    """En el bot los montos exactos van sin «.00» ($112); con centavos reales se quedan ($22.50)."""
+    return _CENTAVOS_CERO.sub(r"\1", texto)
+
+
 def _corto(alumno: dict) -> str:
     """Nombre(s) sin apellidos para las frases del bot. El TPV manda `nombres` cuando el alumno
     tiene sus campos separados; si no, se quitan las dos últimas palabras (los dos apellidos)."""
@@ -153,6 +161,7 @@ class Bot:
                 datos, respuesta = self._paso(datos, texto)
             except SinTPV:
                 respuesta = MSG_SIN_TPV + PIE
+        respuesta = _sin_centavos(respuesta)
         c.datos = datos
         c.actualizada = datetime.now(timezone.utc)
         if self.mensaje_id is not None:
@@ -310,9 +319,17 @@ class Bot:
             montos = montos + [resta] + [0] * (len(faltan) - 1)
             return self._resumen_recarga(datos, hijos, montos)
         h = hijos[faltan[0]]
+        if not montos:  # primera pregunta: quiénes son y cuánto tiene cada uno
+            cabeza = ("Alumnos y saldos actuales:\n" + _numerada(
+                [f"{_corto(hijos[i])}: {dinero(hijos[i].get('disponible'))}" for i in ids]) + "\n\n")
+        else:
+            cabeza = (f"Recarga: *{dinero(datos['total'])}* - Asignado: *{dinero(sum(montos))}* - "
+                      f"Pendiente: *{dinero(resta)}*.\n")
+        resto = (f"\n_El resto se asigna automáticamente a {_corto(hijos[faltan[1]])}._"
+                 if len(faltan) == 2 else "")
         return datos, (
-            f"*Te quedan {dinero(resta)} por repartir.*\n¿Cuánto asignas a {_corto(h)}?\n"
-            f"Actualmente tiene {dinero(h.get('disponible'))}.\nEscribe *0* si nada.")
+            f"*Distribución de la recarga*\n{cabeza}¿Cuánto asignas a {_corto(h)}?\n"
+            f"Saldo actual: {dinero(h.get('disponible'))}.{resto}\n\nEscribe *0* si nada." + PIE)
 
     def _p_rec_reparte(self, datos, texto):
         if _pesos(texto) is not None:
