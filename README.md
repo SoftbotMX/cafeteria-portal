@@ -67,17 +67,30 @@ MercadoPago (sólo tarjeta o saldo de MP: sin OXXO ni SPEI) y el TPV acredita co
 
 Conduit (Broker Mode) reenvía lo que escribe el papá a `/api/conduit/incoming/{validate,message}`
 (firmado con el `broker_secret`); el portal identifica al tutor por su teléfono y el bot
-(`portal/bot.py`) contesta por `/api/broker/reply`. Menú por números: saldo, recargar (liga de
-MP), pedir, mis pedidos (cancelar), transferir, compras sin pedido, tarjetas. Las acciones salen de
-`portal/acciones.py` (las mismas reglas que la web; base del futuro servidor MCP).
+(`portal/bot.py`) contesta por `/api/broker/reply`. Menú por números: saldo, recargar (total y
+reparto por hijo, liga de MP), pedir (por categorías, carrito numerado, *eliminar N*), mis pedidos
+(cancelar), transferir (pesos enteros), compras sin pedido, tarjetas, terminar. Las acciones salen
+de `portal/acciones.py` (las mismas reglas que la web y el MCP).
+
+- **Número:** +1 956 382 5162 (Meta: cuenta «Cafetería Escolar», app «cafeteria» publicada;
+  Conduit: inquilino `cafeteria-escolar`).
+- **Textos:** se acuerdan con el usuario antes de cambiarlos. Palabras que el papá escribe en
+  `*negritas*`, opciones `*1*) …`, «Escribe el número de tu selección.», confirmaciones con
+  «Digita *1* o *2*.», tips en `_itálica_`, alumno por su nombre corto (sin apellidos), montos
+  exactos sin centavos (`_sin_centavos`, sólo en el bot).
 
 - `/validate` acepta a todo número (cada rechazo cuenta para el silencio permanente de Conduit).
 - Cada `message_id` se atiende una vez (`bot_mensaje`); un papá a la vez (candado de PostgreSQL);
   el paso y la respuesta se guardan en la misma transacción.
 - `operador.bot_escrituras` (encendido por omisión) apaga las acciones por WhatsApp de inmediato.
   ⚠️ Conduit aún no verifica la firma de Meta (#39): decisión del usuario dejarlas encendidas.
-- Se activa al configurar en el operador `conduit_url`, `conduit_client_id` y el secreto, cuando
-  Conduit dé de alta a la cafetería (falta su número de WhatsApp).
+- Se activa con `conduit_url`, `conduit_client_id` y el secreto de Conduit en el operador.
+- **WhatsApp de la cafetería en los correos:** `/admin/cafeteria` («Datos de la cafetería») o
+  `python -m portal.cli numero-whatsapp --host <host> --numero "+1 956 382 5162"`. Va con la liga
+  `https://wa.me/<número>?text=hola` en el correo de acceso y en el del código de recuperación.
+- **Acceso y código de recuperación:** sin plantilla aprobada (`operador.wa_plantillas` apagado) van
+  por WhatsApp **y** por correo; el correo es la vía segura para un papá nuevo. Con plantilla, sólo
+  WhatsApp (correo si falla). Ver `docs/PLANTILLAS_WHATSAPP.md`.
 
 ## Servidor MCP (lenguaje natural)
 
@@ -123,3 +136,11 @@ Reglas que el despliegue no puede romper (hay pruebas en `tests/test_despliegue.
 - **`PORTAL_INSTANCIA`** única por instalación: prefija las llaves de idempotencia enviadas a Conduit.
 - **`PORTAL_COOKIE_SECURE=true`** (por defecto).
 - La API del TPV va **antes** que el portal.
+
+## Manual de pruebas
+
+`docs/manual/Cafeteria-Manual-de-Pruebas.docx`: recorrido completo en tres secciones (TPV de la
+cafetería, administración, padre en el portal y por WhatsApp), estilo Softbot (plantilla de
+Expreso). Se genera con `python3 docs/manual/build_manual.py` a partir de `docs/manual/contenido.py`.
+⚠️ Regenerar **sobrescribe** el .docx: si se editó a mano en Word, pasar antes los cambios a
+`contenido.py`.
