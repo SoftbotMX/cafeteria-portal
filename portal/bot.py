@@ -328,8 +328,10 @@ class Bot:
         resto = (f"\n_El resto se asigna automáticamente a {_corto(hijos[faltan[1]])}._"
                  if len(faltan) == 2 else "")
         return datos, (
-            f"*Distribución de la recarga*\n{cabeza}¿Cuánto asignas a {_corto(h)}?\n"
-            f"Saldo actual: {dinero(h.get('disponible'))}.{resto}\n\nEscribe *0* si nada." + PIE)
+            f"*Distribución de la recarga*\n{cabeza}¿Cuánto asignas a {_corto(h)}?"
+            # En la primera pregunta los saldos ya van en la lista.
+            + (f"\nSaldo actual: {dinero(h.get('disponible'))}." if montos else "")
+            + f"{resto}\n\nEscribe *0* si nada." + PIE)
 
     def _p_rec_reparte(self, datos, texto):
         if _pesos(texto) is not None:

@@ -110,7 +110,7 @@ def test_recargar_total_y_repartir_entre_hijos(db, hijos, escribir, mp):
     assert "¿Cuánto vas a recargar en total?" in r and "¿De quién?" not in r
     r = escribir("300")
     assert r == ("*Distribución de la recarga*\nAlumnos y saldos actuales:\n*1*) Luis: $200\n"
-                 "*2*) Ana: $50\n\n¿Cuánto asignas a Luis?\nSaldo actual: $200.\n"
+                 "*2*) Ana: $50\n\n¿Cuánto asignas a Luis?\n"
                  "_El resto se asigna automáticamente a Ana._\n\nEscribe *0* si nada.\n\n"
                  "Escribe *menú* para volver al inicio.")
     assert "entre 0 y 300" in escribir("400")
@@ -644,6 +644,7 @@ def test_reparto_con_tres_hijos(tutor, tpv, escribir, mp):
     r = escribir("300")
     assert "*3*) Sofía: $20" in r and "¿Cuánto asignas a Ana?" in r and "El resto" not in r
     assert "Recarga:" not in r  # la línea de montos va desde la segunda pregunta
+    assert "Saldo actual" not in r  # en la primera pregunta los saldos van en la lista
     r = escribir("100")
     assert r.startswith("*Distribución de la recarga*\n"
                         "Recarga: *$300* - Asignado: *$100* - Pendiente: *$200*.\n"
