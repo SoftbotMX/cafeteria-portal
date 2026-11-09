@@ -10,3 +10,5 @@ __pycache__/
 # Documentos de trabajo de los agentes (specs/plans) — no versionar en el remoto
 docs/superpowers/
 *.egg-info/
+# Archivos de bloqueo de Word/Office mientras un documento está abierto
+~$*
