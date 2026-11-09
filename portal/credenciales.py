@@ -40,10 +40,54 @@ def usuario_de(tutor: Tutor) -> str:
     return tutor.telefono or tutor.correo or ""
 
 
+def normalizar_wa(texto: str) -> str | None:
+    """«+1 (956) 382-5162» → «19563825162». None si no es un número con lada de país (sin
+    extensiones, sin dígitos no ASCII; el prefijo internacional «00» se quita)."""
+    texto = texto.strip()
+    if not texto or any(ch not in "0123456789 +-()." for ch in texto):
+        return None
+    digitos = "".join(ch for ch in texto if ch.isdigit())
+    if digitos.startswith("00"):
+        digitos = digitos[2:]
+    if digitos.startswith("0") or not 11 <= len(digitos) <= 15:
+        return None
+    return digitos
+
+
+def numero_visible(digitos: str) -> str:
+    """19563825162 → +1 956 382 5162; 528341234567 → +52 834 123 4567."""
+    for lada in ("1", "52"):
+        if digitos.startswith(lada) and len(digitos) == len(lada) + 10:
+            n = digitos[len(lada):]
+            return f"+{lada} {n[:3]} {n[3:6]} {n[6:]}"
+    return f"+{digitos}"
+
+
+def enlace_whatsapp(operador: Operador) -> str | None:
+    """Liga corta que abre el chat con la cafetería con «hola» ya escrito."""
+    return f"https://wa.me/{operador.wa_numero}?text=hola" if operador.wa_numero else None
+
+
 def texto_acceso(operador: Operador, tutor: Tutor, contrasena: str) -> str:
-    return (f"Hola {tutor.nombre}. Tu acceso al portal de la cafetería: https://{operador.host} · "
-            f"usuario: {usuario_de(tutor)} · contraseña temporal: {contrasena}. "
-            "Te pediremos cambiarla al entrar.")
+    texto = (f"Hola {tutor.nombre}.\n\n"
+             f"Ya tienes acceso al portal de la cafetería:\nhttps://{operador.host}\n"
+             f"Usuario: {usuario_de(tutor)}\nContraseña temporal: {contrasena}\n"
+             "Te pediremos cambiarla al entrar.")
+    if operador.wa_numero:
+        texto += ("\n\nTambién puedes consultar el saldo de tus hijos, hacer pedidos y recargar por "
+                  f"WhatsApp. Guarda el número {numero_visible(operador.wa_numero)} en tus contactos y "
+                  "escríbele «hola» para empezar, o entra directo con esta liga:\n"
+                  f"{enlace_whatsapp(operador)}")
+    return texto
+
+
+def texto_codigo(operador: Operador, codigo: str) -> str:
+    texto = (f"Tu código para cambiar tu contraseña del portal de la cafetería es {codigo}. "
+             "Vence en 15 minutos.")
+    if operador.wa_numero:
+        texto += (f"\n\nRecuerda que también puedes escribirnos por WhatsApp al "
+                  f"{numero_visible(operador.wa_numero)}:\n{enlace_whatsapp(operador)}")
+    return texto
 
 
 def plantilla_acceso(operador: Operador, tutor: Tutor, contrasena: str) -> dict:

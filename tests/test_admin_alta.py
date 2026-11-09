@@ -544,3 +544,54 @@ def test_alta_hijo_sin_apellido_paterno_no_pasa(db, op, admin, tpv):
     r = admin.post("/admin/alta", data=datos_alta(
         admin.get("/admin/alta"), hijo_paterno=["", "Pérez", "", "", ""]))
     assert r.status_code == 400 and "apellido 1" in r.text and tpv.alumnos == {}
+
+
+def test_correo_de_acceso_lleva_whatsapp_de_la_cafeteria(db, op, admin, tpv, conduit, app, monkeypatch):
+    op.wa_numero = "19563825162"
+    db.commit()
+    monkeypatch.setattr(app.state.settings, "smtp_host", "smtp.test")
+    enviados = []
+    monkeypatch.setattr("portal.credenciales.enviar_correo",
+                        lambda settings, para, asunto, texto: enviados.append(texto))
+    r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta"), correo="mama@mail.com"))
+    (texto,) = enviados
+    assert f"Usuario: 8341445807\nContraseña temporal: {_contrasena(r)}\n" in texto
+    assert "Guarda el número +1 956 382 5162 en tus contactos y escríbele «hola» para empezar" in texto
+    assert texto.endswith("https://wa.me/19563825162?text=hola")
+
+
+def test_numero_visible():
+    from portal.credenciales import numero_visible
+    assert numero_visible("19563825162") == "+1 956 382 5162"
+    assert numero_visible("528341234567") == "+52 834 123 4567"
+
+
+def test_admin_captura_whatsapp_de_la_cafeteria(db, op, admin):
+    from tests.fabricas import csrf_de
+    r = admin.get("/admin/cafeteria")
+    assert r.status_code == 200 and 'name="wa_numero"' in r.text
+    r = admin.post("/admin/cafeteria", data={"csrf": csrf_de(r), "wa_numero": "+1 (956) 382-5162"})
+    assert r.status_code == 200 and "Guardado." in r.text
+    db.refresh(op)
+    assert op.wa_numero == "19563825162"
+    assert "https://wa.me/19563825162?text=hola" in r.text
+    r = admin.post("/admin/cafeteria", data={"csrf": csrf_de(r), "wa_numero": "956 382"})
+    assert r.status_code == 400 and "lada de país" in r.text
+    db.refresh(op)
+    assert op.wa_numero == "19563825162"  # el inválido no se guarda
+    r = admin.post("/admin/cafeteria", data={"csrf": csrf_de(r), "wa_numero": ""})
+    db.refresh(op)
+    assert op.wa_numero is None
+
+
+def test_datos_de_la_cafeteria_exige_sesion_de_admin(c, op):
+    r = c.get("/admin/cafeteria", follow_redirects=False)
+    assert r.status_code in (302, 303, 401, 403)
+
+
+def test_normalizar_wa():
+    from portal.credenciales import normalizar_wa
+    assert normalizar_wa("+1 (956) 382-5162") == "19563825162"
+    assert normalizar_wa("0019563825162") == "19563825162"
+    for malo in ("19563825162 ext 99", "956 382", "+١٩٥٦٣٨٢٥١٦٢", "0123456789012", ""):
+        assert normalizar_wa(malo) is None, malo
