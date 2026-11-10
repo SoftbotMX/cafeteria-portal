@@ -17,16 +17,14 @@ Se registran en la **WABA de la cafetería** (Meta Business → WhatsApp Manager
 Envío: `POST /api/notify` de Conduit con `template {name, language: "es_MX", components}` e
 `idempotency_key` obligatorio (Conduit #42).
 
-## Estado en Meta (2026-11-09)
+## Estado en Meta (2026-11-10)
 
 Cuenta «Cafetería Escolar» (portafolio Cafeteria Escolar, **sin verificar**).
 
 | Plantilla | Estado | Uso |
 |---|---|---|
-| `recarga_acreditada` | ✅ aprobada | TPV, con `sb_cafe.conduit_plantillas=1` (activado) |
-| `compra_realizada` | ✅ aprobada | TPV (activado) |
-| `pedido_liberado` | ✅ aprobada | TPV (activado) |
-| `recarga_acreditada_v2`, `compra_realizada_v2`, `pedido_liberado_v2` | ⏳ en revisión | Texto con negritas («AVISO DE LA CAFETERÍA … Fin del aviso»); mismas variables. Al aprobarse: cambiar el nombre en el TPV (`sb_cafe_api.py`, `pos_order.py`, `sb_cafe_precompra.py`; en la recarga, separador « · » entre hijos) y archivar las v1 |
+| `recarga_acreditada_v2`, `compra_realizada_v2`, `pedido_liberado_v2` | ✅ aprobadas (2026-11-10) | **En uso** por el TPV (PR tpv#9), con `sb_cafe.conduit_plantillas=1`. Texto con negritas («AVISO DE LA CAFETERÍA … Fin del aviso»); en la recarga, hijos separados por « · » |
+| `recarga_acreditada`, `compra_realizada`, `pedido_liberado` (v1) | ✅ aprobadas, ya sin uso | Archivar cuando se confirme que llegan las v2 y la cola de avisos esté vacía |
 | `acceso_portal` | ❌ rechazada (categoría incorrecta: lleva contraseña) | Rehacer sin contraseña tras verificar el negocio |
 | `codigo_verificacion` | 🚫 no se puede crear (Autenticación requiere negocio verificado) | Recuperación de contraseña |
 
