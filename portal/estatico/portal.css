@@ -149,6 +149,9 @@ form { display: flex; flex-direction: column; gap: 16px; margin: 0; }
 }
 .boton.secundario:hover, button.secundario:hover { background: var(--crema); color: var(--cafe); }
 button:disabled { opacity: .55; cursor: default; }
+button.largo { font-size: 21px; }
+.enviando [data-salir], .enviando [data-salir-envoltura] a { pointer-events: none; opacity: .4; }
+[data-salir-envoltura] { display: contents; }
 
 /* ---------------------------------------------------------------- avisos */
 .aviso {
@@ -462,6 +465,23 @@ label.importe-hijo { display: flex; align-items: center; gap: 12px; padding: 10p
 .recarga-estado.rechazada { color: var(--rojo); }
 .par.desigual { grid-template-columns: .8fr 1.2fr; }
 .par.desigual .boton { min-height: 52px; padding: 0 8px; white-space: nowrap; }
+
+/* ---------------------------------------------------------------- transferencia (5o) */
+.campo.seleccion { position: relative; }
+.campo.seleccion select {
+  -webkit-appearance: none; appearance: none; padding-right: 28px; cursor: pointer;
+  font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.campo.seleccion > .icono {
+  position: absolute; right: 14px; bottom: 14px; width: 22px; height: 22px; pointer-events: none;
+}
+.importe-grande-fila { display: flex; align-items: baseline; }
+.importe-grande .signo { font: 400 42px/1 var(--display); font-stretch: 50%; color: var(--cobre); }
+.campo.importe-grande input {
+  font: 800 84px/1 var(--display); font-stretch: 50%; letter-spacing: 0; min-height: 84px; color: var(--cafe);
+}
+.campo.importe-grande input::placeholder { color: #b3a497; font-weight: 300; }
+.barra:not(:has(.barra-total)) { padding: 14px; }
 
 /* ================================================================ PROVISIONAL
    Reglas del diseño anterior para las pantallas que aún no pasan a «La Charola». Se borran

@@ -44,12 +44,12 @@
 {%- endmacro %}
 
 {#- Ticket: encabezado, renglones y total con puntos guía. `renglones` son (texto, importe). -#}
-{% macro ticket(encabezado=none, lineas=(), total=none, renglones=()) -%}
+{% macro ticket(encabezado=none, lineas=(), total=none, renglones=(), total_etiqueta="Total") -%}
 <div class="ticket mono">
   {% if encabezado %}<span class="ticket-encabezado">{{ encabezado }}</span>{% endif %}
   {% for l in lineas %}<span>{{ l }}</span>{% endfor %}
   {% for texto, importe in renglones %}<span class="guia"><span>{{ texto }}</span><span class="puntos"></span><span>{{ importe }}</span></span>{% endfor %}
-  {% if total %}<span class="guia fuerte"><span>Total</span><span class="puntos"></span><span>{{ total }}</span></span>{% endif %}
+  {% if total %}<span class="guia fuerte"><span>{{ total_etiqueta }}</span><span class="puntos"></span><span>{{ total }}</span></span>{% endif %}
 </div>
 {%- endmacro %}
 

@@ -94,7 +94,7 @@ def test_revisar_muestra_reparto_y_total(dos, c):
     t = texto(r.text)
     assert "Luis Pérez $100.00" in t and "Ana Pérez $50.00" in t and "Total $150.00" in t
     assert "Pagar en línea" in t and "No necesitas tener cuenta de Mercado Pago" in t
-    assert '<a class="boton secundario" href="/">Cancelar</a>' in r.text  # CANCELAR va al inicio
+    assert '<a class="boton secundario" href="/" data-salir>Cancelar</a>' in r.text  # CANCELAR va al inicio
 
 
 @pytest.mark.parametrize("il,ia", [("20", "20"), ("2000", "5"), ("10.50", "50"), ("", "")])

@@ -10,14 +10,14 @@
 {% import "_ui.html" as ui with context %}
 {% block titulo %}{{ titulo }}{% endblock %}
 {% block contenido %}
-{{ ui.volver(volver, volver_texto or "Cambiar") }}
+<div data-salir-envoltura>{{ ui.volver(volver, volver_texto or "Cambiar") }}</div>
 {% if titulo_fuerte %}{{ ui.titulo(titulo_fino or "", titulo_fuerte) }}
 {% else %}<h1 class="titulo chico"><strong>{{ titulo }}</strong></h1>{% endif %}
 {% if subtitulo %}<p class="subtitulo">{{ subtitulo }}</p>{% endif %}
 {% if aviso %}{{ ui.aviso(aviso, "error", "alert") }}{% endif %}
 {% block resumen %}
 {% if ticket %}
-{{ ui.ticket(ticket.encabezado, ticket.lineas or (), ticket.total, ticket.renglones or ()) }}
+{{ ui.ticket(ticket.encabezado, ticket.lineas or (), ticket.total, ticket.renglones or (), ticket.total_etiqueta or "Total") }}
 {% if nota %}<p class="nota">{{ nota }}</p>{% endif %}
 {% if recuadro %}{{ ui.recuadro(recuadro.icono, recuadro.antes, recuadro.fuerte, recuadro.despues) }}{% endif %}
 {% else %}
@@ -26,7 +26,9 @@
 </ul>
 {% endif %}
 {% endblock %}
-<form method="post" action="{{ accion }}" class="empuja" onsubmit="this.querySelector('button[type=submit]').disabled=true">
+{#- Al enviar se desactivan también «Cambiar» y «Cancelar»: salir mientras el TPV o Mercado Pago
+    responden haría creer que no pasó nada y una segunda vuelta usaría OTRA llave (Codex). -#}
+<form method="post" action="{{ accion }}" class="empuja" onsubmit="this.querySelector('button[type=submit]').disabled=true; document.body.classList.add('enviando'); document.querySelectorAll('[data-salir], [data-salir-envoltura] a').forEach(function (a) { a.setAttribute('aria-disabled', 'true'); a.tabIndex = -1; a.removeAttribute('href'); })">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   {% for nombre, valor in campos.items() %}
     {% if valor is string %}
@@ -35,7 +37,7 @@
       {% for v in valor %}<input type="hidden" name="{{ nombre }}" value="{{ v }}">{% endfor %}
     {% endif %}
   {% endfor %}
-  <button type="submit"{% if peligro %} class="peligro"{% endif %}>{{ boton }}</button>
+  <button type="submit" class="{{ 'peligro' if peligro }}{{ ' largo' if boton|length > 18 }}">{{ boton }}</button>
 </form>
-{% if cancelar %}<a class="boton secundario" href="{{ cancelar }}">Cancelar</a>{% endif %}
+{% if cancelar %}<a class="boton secundario" href="{{ cancelar }}" data-salir>Cancelar</a>{% endif %}
 {% endblock %}

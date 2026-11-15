@@ -517,7 +517,7 @@ def test_seguir_pidiendo_conserva_dia_y_cantidades(hijo, c):
     t = c.get(volver).text
     assert re.search(r'name="cant_10"[^>]*value="2"', t) and re.search(r'name="cant_12"[^>]*value="1"', t)
     assert re.search(f'value="{MANANA}"[^>]*checked', t)
-    assert f'<a class="boton secundario" href="/hijos/{hijo["id"]}">Cancelar</a>' in r.text
+    assert f'<a class="boton secundario" href="/hijos/{hijo["id"]}" data-salir>Cancelar</a>' in r.text
 
 
 def test_pedir_ignora_cantidades_raras_en_la_url(hijo, c):
