@@ -7,6 +7,7 @@ import re
 import uuid
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response
 from sqlalchemy import or_, select
@@ -18,7 +19,7 @@ from portal.formato import ESTADOS_PEDIDO, dinero, fecha as fmt_fecha
 from portal.models import Bitacora, Operador, Sesion, Tutor
 from portal.reglas import (
     Reglas, ahora_fresca, ahora_local, ahora_utc, cargar_reglas, fechas_disponibles,
-    motivo_fecha_invalida, puede_cancelar)
+    motivo_fecha_invalida, motivos_sin_servicio, puede_cancelar, semanas_para_pedir)
 from portal.sesiones import exigir_csrf, operador_actual, tutor_listo
 from portal.tutor_tpv import (
     LLAVE, MSG_SIN_MENU, MSG_SIN_PEDIDOS, MSG_SIN_TPV, SIN_CACHE, SinTPV, con_aviso,
@@ -131,7 +132,8 @@ def _pagina_pedir(request, sesion, tutor, operador, db, hijo, ahora, fecha_txt, 
     ctx = {"tutor": tutor, "csrf": sesion.csrf, "hijo": hijo, "alumno_id": hijo["id"],
            "fechas": fechas_disponibles(reglas, ahora), "fecha": None, "grupos": [],
            "cantidades": cantidades or {}, "total": Decimal(0), "error": error,
-           "error_tpv": None}
+           "error_tpv": None,
+           "semanas": semanas_para_pedir(reglas, ahora, motivos_sin_servicio(db, operador.id))}
     if ctx["fechas"]:
         pedida = _fecha(fecha_txt)
         if fecha_txt and pedida is None:
@@ -143,6 +145,9 @@ def _pagina_pedir(request, sesion, tutor, operador, db, hijo, ahora, fecha_txt, 
             else:
                 ctx["fecha"] = pedida
         ctx["fecha"] = ctx["fecha"] or ctx["fechas"][0]
+        # La semana que se abre es la del día elegido.
+        ctx["semana_actual"] = next((i for i, sem in enumerate(ctx["semanas"])
+                                     if any(d.fecha == ctx["fecha"] for d in sem.dias)), 0)
         try:
             menu = tutor_tpv.menu(request, operador, cacheado=True)
         except SinTPV:
@@ -166,7 +171,15 @@ def pedir(alumno_id: int, request: Request, fecha: str | None = Query(None, max_
     except SinTPV:
         return _pagina(request, "tutor/resultado.html", {
             "titulo": "Pedir", "mensaje": MSG_SIN_TPV, "volver": "/", "detalles": [], "error": True})
-    return _pagina_pedir(request, sesion, tutor, operador, db, hijo, ahora, fecha)
+    # «Seguir pidiendo» regresa con lo que ya se había elegido (cant_{id} en la URL).
+    return _pagina_pedir(request, sesion, tutor, operador, db, hijo, ahora, fecha,
+                         _cantidades_tolerantes(request.query_params))
+
+
+def _url_pedir(alumno_id: int, dia: date, items) -> str:
+    """Regreso a armar el pedido con el día y las cantidades que ya se habían elegido."""
+    return (f"/hijos/{alumno_id}/pedir?"
+            + urlencode([("fecha", dia.isoformat())] + [(f"cant_{pid}", n) for pid, n in items]))
 
 
 @router.post("/hijos/{alumno_id}/pedir/total")
@@ -227,7 +240,10 @@ def revisar(alumno_id: int, request: Request, csrf: str = Form(""), fecha: str =
         "accion": f"/hijos/{alumno_id}/pedir/confirmar",
         "campos": {"fecha": dia.isoformat(), "producto_id": [str(p["id"]) for p, _ in en_menu],
                    "cantidad": [str(n) for _, n in en_menu], "llave": uuid.uuid4().hex},
-        "boton": "Confirmar pedido", "volver": f"{volver}?fecha={dia.isoformat()}",
+        "boton": "Confirmar pedido", "volver": _url_pedir(alumno_id, dia, items),
+        "volver_texto": "Seguir pidiendo", "cancelar": f"/hijos/{alumno_id}",
+        "titulo_fino": "Revisa el", "titulo_fuerte": "pedido",
+        "renglones": [(f"{n} × {p['nombre']}", dinero(p["precio"] * n)) for p, n in en_menu],
         "csrf": sesion.csrf, "para": hijo["nombre"], "dia": dia, "total": total,
         "disponible": disponible,
         "aviso": None if alcanza else f"No te alcanza el saldo de {hijo['nombre']} para este pedido."})
@@ -304,8 +320,17 @@ def confirmar(alumno_id: int, request: Request, csrf: str = Form(""), fecha: str
         # Reenvío de un pedido que ya cambió (cancelado, entregado…): la idempotencia lo devuelve tal cual.
         titulo = "Este pedido ya se había hecho"
         mensaje = f"Estado actual: {ESTADOS_PEDIDO.get(estado, 'desconocido')}."
+    lineas = pedido.get("lineas") if isinstance(pedido.get("lineas"), list) else []
+    ticket = {
+        "encabezado": f"PEDIDO {pedido['nombre']} · {fmt_fecha(pedido.get('fecha_entrega') or dia)}",
+        "lineas": [f"{_cantidad(l)} × {l.get('producto') or 'Producto'}"
+                   for l in lineas if isinstance(l, dict)],
+        "total": dinero(pedido["total"]) if "total" in pedido else None}
     return _pagina(request, "tutor/resultado.html", {
-        "titulo": titulo, "mensaje": mensaje, "detalles": detalles,
+        "titulo": titulo, "mensaje": mensaje, "ticket": ticket,
+        # Lo que no cabe en el ticket (el disponible después del pedido) va debajo.
+        "detalles": [d for d in detalles if d.startswith("Disponible")],
+        **({"titulo_fino": "Pedido", "titulo_fuerte": "listo"} if estado == "retenida" else {}),
         "volver": f"/hijos/{alumno_id}", "error": estado != "retenida"})
 
 
@@ -317,7 +342,11 @@ def _contexto_confirmar(alumno_id, sesion, hijo, dia, items, menu, llave, aviso)
         "accion": f"/hijos/{alumno_id}/pedir/confirmar",
         "campos": {"fecha": dia.isoformat(), "producto_id": [str(pid) for pid, _ in items],
                    "cantidad": [str(n) for _, n in items], "llave": llave},
-        "boton": "Confirmar pedido", "volver": f"/hijos/{alumno_id}/pedir?fecha={dia.isoformat()}",
+        # Sin respuesta del TPV el pedido pudo entrar: aquí NO se ofrece «Cancelar» (no cancelaría
+        # nada) ni «Seguir pidiendo» (otra llave = otro pedido). Sólo reintentar con la MISMA llave
+        # o ir a ver los pedidos del hijo. Hallazgo de Codex.
+        "boton": "Confirmar pedido", "volver": f"/hijos/{alumno_id}", "volver_texto": "Ver pedidos",
+        "titulo_fino": "Confirma el", "titulo_fuerte": "pedido", "subtitulo": f"de {hijo['nombre']}",
         "csrf": sesion.csrf, "aviso": aviso}
 
 
@@ -366,9 +395,17 @@ def _contexto_cancelar(alumno_id, sesion, hijo, pedido, llave, aviso=None) -> di
     lineas += [f"{_cantidad(l)} × {l.get('producto') or 'Producto'}" for l in pedido["lineas"]]
     if "total" in pedido:
         lineas.append(f"Total: {dinero(pedido['total'])}")
-    lineas.append(f"Al cancelar, ese dinero vuelve al saldo disponible de {hijo['nombre']}.")
+    nota = f"Al cancelar, ese dinero vuelve al saldo disponible de {hijo['nombre']}."
+    lineas.append(nota)
+    ticket = {
+        "encabezado": f"PEDIDO {pedido.get('nombre') or pedido['id']} · {hijo['nombre'].upper()}",
+        "lineas": [fmt_fecha(pedido["fecha_entrega"])]
+                  + [f"{_cantidad(l)} × {l.get('producto') or 'Producto'}" for l in pedido["lineas"]],
+        "total": dinero(pedido["total"]) if "total" in pedido else None}
     return {
         "titulo": f"Cancelar el pedido de {hijo['nombre']}", "lineas": lineas, "aviso": aviso,
+        "titulo_fino": "Cancelar el", "titulo_fuerte": "pedido", "ticket": ticket, "nota": nota,
+        "peligro": True,
         "accion": f"/hijos/{alumno_id}/pedidos/{pedido['id']}/cancelar", "csrf": sesion.csrf,
         "campos": {"llave": llave, "folio": str(pedido.get("nombre") or "")}, "boton": "Cancelar pedido",
         "volver": f"/hijos/{alumno_id}"}

@@ -328,6 +328,107 @@ details.plegable {
 .circulo .icono { width: 30px; height: 30px; }
 .circulo.error { background: #fff; color: var(--rojo); border-color: var(--rojo); }
 
+/* ---------------------------------------------------------------- pedido (5g, 5t) */
+[hidden] { display: none !important; }
+.titulo.mediano { font-size: 40px; }
+.pedido { gap: 12px; }
+.vista-categorias, .panel { display: flex; flex-direction: column; gap: 12px; }
+.pedido[data-vista="productos"] .vista-categorias { display: none; }
+.semanas { display: flex; flex-direction: column; gap: 12px; }
+.semana { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.semana-nav { display: flex; align-items: center; gap: 10px; width: 100%; padding: 0; }
+.semana-texto { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.semana-etiqueta {
+  font: 800 22px/1.1 var(--display); font-stretch: 60%; text-transform: uppercase; white-space: nowrap;
+}
+button.paso-semana {
+  display: none; width: var(--toque); min-height: var(--toque); padding: 0; flex: none;
+  border: var(--trazo) solid var(--cafe); border-radius: 12px; background: #fff; color: var(--cafe);
+}
+.js button.paso-semana { display: flex; }
+button.paso-semana:hover { background: var(--crema); color: var(--cafe); }
+button.paso-semana:disabled { opacity: .3; }
+.paso-semana .icono { width: 24px; height: 24px; }
+.dias { grid-template-columns: repeat(var(--n, 5), minmax(0, 1fr)); }
+label.dia {
+  position: relative; min-height: 64px; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 1px; cursor: pointer; text-align: center;
+}
+.dia input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: inherit; }
+.dia-nombre { font: 800 min(22px, calc(110px / var(--n, 5)))/1 var(--display); font-stretch: 60%; }
+.dia-fecha { font-size: 12px; font-weight: 600; }
+label.dia:has(input:checked) { background: var(--cafe); color: #fff; }
+label.dia:has(input:disabled) { background: var(--apagado); color: #a8978a; cursor: default; }
+label.dia:has(input:focus-visible) { outline: 3px solid var(--cobre); outline-offset: -3px; }
+a.categoria {
+  display: flex; align-items: center; gap: 12px; min-height: 68px; padding: 10px 12px 10px 16px;
+  color: var(--cafe); text-decoration: none;
+}
+a.categoria:hover { background: var(--crema); text-decoration: none; }
+a.categoria > .icono { width: 24px; height: 24px; color: var(--cobre-osc); }
+.insignia {
+  height: 28px; padding: 0 10px; border-radius: 999px; background: var(--cobre); flex: none;
+  display: flex; align-items: center; font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.panel { gap: 6px; scroll-margin-top: 16px; }
+.panel .volver { margin-bottom: -4px; }
+.producto {
+  display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 2px dotted var(--linea);
+}
+.producto-datos { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.producto-nombre {
+  font: 800 22px/1.2 var(--display); font-stretch: 60%; text-transform: uppercase;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.producto-precio { font-size: 13px; font-weight: 700; color: var(--cobre-osc); }
+.cantidad { display: flex; align-items: center; gap: 6px; flex: none; }
+.cantidad input {
+  width: 1.3em; padding: 0; border: 0; background: transparent; text-align: center; -moz-appearance: textfield;
+  font: 800 28px/1 var(--display); font-stretch: 60%; color: var(--cafe);
+}
+.cantidad input.cero { color: var(--texto-3); }
+.cantidad input::-webkit-outer-spin-button, .cantidad input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+button.paso {
+  display: none; width: var(--toque); min-height: var(--toque); padding: 0; border-radius: 12px;
+  border: var(--trazo) solid var(--cafe); background: #fff; color: var(--cafe);
+}
+.js button.paso { display: flex; }
+button.paso.mas { background: var(--cafe); color: #fff; }
+button.paso:hover { background: var(--crema); color: var(--cafe); }
+button.paso.mas:hover { background: #2b1a12; color: #fff; }
+.paso .icono { width: 22px; height: 22px; }
+
+/* ---------------------------------------------------------------- barra inferior (pedido, recarga, transferencia) */
+.barra {
+  position: sticky; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 2; margin: 8px -8px 0;
+  background: var(--cafe); color: #fff; border-radius: 22px; padding: 14px;
+  display: flex; flex-direction: column; gap: 12px; box-shadow: 0 -6px 20px rgba(59, 32, 21, .12);
+}
+.barra-total { display: flex; align-items: baseline; gap: 10px; padding: 0 6px; flex-wrap: wrap; }
+.barra-cifra { font: 800 38px/1 var(--display); font-stretch: 55%; }
+.barra-info { font-size: 12px; color: #e6d3c0; }
+.barra-botones { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
+.barra .boton.barra-cancelar {
+  min-height: 52px; border: var(--trazo) solid #e6d3c0; border-radius: 14px; background: transparent;
+  color: #fff; font-size: 21px;
+}
+.barra .boton.barra-cancelar:hover { background: rgba(255, 255, 255, .08); }
+.barra button.barra-listo {
+  min-height: 52px; border-radius: 14px; background: var(--cobre); color: var(--cafe);
+  font-size: 23px; font-weight: 800; gap: 6px;
+}
+.barra button.barra-listo:hover { background: var(--cobre-claro); color: var(--cafe); }
+.barra-listo .icono { width: 22px; height: 22px; }
+
+/* ---------------------------------------------------------------- ticket con puntos guía */
+.ticket.mono { font: 13px/1.45 var(--mono); }
+.ticket-encabezado { font-weight: 700; }
+.guia { display: flex; align-items: baseline; gap: 6px; }
+.guia .puntos { flex: 1; border-bottom: 2px dotted var(--linea); }
+.guia.fuerte { font-weight: 700; }
+button.peligro { background: var(--rojo); }
+button.peligro:hover { background: #991b1b; }
+
 /* ================================================================ PROVISIONAL
    Reglas del diseño anterior para las pantallas que aún no pasan a «La Charola». Se borran
    al terminar el rediseño. */
@@ -344,14 +445,6 @@ form > label input:not([type=hidden]), form > label select, fieldset input { fon
 .alerta { background: #fde2e2; padding: .4rem .6rem; border-radius: .4rem; margin: .3rem 0; }
 .movimiento { display: flex; justify-content: space-between; gap: 1rem; padding: .6rem 0; border-bottom: 1px solid #e5e5e0; }
 .movimiento .importe { text-align: right; display: grid; }
-.dias { display: flex; flex-wrap: wrap; gap: .4rem; margin: .8rem 0; }
-.dias a { padding: .4rem .7rem; border-radius: 1rem; background: #e5e7eb; color: #222; text-decoration: none; font-size: .9rem; }
-.dias a.activo { background: var(--cafe); color: #fff; }
-.producto { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .6rem 0; border-bottom: 1px solid #e5e5e0; }
-.cantidad { display: flex; align-items: center; gap: .3rem; }
-.cantidad input { width: 3.5rem; text-align: center; }
-.paso { display: none; }
-.js .paso { display: inline-flex; min-width: 2.5rem; }
 .resumen { padding-left: 1.2rem; }
 p.listo:not(.aviso) { background: #dcfce7; padding: .6rem .8rem; border-radius: .4rem; }
 table { border-collapse: collapse; width: 100%; font-size: 14px; }

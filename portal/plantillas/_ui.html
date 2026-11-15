@@ -43,6 +43,22 @@
 </header>
 {%- endmacro %}
 
+{#- Ticket: encabezado, renglones y total con puntos guía. `renglones` son (texto, importe). -#}
+{% macro ticket(encabezado=none, lineas=(), total=none, renglones=()) -%}
+<div class="ticket mono">
+  {% if encabezado %}<span class="ticket-encabezado">{{ encabezado }}</span>{% endif %}
+  {% for l in lineas %}<span>{{ l }}</span>{% endfor %}
+  {% for texto, importe in renglones %}<span class="guia"><span>{{ texto }}</span><span class="puntos"></span><span>{{ importe }}</span></span>{% endfor %}
+  {% if total %}<span class="guia fuerte"><span>Total</span><span class="puntos"></span><span>{{ total }}</span></span>{% endif %}
+</div>
+{%- endmacro %}
+
+{#- Cifra grande ($ 186 .50) con el importe completo para lectores de pantalla. -#}
+{% macro cifra(valor) -%}
+{%- set signo, entero, centavos = valor | dinero_partes -%}
+<p class="cifra"><span aria-hidden="true"><span class="signo">{{ signo }}</span>{{ entero }}<span class="centavos">{{ centavos }}</span></span><span class="solo-lector">{{ valor | dinero }}</span></p>
+{%- endmacro %}
+
 {#- Botón SALIR de pie de pantalla. -#}
 {% macro salir(csrf) -%}
 <form method="post" action="/salir" class="empuja">

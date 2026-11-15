@@ -2,7 +2,9 @@
     incluye `llave`), boton, volver, csrf (OBLIGATORIO: el token de la sesión; sin él el POST da 403),
     aviso (opcional).
     Opcionales del diseño: titulo_fino / titulo_fuerte (título en dos tonos; si no, `titulo`),
-    subtitulo, volver_texto («Cambiar»), cancelar (URL: botón CANCELAR bajo el principal). -#}
+    subtitulo, volver_texto («Cambiar»), cancelar (URL: botón CANCELAR bajo el principal),
+    ticket ({encabezado, lineas, total}: en lugar de `lineas`), nota (texto bajo el ticket),
+    peligro (botón principal en rojo). -#}
 {% extends "base.html" %}
 {% import "_ui.html" as ui with context %}
 {% block titulo %}{{ titulo }}{% endblock %}
@@ -13,9 +15,14 @@
 {% if subtitulo %}<p class="subtitulo">{{ subtitulo }}</p>{% endif %}
 {% if aviso %}{{ ui.aviso(aviso, "error", "alert") }}{% endif %}
 {% block resumen %}
+{% if ticket %}
+{{ ui.ticket(ticket.encabezado, ticket.lineas, ticket.total) }}
+{% if nota %}<p class="nota">{{ nota }}</p>{% endif %}
+{% else %}
 <ul class="ticket">
   {% for l in lineas %}<li>{{ l }}</li>{% endfor %}
 </ul>
+{% endif %}
 {% endblock %}
 <form method="post" action="{{ accion }}" class="empuja" onsubmit="this.querySelector('button[type=submit]').disabled=true">
   <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -26,7 +33,7 @@
       {% for v in valor %}<input type="hidden" name="{{ nombre }}" value="{{ v }}">{% endfor %}
     {% endif %}
   {% endfor %}
-  <button type="submit">{{ boton }}</button>
+  <button type="submit"{% if peligro %} class="peligro"{% endif %}>{{ boton }}</button>
 </form>
 {% if cancelar %}<a class="boton secundario" href="{{ cancelar }}">Cancelar</a>{% endif %}
 {% endblock %}

@@ -1,5 +1,6 @@
 {#- Contexto: titulo, mensaje, volver, detalles (list[str]), error.
-    Opcionales: titulo_fino / titulo_fuerte (título en dos tonos), total (texto del total). -#}
+    Opcionales: titulo_fino / titulo_fuerte (título en dos tonos), ticket ({encabezado, lineas,
+    total}). -#}
 {% extends "base.html" %}
 {% import "_ui.html" as ui with context %}
 {% block titulo %}{{ titulo }}{% endblock %}
@@ -9,6 +10,8 @@
 {% else %}<h1 class="titulo"><strong>{{ titulo }}</strong></h1>{% endif %}
 {% if error %}{{ ui.aviso(mensaje, "error", "alert") }}
 {% else %}<p class="aviso listo" role="status">{{ mensaje }}</p>{% endif %}
-{% if detalles %}<ul class="ticket">{% for d in detalles %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+{% if ticket %}{{ ui.ticket(ticket.encabezado, ticket.lineas, ticket.total) }}{% endif %}
+{% if detalles and ticket %}{% for d in detalles %}<p class="nota">{{ d }}</p>{% endfor %}
+{% elif detalles %}<ul class="ticket">{% for d in detalles %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
 <a class="boton empuja" href="{{ volver }}">Volver</a>
 {% endblock %}

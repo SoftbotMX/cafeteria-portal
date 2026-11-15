@@ -9,8 +9,7 @@
   {% set nombres = hijo | nombres_de %}
   {{ ui.titulo(nombres, hijo | apellidos_de, tam="chico") }}
   <div>
-    {% set signo, entero, centavos = hijo.disponible | dinero_partes %}
-    <p class="cifra"><span aria-hidden="true"><span class="signo">{{ signo }}</span>{{ entero }}<span class="centavos">{{ centavos }}</span></span><span class="solo-lector">{{ hijo.disponible | dinero }}</span></p>
+    {{ ui.cifra(hijo.disponible) }}
     <span class="chico">disponible · <b>{{ hijo.retenido | dinero }}</b> apartado</span>
   </div>
   <div class="par">

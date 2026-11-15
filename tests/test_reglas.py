@@ -96,3 +96,36 @@ def test_hora_ingenua_se_rechaza():
 def test_ahora_utc_es_aware():
     from portal.reglas import ahora_utc
     assert ahora_utc().utcoffset().total_seconds() == 0
+
+
+# ------------------------------------------------------------- semanas para elegir el día (5g)
+from portal.reglas import semanas_para_pedir  # noqa: E402
+
+
+def test_semanas_lunes_a_viernes_con_motivos():
+    # Miércoles 21 a las 10:00 (pasó la hora límite de las 9), 14 días de anticipación.
+    s = semanas_para_pedir(reglas(sin_servicio=frozenset({date(2026, 10, 23)})),
+                           utc(2026, 10, 21, 16, 0), {date(2026, 10, 23): "Consejo técnico"})
+    assert [x.inicio for x in s] == [date(2026, 10, 19), date(2026, 10, 26), date(2026, 11, 2)]
+    assert s[0].actual and not s[1].actual
+    assert all(len(x.dias) == 5 for x in s)  # sin sábado ni domingo: no hay servicio
+    lun, mar, mie, jue, vie = s[0].dias
+    assert lun.motivo == mar.motivo == "Esa fecha ya pasó."
+    assert mie.hoy and mie.corto == "HOY" and "hora límite" in mie.motivo
+    assert jue.motivo is None and jue.corto == "JUE" and jue.dia_mes == "22 oct"
+    assert vie.motivo == "Sin servicio: Consejo técnico"
+    assert s[2].dias[-1].motivo.startswith("Sólo se puede pedir")  # vie 6 nov > 21 + 14
+    assert s[0].etiqueta == "del 19 al 23 oct" and s[1].etiqueta == "del 26 al 30 oct"
+
+
+def test_semanas_con_sabado_y_cambio_de_mes():
+    s = semanas_para_pedir(reglas(dias_servicio=frozenset(range(6)), anticipacion=10),
+                           utc(2026, 10, 28, 12, 0))
+    assert [d.corto for d in s[0].dias][-1] == "SÁB" and len(s[0].dias) == 6
+    assert s[1].etiqueta == "del 2 al 7 nov" and s[0].etiqueta == "del 26 al 31 oct"
+
+
+def test_semana_sin_dias_disponibles_no_se_ofrece():
+    # Sábado sin servicio: la semana de hoy no tiene ningún día que pedir.
+    s = semanas_para_pedir(reglas(), utc(2026, 10, 24, 16, 0))
+    assert s[0].inicio == date(2026, 10, 26) and not s[0].actual
