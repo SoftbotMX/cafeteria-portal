@@ -48,8 +48,8 @@ def test_tarjeta_con_botones_pedir_y_detalle(tutor, tpv, c):
     _entrar(c)
     r = c.get("/")
     for h in (h1, h2):
-        assert f'<a class="boton" href="/hijos/{h["id"]}/pedir">Pedir</a>' in r.text
-        assert f'<a class="boton secundario" href="/hijos/{h["id"]}">Ver detalle</a>' in r.text
+        assert f'<a class="boton compacto" href="/hijos/{h["id"]}/pedir">Pedir</a>' in r.text
+        assert f'<a class="boton compacto secundario" href="/hijos/{h["id"]}">Ver detalle</a>' in r.text
     # El nombre ya no es el enlace: los botones son la forma de entrar.
     assert f'<a href="/hijos/{h1["id"]}"><strong>' not in r.text
 
@@ -85,6 +85,10 @@ def test_movimientos_caidos_no_tumban_la_ficha(tutor, tpv, c):
     tpv.fallar_en = {"alumno/movimientos"}
     r = c.get(f"/hijos/{h['id']}")
     assert r.status_code == 200 and "$150.00" in r.text and MSG_SIN_TPV in r.text
+    # la tarjeta de movimientos se abre sola y no dice «Sin movimientos» (hallazgo de Codex)
+    tarjeta_movs = r.text[r.text.rindex("<details", 0, r.text.index("Movimientos")):]
+    assert tarjeta_movs.startswith('<details class="plegable" open>')
+    assert "Sin movimientos" not in r.text and "No se pudieron consultar" in r.text
     r = c.get(f"/hijos/{h['id']}/movimientos?pagina=2")
     assert r.status_code == 200 and MSG_SIN_TPV in r.text
 
@@ -127,11 +131,11 @@ def test_movimientos_paginados(tutor, tpv, c):
          "disponible": 1, "retenido": 0, "venta": ""} for i in range(45)]
     _entrar(c)
     p1 = c.get(f"/hijos/{h['id']}").text
-    assert p1.count('class="movimiento"') == 20 and "Ver más" in p1
+    assert p1.count('class="renglon movimiento-r"') == 20 and "Ver más" in p1
     p2 = c.get(f"/hijos/{h['id']}/movimientos?pagina=2").text
-    assert p2.count('class="movimiento"') == 20 and "Ver más" in p2
+    assert p2.count('class="renglon movimiento-r"') == 20 and "Ver más" in p2
     p3 = c.get(f"/hijos/{h['id']}/movimientos?pagina=3").text
-    assert p3.count('class="movimiento"') == 5 and "Ver más" not in p3
+    assert p3.count('class="renglon movimiento-r"') == 5 and "Ver más" not in p3
     assert c.get(f"/hijos/{h['id']}/movimientos?pagina=0").status_code == 422
 
 
@@ -233,7 +237,7 @@ def test_ver_mas_es_enlace_y_la_pagina_completa_acepta_pagina(tutor, tpv, c):
     assert f'href="/hijos/{h["id"]}?pagina=2"' in p1 and "hx-get" in p1
     p2 = c.get(f"/hijos/{h['id']}?pagina=2")
     assert p2.status_code == 200 and "Luis Pérez" in p2.text
-    assert p2.text.count('class="movimiento"') >= 20 and f'?pagina=3"' in p2.text
+    assert p2.text.count('class="renglon movimiento-r"') >= 20 and f'?pagina=3"' in p2.text
     assert c.get(f"/hijos/{h['id']}?pagina=0").status_code == 422
 
 

@@ -131,6 +131,9 @@ class Cambio:
     cuerpo: dict                         # al TPV, sin `llave` ni `tutor_ref`
     objetivo: bool
     leer: Callable[[dict], bool | None]  # estado actual dentro de una ficha de alumno
+    titulo_fino: str = ""                # título en dos tonos de la confirmación (5q)
+    titulo_fuerte: str = ""
+    subtitulo: str = ""
 
 
 def _pagina_tutor(request, plantilla, ctx, status=200):
@@ -147,7 +150,8 @@ def _confirmacion(request, sesion, c: Cambio, llave: str, aviso=None, boton=None
     return _pagina_tutor(request, "tutor/confirmar.html", {
         "titulo": c.titulo, "lineas": [c.texto], "aviso": aviso, "accion": c.accion,
         "csrf": sesion.csrf, "campos": {**c.campos, "llave": llave}, "boton": boton or c.boton,
-        "volver": c.volver})
+        "volver": c.volver, "titulo_fino": c.titulo_fino, "titulo_fuerte": c.titulo_fuerte,
+        "subtitulo": c.subtitulo})
 
 
 def _ver_cambio(request, sesion, c: Cambio, hijo: dict, volver: str):
@@ -190,7 +194,7 @@ def _hacer_cambio(request, sesion, tutor, operador, db, c: Cambio, hijo: dict, l
         if actual is not c.objetivo:
             return _resultado(request, c.titulo_listo,
                               "Tu cambio se registró, pero la ficha de "
-                              f"{hijo['nombre']} ya no está así: puede que otro tutor lo haya cambiado. "
+                              f"{hijo['nombre']} ya no está así: puede que el otro padre de familia lo haya cambiado. "
                               "Revísala.", volver)
     if ya_esta and not entro:
         return _resultado(request, c.titulo_listo, f"Ya estaba así: {c.texto}", volver)
@@ -224,7 +228,8 @@ def _cambio_permiso(hijo: dict, valor: str) -> Cambio:
         volver=f"/hijos/{hijo['id']}",
         boton="Confirmar", texto=texto, titulo_listo="Permiso actualizado",
         cuerpo={"alumno_id": hijo["id"], "compra_sin_pedido": nuevo},
-        objetivo=nuevo, leer=_leer_permiso)
+        objetivo=nuevo, leer=_leer_permiso,
+        titulo_fino="Compras", titulo_fuerte="sin pedido", subtitulo=f"de {nombre}")
 
 
 def _hijo_para_cambio(request, operador, tutor, alumno_id, volver, titulo):
@@ -299,7 +304,8 @@ def _cambio_credencial(hijo: dict, cred: dict, accion: str) -> Cambio:
                else f"Se podrá volver a pagar con {esta}."),
         titulo_listo=f"{etiqueta} {'bloqueada' if bloquear else 'desbloqueada'}",
         cuerpo={"credencial_id": cred_id}, objetivo=bloquear,
-        leer=leer)
+        leer=leer, titulo_fino="Bloquear" if bloquear else "Desbloquear", titulo_fuerte=etiqueta,
+        subtitulo=f"de {hijo['nombre']}")
 
 
 def _credencial_del_hijo(hijo: dict, cred_id: int) -> dict:

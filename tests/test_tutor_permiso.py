@@ -232,7 +232,7 @@ def test_repetir_cuando_ya_se_cambio_otra_vez_no_miente(hijo, c, tpv):
     assert NO_TXT in c.post(_url(hijo), data=o).text
     tpv.alumnos[hijo["id"]]["compra_sin_pedido"] = True  # el otro tutor lo volvió a permitir
     t = c.post(_url(hijo), data=o).text  # doble toque tardío con la llave vieja
-    assert "otro tutor lo haya cambiado" in t and NO_TXT not in t
+    assert "el otro padre de familia lo haya cambiado" in t and NO_TXT not in t
     assert tpv.alumnos[hijo["id"]]["compra_sin_pedido"] is True  # el TPV no lo deshizo
 
 
@@ -249,5 +249,5 @@ def test_reintento_tras_respuesta_perdida_y_cambio_ajeno_no_miente(hijo, c, tpv)
     tpv._permiso = buena
     tpv.alumnos[hijo["id"]]["compra_sin_pedido"] = True  # otro tutor lo revirtió
     t = c.post(_url(hijo), data=_ocultos(r)).text
-    assert "otro tutor lo haya cambiado" in t and NO_TXT not in t
+    assert "el otro padre de familia lo haya cambiado" in t and NO_TXT not in t
     assert tpv.alumnos[hijo["id"]]["compra_sin_pedido"] is True

@@ -289,7 +289,7 @@ def test_alta_y_primer_ingreso(db, op, admin, tpv, conduit, app):
     r2 = t.post("/cambiar-contrasena", data={"actual": pw, "nueva": "nueva-clave-1",
                                              "confirmar": "nueva-clave-1", "csrf": csrf_de(pag)})
     assert r2.status_code == 303
-    assert "María Pérez" in t.get("/").text
+    assert "<strong>María</strong>" in t.get("/").text  # «hola, MARÍA»
 
 
 def test_alta_reentrega_cierra_sesiones_previas_del_tutor(db, op, admin, tpv, conduit, app):

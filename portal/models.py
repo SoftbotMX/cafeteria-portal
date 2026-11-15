@@ -92,7 +92,12 @@ class Tutor(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     operador_id: Mapped[int] = mapped_column(ForeignKey("operador.id"))
     tutor_ref: Mapped[str] = mapped_column(String(100))
+    # `nombre` es el completo (el que recibe el TPV y sale en avisos); las partes son para el
+    # saludo y los formularios. Se escriben juntos (portal/nombres.py).
     nombre: Mapped[str] = mapped_column(String(200))
+    nombres: Mapped[str | None] = mapped_column(String(100))
+    apellido_1: Mapped[str | None] = mapped_column(String(100))
+    apellido_2: Mapped[str | None] = mapped_column(String(100))
     telefono: Mapped[str | None] = mapped_column(String(20))
     correo: Mapped[str | None] = mapped_column(String(255))
     contrasena_hash: Mapped[str] = mapped_column(String)
@@ -100,6 +105,12 @@ class Tutor(Base):
     activo: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     alta_llave: Mapped[str | None] = mapped_column(String(120))
     creado: Mapped[datetime] = _creado()
+
+    @property
+    def nombre_pila(self) -> str:
+        """Nombre(s) para el saludo («hola, Laura»)."""
+        from portal.nombres import partir
+        return self.nombres or partir(self.nombre)[0]
 
 
 class Sesion(Base):

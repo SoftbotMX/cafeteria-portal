@@ -1,8 +1,14 @@
+{#- Contexto: titulo, mensaje, volver, detalles (list[str]), error.
+    Opcionales: titulo_fino / titulo_fuerte (título en dos tonos), total (texto del total). -#}
 {% extends "base.html" %}
-{% block titulo %}{{ titulo }} · Portal de tutores{% endblock %}
+{% import "_ui.html" as ui with context %}
+{% block titulo %}{{ titulo }}{% endblock %}
 {% block contenido %}
-<h1>{{ titulo }}</h1>
-<p class="{{ 'aviso' if error else 'listo' }}">{{ mensaje }}</p>
-{% if detalles %}<ul class="resumen">{% for d in detalles %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
-<p><a class="boton" href="{{ volver }}">Volver</a></p>
+<div class="circulo{{ ' error' if error }}">{{ icono("error" if error else "check") }}</div>
+{% if titulo_fuerte %}{{ ui.titulo(titulo_fino or "", titulo_fuerte, tam="grande") }}
+{% else %}<h1 class="titulo"><strong>{{ titulo }}</strong></h1>{% endif %}
+{% if error %}{{ ui.aviso(mensaje, "error", "alert") }}
+{% else %}<p class="aviso listo" role="status">{{ mensaje }}</p>{% endif %}
+{% if detalles %}<ul class="ticket">{% for d in detalles %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+<a class="boton empuja" href="{{ volver }}">Volver</a>
 {% endblock %}

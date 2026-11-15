@@ -4,6 +4,8 @@ from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
+from portal.nombres import de_alumno, juntar
+
 ZONA = ZoneInfo("America/Mexico_City")
 DIAS = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
 
@@ -113,7 +115,37 @@ def fecha(d, zona: ZoneInfo | None = None) -> str:
     return f"{DIAS[d.weekday()]} {d.day:02d}/{d.month:02d}/{d.year}"
 
 
+def dinero_partes(x) -> tuple[str, str, str]:
+    """Para la cifra grande: («$», «1,186», «.50»); con signo si es negativo (« -$»)."""
+    c = _cantidad(x)
+    if c is None:
+        return ("", SIN_DATO, "")
+    entero, centavos = f"{abs(c):,.2f}".split(".")
+    return ("-$" if c < 0 else "$", entero, "." + centavos)
+
+
+def nombres_de(alumno) -> str:
+    return de_alumno(alumno)[0] if isinstance(alumno, dict) else ""
+
+
+def apellidos_de(alumno) -> str:
+    if not isinstance(alumno, dict):
+        return ""
+    _, a1, a2 = de_alumno(alumno)
+    return juntar("", a1, a2)
+
+
+def nombre_corto(alumno) -> str:
+    """Nombre(s) y apellido 1 («Sofía Méndez»): el de las tarjetas de inicio."""
+    if not isinstance(alumno, dict):
+        return ""
+    n, a1, _ = de_alumno(alumno)
+    return juntar(n, a1, None) or str(alumno.get("nombre") or "")
+
+
 def registrar(templates) -> None:
     templates.env.filters.update(dinero=dinero, fecha=fecha, cambio=cambio,
-                                 movimiento=etiqueta_movimiento)
+                                 movimiento=etiqueta_movimiento, dinero_partes=dinero_partes,
+                                 nombres_de=nombres_de, apellidos_de=apellidos_de,
+                                 nombre_corto=nombre_corto)
     templates.env.globals.update(estados_pedido=ESTADOS_PEDIDO, tipos_credencial=TIPOS_CREDENCIAL)

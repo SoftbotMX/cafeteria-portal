@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from portal.models import Operador, Tutor
+from portal.nombres import partir
 from portal.tpv import ClienteTPV, ErrorTPV, registrar_escritura
 
 
@@ -43,6 +44,11 @@ def validar_hijo(nombres: str, paterno: str, materno: str, matricula: str) -> "H
             or len(matricula) > 50:
         return MSG_HIJO
     return Hijo(nombres, paterno, materno or None, matricula or None)
+
+
+def _partes(nombre: str) -> dict:
+    n, a1, a2 = partir(nombre)
+    return {"nombres": n[:100] or None, "apellido_1": a1 and a1[:100], "apellido_2": a2 and a2[:100]}
 
 
 class ErrorAlta(Exception):
@@ -128,7 +134,8 @@ def dar_de_alta(db: Session, operador: Operador, cliente: ClienteTPV, actor: str
         except (KeyError, TypeError):
             raise ErrorAlta("El TPV respondió algo inesperado al crear al tutor.") from None
         tutor = Tutor(
-            operador_id=operador.id, tutor_ref=ref, nombre=datos.nombre, telefono=datos.telefono,
+            operador_id=operador.id, tutor_ref=ref, nombre=datos.nombre, **_partes(datos.nombre),
+            telefono=datos.telefono,
             correo=datos.correo, contrasena_hash="!", debe_cambiar=True, alta_llave=datos.llave)
         try:
             # Savepoint: si falla el insert sólo se deshace éste y la fila de bitácora del TPV queda.

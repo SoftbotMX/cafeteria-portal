@@ -59,3 +59,10 @@ def entrar_tutor(client, usuario, contrasena):
     return client.post("/entrar", data={
         "usuario": usuario, "contrasena": contrasena, "csrf": csrf_de(pagina),
     })
+
+
+def texto(html: str) -> str:
+    """Lo que se lee en la página: sin etiquetas y con los espacios juntos (el diseño parte
+    nombres y cifras en varios <span>)."""
+    import re
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", html))

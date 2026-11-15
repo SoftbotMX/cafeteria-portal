@@ -1,17 +1,23 @@
 {#- Contexto: titulo, lineas (list[str]), accion (URL del POST), campos (dict nombre -> str | list[str];
     incluye `llave`), boton, volver, csrf (OBLIGATORIO: el token de la sesión; sin él el POST da 403),
-    aviso (opcional). Lo usan Tasks 3–7. -#}
+    aviso (opcional).
+    Opcionales del diseño: titulo_fino / titulo_fuerte (título en dos tonos; si no, `titulo`),
+    subtitulo, volver_texto («Cambiar»), cancelar (URL: botón CANCELAR bajo el principal). -#}
 {% extends "base.html" %}
-{% block titulo %}{{ titulo }} · Portal de tutores{% endblock %}
+{% import "_ui.html" as ui with context %}
+{% block titulo %}{{ titulo }}{% endblock %}
 {% block contenido %}
-<h1>{{ titulo }}</h1>
-{% if aviso %}<p class="aviso">{{ aviso }}</p>{% endif %}
+{{ ui.volver(volver, volver_texto or "Cambiar") }}
+{% if titulo_fuerte %}{{ ui.titulo(titulo_fino or "", titulo_fuerte) }}
+{% else %}<h1 class="titulo chico"><strong>{{ titulo }}</strong></h1>{% endif %}
+{% if subtitulo %}<p class="subtitulo">{{ subtitulo }}</p>{% endif %}
+{% if aviso %}{{ ui.aviso(aviso, "error", "alert") }}{% endif %}
 {% block resumen %}
-<ul class="resumen">
+<ul class="ticket">
   {% for l in lineas %}<li>{{ l }}</li>{% endfor %}
 </ul>
 {% endblock %}
-<form method="post" action="{{ accion }}" onsubmit="this.querySelector('button[type=submit]').disabled=true">
+<form method="post" action="{{ accion }}" class="empuja" onsubmit="this.querySelector('button[type=submit]').disabled=true">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   {% for nombre, valor in campos.items() %}
     {% if valor is string %}
@@ -22,5 +28,5 @@
   {% endfor %}
   <button type="submit">{{ boton }}</button>
 </form>
-<p><a href="{{ volver }}">&larr; Cambiar</a></p>
+{% if cancelar %}<a class="boton secundario" href="{{ cancelar }}">Cancelar</a>{% endif %}
 {% endblock %}

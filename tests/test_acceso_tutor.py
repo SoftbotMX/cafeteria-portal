@@ -27,7 +27,7 @@ def test_entrar_con_telefono_formateado(db, op, c):
     crear_tutor(db, op, debe_cambiar=False)
     r = entrar_tutor(c, "(834) 144-5807", "temporal123")
     assert r.status_code == 303 and r.headers["location"] == "/"
-    assert "Ana López" in c.get("/").text
+    assert "<strong>Ana</strong>" in c.get("/").text  # «hola, ANA»: sólo el nombre
 
 
 def test_entrar_con_correo_en_mayusculas(db, op, c):

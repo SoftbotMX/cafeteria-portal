@@ -27,6 +27,30 @@
 {% endif %}
 {%- endmacro %}
 
+{#- Encabezado de inicio: logo y nombre de la cafetería, «hola, LAURA» y salir. -#}
+{% macro saludo(nombre, csrf) -%}
+{%- set c = request.state.cafeteria if request.state.cafeteria is defined else none -%}
+<header class="saludo">
+  {% if c and c.logo_version %}<img class="saludo-logo" src="/logo?v={{ c.logo_version }}" alt="" width="48" height="48">{% endif %}
+  <div class="saludo-texto">
+    {% if c %}<span class="chico">{{ c.nombre }}</span>{% endif %}
+    {{ titulo("Hola,", nombre) }}
+  </div>
+  <form method="post" action="/salir">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="solo-icono" aria-label="Salir" title="Salir">{{ icono("logout") }}</button>
+  </form>
+</header>
+{%- endmacro %}
+
+{#- Botón SALIR de pie de pantalla. -#}
+{% macro salir(csrf) -%}
+<form method="post" action="/salir" class="empuja">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit" class="secundario">Salir</button>
+</form>
+{%- endmacro %}
+
 {#- «Funciona con Cafetería by Softbot»: la marca de Softbot va sólo aquí. -#}
 {% macro funciona_con(legales=true) -%}
 <footer class="funciona">
