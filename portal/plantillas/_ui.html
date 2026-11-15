@@ -1,0 +1,36 @@
+{#- Piezas de «La Charola» que se repiten. Uso: {% import "_ui.html" as ui %} -#}
+
+{#- Título en dos tonos: «portal de» fino y «PADRES DE FAMILIA» en cobre (las mayúsculas y
+    minúsculas las pone el CSS: el lector de pantalla lee el texto normal). -#}
+{% macro titulo(fino, fuerte, nivel=1, tam="") -%}
+<h{{ nivel }} class="titulo {{ tam }}"><span class="fino">{{ fino }} </span><strong>{{ fuerte }}</strong></h{{ nivel }}>
+{%- endmacro %}
+
+{% macro volver(href, texto) -%}
+<a class="volver" href="{{ href }}">{{ icono("arrow_back") }}<span>{{ texto }}</span></a>
+{%- endmacro %}
+
+{#- Aviso con ícono. tipo: "" (ámbar), "error", "listo". -#}
+{% macro aviso(texto, tipo="", rol="status") -%}
+{% set ic = {"error": "error", "listo": "check"}.get(tipo, "info") %}
+<p class="aviso {{ tipo }}" role="{{ rol }}">{{ icono(ic) }}<span>{{ texto }}</span></p>
+{%- endmacro %}
+
+{#- Logo y nombre de la cafetería de esta instalación (configurable por la administración). -#}
+{% macro marca() -%}
+{%- set c = request.state.cafeteria if request.state.cafeteria is defined else none -%}
+{% if c %}
+<div class="marca">
+  {% if c.logo_version %}<img class="marca-logo" src="/logo?v={{ c.logo_version }}" alt="Logo de {{ c.nombre }}" width="148" height="148">{% endif %}
+  <span class="marca-nombre">{{ c.nombre }}</span>
+</div>
+{% endif %}
+{%- endmacro %}
+
+{#- «Funciona con Cafetería by Softbot»: la marca de Softbot va sólo aquí. -#}
+{% macro funciona_con(legales=true) -%}
+<footer class="funciona">
+  <img src="{{ estatico('marca/cafeteria-softbot.png') }}" alt="" width="52" height="52">
+  <span>Funciona con Cafetería by Softbot{% if legales %}<br><a href="/privacidad">Aviso de privacidad</a> · <a href="/terminos">Condiciones del servicio</a>{% endif %}</span>
+</footer>
+{%- endmacro %}

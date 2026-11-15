@@ -265,7 +265,9 @@ EXENTAS = {"/entrar", "/salir", "/cambiar-contrasena", "/salud", "/openapi.json"
            # Lo llama MercadoPago, sin sesión: no se le cree, se consulta el pago en su API.
            "/mp/aviso",
            # Páginas legales públicas: Meta las revisa sin iniciar sesión; no leen datos.
-           "/privacidad", "/terminos", "/eliminar-datos"}
+           "/privacidad", "/terminos", "/eliminar-datos",
+           # Logo de la cafetería: sale en la pantalla de entrar, antes de la sesión. Es público.
+           "/logo"}
 # /api/conduit: lo llama Conduit (Broker Mode), firmado con HMAC, sin sesión de papá.
 # /mcp: lo llama la IA con su token (Bearer), sin sesión de papá.
 PREFIJOS_EXENTOS = ("/estatico", "/admin", "/recuperar", "/api/conduit", "/mcp")

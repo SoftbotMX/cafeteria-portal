@@ -79,6 +79,8 @@ def operador_actual(request: Request, db: Session = Depends(get_db)) -> Operador
     op = db.scalar(select(Operador).where(Operador.host == request.url.hostname))
     if op is None:
         raise HTTPException(404)
+    # Lo que pinta base.html en cada pantalla (nombre y logo de la cafetería), sin objetos de BD.
+    request.state.cafeteria = {"nombre": op.nombre, "logo_version": op.logo_version}
     return op
 
 

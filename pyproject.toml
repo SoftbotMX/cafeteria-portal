@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9.1,<10"]
+dev = ["pytest>=9.1,<10", "fonttools[woff]>=4.60,<5"]
 
 [tool.setuptools.packages.find]
 include = ["portal*"]

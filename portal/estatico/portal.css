@@ -1,12 +1,171 @@
-body { font-family: system-ui, sans-serif; margin: 0; background: #f7f7f5; color: #222; }
-main { max-width: 40rem; margin: 0 auto; padding: 1rem; }
-.aviso { background: #fff3cd; padding: .6rem .8rem; border-radius: .4rem; }
-h1 { font-size: 1.4rem; }
-form { display: grid; gap: .8rem; margin: 1rem 0; }
+/* «La Charola» — portal de padres de familia y administración. Mobile first: el portal de padres
+   se usa casi siempre en el celular. Áreas táctiles de 44 px como mínimo. */
+
+@font-face {
+  font-family: "Roboto";
+  src: url("fuentes/roboto.woff2") format("woff2");
+  font-weight: 400 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Roboto Flex";
+  src: url("fuentes/roboto-flex.woff2") format("woff2");
+  font-weight: 300 800;
+  font-stretch: 50% 70%;
+  font-display: swap;
+}
+
+:root {
+  --cafe: #3b2015;
+  --cobre: #c98a4f;
+  --cobre-osc: #96592a;
+  --cobre-claro: #d9a774;
+  --crema: #fbf6ee;
+  --texto-2: #6b5a50;
+  --texto-3: #75655b;
+  --linea: #cdb9a4;
+  --borde: #e3d8cb;
+  --apagado: #efe7dd;
+  --verde: #047857;
+  --rojo: #b91c1c;
+  --ambar: #92400e;
+  --trazo: 2.5px;
+  --radio: 18px;
+  --toque: 44px;
+  --display: "Roboto Flex", "Roboto", system-ui, sans-serif;
+  --texto: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, Menlo, Consolas, monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: #fff; color: var(--cafe);
+  font: 400 15px/1.45 var(--texto); -webkit-font-smoothing: antialiased;
+}
+img { max-width: 100%; }
+a { color: var(--cobre-osc); text-decoration: none; }
+a:hover { color: var(--cafe); text-decoration: underline; }
+:focus-visible { outline: 3px solid var(--cobre); outline-offset: 2px; }
+h1, h2, h3, p { margin: 0; }
+
+/* ---------------------------------------------------------------- estructura */
+.pantalla {
+  width: 100%; max-width: 480px; margin: 0 auto; min-height: 100vh; min-height: 100dvh;
+  padding: 20px 24px calc(28px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 16px;
+}
+@media (min-width: 600px) {
+  body { background: var(--crema); }
+  .pantalla {
+    min-height: 0; margin: 40px auto; background: #fff;
+    border: 1px solid var(--borde); border-radius: 32px; padding: 32px 32px 32px;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, .08);
+  }
+}
+.empuja { margin-top: auto; }
+.acceso { display: flex; flex-direction: column; gap: 16px; }          /* manda lo que sigue al fondo de la pantalla */
+.centro { margin-block: auto; }
+
+/* ---------------------------------------------------------------- tipografía */
+.titulo {
+  font: 400 44px/.95 var(--display); font-stretch: 60%; margin: 0;
+}
+.titulo .fino { font-weight: 300; text-transform: lowercase; }
+.titulo strong { font-weight: 800; color: var(--cobre-osc); text-transform: uppercase; }
+.titulo.grande { font-size: 52px; }
+.titulo.chico { font-size: 32px; }
+.nota { font-size: 14px; color: var(--texto-2); text-wrap: pretty; }
+
+/* ---------------------------------------------------------------- marca */
+.marca { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.marca-logo {
+  width: 148px; height: 148px; object-fit: contain; background: #fff;
+  border: var(--trazo) solid var(--cafe); border-radius: 28px;
+}
+.marca-nombre {
+  font: 800 24px/1.05 var(--display); font-stretch: 60%; text-transform: uppercase;
+  text-align: center; text-wrap: balance;
+}
+.funciona {
+  display: flex; align-items: center; gap: 10px; padding-top: 12px;
+  border-top: 2px dotted var(--linea); font-size: 12px; color: var(--texto-3);
+}
+.funciona img { width: 52px; height: 52px; object-fit: contain; flex: none; }
+.funciona a { color: inherit; }
+
+/* ---------------------------------------------------------------- íconos */
+.icono { width: 1.25em; height: 1.25em; flex: none; fill: currentColor; vertical-align: -.25em; }
+
+/* ---------------------------------------------------------------- enlaces de navegación */
+.volver {
+  display: inline-flex; align-items: center; gap: 6px; min-height: var(--toque);
+  margin-bottom: -8px; align-self: flex-start;
+  font-size: 14px; font-weight: 600; color: var(--cobre-osc); text-decoration: none;
+}
+.volver .icono { width: 20px; height: 20px; }
+.enlace {
+  display: inline-flex; align-items: center; min-height: var(--toque); align-self: flex-start;
+  font-size: 14px; font-weight: 600; color: var(--cobre-osc);
+}
+
+/* ---------------------------------------------------------------- formularios */
+form { display: flex; flex-direction: column; gap: 16px; margin: 0; }
+.campos {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--trazo);
+  background: var(--cafe); border: var(--trazo) solid var(--cafe);
+  border-radius: var(--radio); overflow: hidden;
+}
+.campo {
+  background: #fff; padding: 11px 16px; display: flex; flex-direction: column; gap: 3px;
+  min-width: 0; cursor: text;
+}
+.campo:focus-within { box-shadow: inset 0 0 0 3px var(--cobre); }
+.campo > span { font-size: 12px; font-weight: 600; color: var(--cobre-osc); }
+.campo input, .campo select {
+  width: 100%; min-height: 28px; padding: 0; border: 0; border-radius: 0; background: transparent;
+  font: 500 17px/1.3 var(--texto); color: var(--cafe); outline: none;
+}
+.campo input::placeholder { color: var(--linea); }
+.campo.codigo { background: var(--crema); }
+.campo.codigo input {
+  font: 700 34px/1.1 var(--mono); letter-spacing: .3em; min-height: 40px;
+}
+
+/* ---------------------------------------------------------------- botones */
+.boton, button {
+  -webkit-appearance: none; appearance: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  min-height: 56px; padding: 0 20px; border: 0; border-radius: var(--radio);
+  background: var(--cafe); color: #fff; text-decoration: none; text-align: center;
+  font: 700 24px/1 var(--display); font-stretch: 60%; letter-spacing: .03em; text-transform: uppercase;
+}
+.boton:hover, button:hover { color: #fff; background: #2b1a12; }
+.flecha { justify-content: space-between; padding: 0 22px; min-height: 58px; font-size: 26px; }
+.flecha .icono { width: 26px; height: 26px; color: var(--cobre-claro); }
+.boton.secundario, button.secundario {
+  min-height: 50px; padding: 0 18px; border: var(--trazo) solid var(--cafe); border-radius: 16px;
+  background: #fff; color: var(--cafe); font-size: 21px;
+}
+.boton.secundario:hover, button.secundario:hover { background: var(--crema); color: var(--cafe); }
+button:disabled { opacity: .55; cursor: default; }
+
+/* ---------------------------------------------------------------- avisos */
+.aviso {
+  display: flex; gap: 8px; align-items: flex-start; margin: 0;
+  font-size: 14px; font-weight: 600; line-height: 1.45; color: var(--ambar);
+}
+.aviso .icono { width: 20px; height: 20px; }
+.aviso.error {
+  color: var(--rojo); border: var(--trazo) solid currentColor; border-radius: 16px; padding: 12px 14px;
+}
+.aviso.listo { color: var(--verde); }
+
+/* ================================================================ PROVISIONAL
+   Reglas del diseño anterior para las pantallas que aún no pasan a «La Charola». Se borran
+   al terminar el rediseño. */
 label { display: grid; gap: .25rem; font-size: .95rem; }
-input { font: inherit; padding: .6rem; border: 1px solid #bbb; border-radius: .4rem; }
-button { font: inherit; padding: .7rem 1rem; border: 0; border-radius: .4rem; background: #2563eb; color: #fff; cursor: pointer; }
-button.secundario { background: #e5e7eb; color: #222; }
+form > label input:not([type=hidden]), form > label select, fieldset input { font: inherit; padding: .6rem; border: 1px solid #bbb; border-radius: .4rem; }
 .tarjetas { list-style: none; padding: 0; display: grid; gap: .8rem; }
 .tarjeta { background: #fff; border-radius: .6rem; padding: .8rem 1rem; box-shadow: 0 1px 2px #0002; }
 .tarjeta strong { font-size: 1.1rem; }
@@ -20,15 +179,15 @@ button.secundario { background: #e5e7eb; color: #222; }
 .movimiento .importe { text-align: right; display: grid; }
 .mas { color: #15803d; font-weight: 600; }
 .menos { color: #b91c1c; font-weight: 600; }
-.boton.secundario { background: #e5e7eb; color: #222; }
-.boton { display: inline-block; padding: .7rem 1rem; border-radius: .4rem; background: #2563eb; color: #fff; text-decoration: none; }
 .dias { display: flex; flex-wrap: wrap; gap: .4rem; margin: .8rem 0; }
 .dias a { padding: .4rem .7rem; border-radius: 1rem; background: #e5e7eb; color: #222; text-decoration: none; font-size: .9rem; }
-.dias a.activo { background: #2563eb; color: #fff; }
+.dias a.activo { background: var(--cafe); color: #fff; }
 .producto { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .6rem 0; border-bottom: 1px solid #e5e5e0; }
 .cantidad { display: flex; align-items: center; gap: .3rem; }
 .cantidad input { width: 3.5rem; text-align: center; }
 .paso { display: none; }
-.js .paso { display: inline-block; min-width: 2.5rem; }
+.js .paso { display: inline-flex; min-width: 2.5rem; }
 .resumen { padding-left: 1.2rem; }
-.listo { background: #dcfce7; padding: .6rem .8rem; border-radius: .4rem; }
+p.listo:not(.aviso) { background: #dcfce7; padding: .6rem .8rem; border-radius: .4rem; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: .4rem; border-bottom: 1px solid var(--borde); vertical-align: top; }
