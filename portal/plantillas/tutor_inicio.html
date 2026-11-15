@@ -8,12 +8,13 @@
 {% elif not hijos %}
   <p class="nota">Aún no tienes hijos vinculados. Pide a la cafetería que los dé de alta.</p>
 {% else %}
+  {% set visibles = nombres_visibles(hijos) %}
   <ul class="grupo hijos" role="list">
   {% for h in hijos %}
     <li class="hijo">
       <div class="hijo-fila">
         <div class="hijo-datos">
-          <h2 class="hijo-nombre">{{ h | nombre_corto }}</h2>
+          <h2 class="hijo-nombre">{{ visibles[h.id] }}</h2>
           <span class="chico">{{ h.retenido | dinero }} apartado</span>
           {% if h.compra_sin_pedido is sameas false %}<span class="hijo-nota">Sólo puede recoger lo que pidas</span>{% endif %}
           {% for c in h.credenciales if c.bloqueada %}

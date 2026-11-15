@@ -143,9 +143,21 @@ def nombre_corto(alumno) -> str:
     return juntar(n, a1, None) or str(alumno.get("nombre") or "")
 
 
+def nombres_visibles(hijos) -> dict:
+    """id -> nombre para las tarjetas: el corto («Sofía Méndez») si ninguno se repite; si dos
+    coinciden (como se ven, en mayúsculas), TODOS van con el nombre completo para no confundirlos
+    (al recargar o pedir mueve dinero). Expandir sólo a los repetidos podía crear otra coincidencia."""
+    hijos = [h for h in hijos if isinstance(h, dict)]
+    cortos = {h.get("id"): nombre_corto(h) for h in hijos}
+    if len({c.casefold() for c in cortos.values()}) == len(cortos):
+        return cortos
+    return {h.get("id"): str(h.get("nombre") or cortos[h.get("id")]) for h in hijos}
+
+
 def registrar(templates) -> None:
     templates.env.filters.update(dinero=dinero, fecha=fecha, cambio=cambio,
                                  movimiento=etiqueta_movimiento, dinero_partes=dinero_partes,
                                  nombres_de=nombres_de, apellidos_de=apellidos_de,
                                  nombre_corto=nombre_corto)
+    templates.env.globals.update(nombres_visibles=nombres_visibles)
     templates.env.globals.update(estados_pedido=ESTADOS_PEDIDO, tipos_credencial=TIPOS_CREDENCIAL)

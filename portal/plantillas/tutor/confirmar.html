@@ -3,7 +3,8 @@
     aviso (opcional).
     Opcionales del diseño: titulo_fino / titulo_fuerte (título en dos tonos; si no, `titulo`),
     subtitulo, volver_texto («Cambiar»), cancelar (URL: botón CANCELAR bajo el principal),
-    ticket ({encabezado, lineas, total}: en lugar de `lineas`), nota (texto bajo el ticket),
+    ticket ({encabezado, lineas, renglones [(texto, importe)], total}: en lugar de `lineas`),
+    nota (texto bajo el ticket), recuadro ({icono, antes, fuerte, despues}: aviso con borde),
     peligro (botón principal en rojo). -#}
 {% extends "base.html" %}
 {% import "_ui.html" as ui with context %}
@@ -16,8 +17,9 @@
 {% if aviso %}{{ ui.aviso(aviso, "error", "alert") }}{% endif %}
 {% block resumen %}
 {% if ticket %}
-{{ ui.ticket(ticket.encabezado, ticket.lineas, ticket.total) }}
+{{ ui.ticket(ticket.encabezado, ticket.lineas or (), ticket.total, ticket.renglones or ()) }}
 {% if nota %}<p class="nota">{{ nota }}</p>{% endif %}
+{% if recuadro %}{{ ui.recuadro(recuadro.icono, recuadro.antes, recuadro.fuerte, recuadro.despues) }}{% endif %}
 {% else %}
 <ul class="ticket">
   {% for l in lineas %}<li>{{ l }}</li>{% endfor %}

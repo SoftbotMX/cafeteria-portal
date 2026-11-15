@@ -429,6 +429,40 @@ button.paso.mas:hover { background: #2b1a12; color: #fff; }
 button.peligro { background: var(--rojo); }
 button.peligro:hover { background: #991b1b; }
 
+/* ---------------------------------------------------------------- recarga (5k–5n, 5r, 5s) */
+.titulo.enorme { font-size: 64px; }
+.circulo.blanco { background: #fff; }
+.recuadro {
+  display: flex; gap: 10px; align-items: flex-start; padding: 14px 16px;
+  border: var(--trazo) solid var(--cafe); border-radius: var(--radio); font-size: 15px; line-height: 1.45;
+}
+.recuadro > .icono { width: 24px; height: 24px; color: var(--cobre-osc); }
+.recuadro p { text-wrap: pretty; }
+label.importe-hijo { display: flex; align-items: center; gap: 12px; padding: 10px 16px; cursor: text; }
+.importe-hijo .hijo-nombre { font-size: 21px; }
+.importe-campo {
+  width: 104px; height: 48px; flex: none; display: flex; align-items: baseline; justify-content: flex-end;
+  gap: 2px; border-bottom: var(--trazo) solid var(--cafe);
+  font: 400 20px/1.2 var(--display); font-stretch: 55%; color: var(--cobre);
+}
+.importe-campo input {
+  width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; text-align: right; outline: none;
+  font: 800 38px/1.2 var(--display); font-stretch: 55%; color: var(--cafe);
+}
+.importe-campo input::placeholder, .importe-campo input.cero { color: #b3a497; font-weight: 300; }
+.importe-hijo:focus-within .importe-campo { border-bottom-color: var(--cobre); }
+.lista-recargas { gap: 12px; }
+.lista-recargas a { display: flex; flex-direction: column; gap: 2px; color: var(--cafe); text-decoration: none; min-height: var(--toque); justify-content: center; }
+.lista-recargas a:hover { text-decoration: none; background: rgba(201, 138, 79, .08); }
+.recarga-sub { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.recarga-hijos { color: var(--texto-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recarga-estado { font-weight: 700; white-space: nowrap; color: var(--texto-3); }
+.recarga-estado.acreditada, .recarga-estado.aprobada { color: var(--verde); }
+.recarga-estado.revision { color: var(--ambar); }
+.recarga-estado.rechazada { color: var(--rojo); }
+.par.desigual { grid-template-columns: .8fr 1.2fr; }
+.par.desigual .boton { min-height: 52px; padding: 0 8px; white-space: nowrap; }
+
 /* ================================================================ PROVISIONAL
    Reglas del diseño anterior para las pantallas que aún no pasan a «La Charola». Se borran
    al terminar el rediseño. */

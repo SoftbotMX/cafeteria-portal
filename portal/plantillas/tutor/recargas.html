@@ -1,16 +1,26 @@
 {#- Contexto: recargas (list[Recarga]), estados (estado -> texto). -#}
 {% extends "base.html" %}
-{% block titulo %}Mis recargas · Portal de tutores{% endblock %}
+{% import "_ui.html" as ui with context %}
+{% block titulo %}Mis recargas{% endblock %}
 {% block contenido %}
-<h1>Mis recargas</h1>
-{% for r in recargas %}
-  <div class="movimiento">
-    <div><a href="/recargas/{{ r.id }}">{{ r.creada | fecha }}</a><br>
-      <small>{{ r.reparto | map(attribute="nombre") | join(", ") }}</small></div>
-    <div class="importe"><strong>{{ r.total | dinero }}</strong><small>{{ estados.get(r.estado, r.estado) }}</small></div>
-  </div>
+{{ ui.volver("/", "Inicio") }}
+{{ ui.titulo("Mis", "recargas") }}
+{% if recargas %}
+<ul class="ticket mono lista-recargas">
+  {% for r in recargas %}
+  <li>
+    <a href="/recargas/{{ r.id }}">
+      <span class="guia fuerte"><span>{{ r.creada | fecha }}</span><span class="puntos"></span><span>{{ r.total | dinero }}</span></span>
+      <span class="recarga-sub">
+        <span class="recarga-hijos">{{ r.reparto | map(attribute="nombre") | join(", ") }}</span>
+        <span class="recarga-estado {{ r.estado }}">{{ estados.get(r.estado, r.estado) }}</span>
+      </span>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
 {% else %}
-  <p>Aún no has recargado.</p>
-{% endfor %}
-<p><a class="boton" href="/recargar">Recargar</a> <a href="/">Inicio</a></p>
+<p class="nota">Aún no has recargado.</p>
+{% endif %}
+<a class="boton empuja" href="/recargar">Recargar</a>
 {% endblock %}

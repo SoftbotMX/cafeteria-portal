@@ -1,6 +1,7 @@
 """Recargar saldo con MercadoPago (Checkout Pro). El núcleo vive en `portal.recargas`."""
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -23,8 +24,8 @@ router = APIRouter()
 # todo lo que espera red o BD corre en el pool de hilos: en el hilo del servidor congelaría el
 # portal entero mientras MP o el TPV responden (Codex P1).
 
-MSG_SIN_MP = ("No pudimos abrir Mercado Pago. No se te cobró nada: vuelve a tocar «Pagar con "
-              "Mercado Pago» en un momento.")
+MSG_SIN_MP = ("No pudimos abrir Mercado Pago. No se te cobró nada: vuelve a tocar «Pagar en "
+              "línea» en un momento.")
 ESTADOS = {
     "pendiente": "Sin pagar", "aprobada": "Pagada, acreditando", "acreditada": "Acreditada",
     "rechazada": "Rechazada", "vencida": "No se pagó", "revision": "En revisión",
@@ -58,15 +59,23 @@ def _formulario(request, sesion, hijos, mensaje=None, valores=None):
 
 
 def _confirmar(request, sesion, reparto, total, llave, aviso=None):
-    campos = {f"importe_{p['alumno_id']}": str(p["importe"]) for p in reparto}
-    campos["llave"] = llave
+    importes = {f"importe_{p['alumno_id']}": str(p["importe"]) for p in reparto}
     return _pagina(request, "tutor/confirmar.html", {
         "titulo": "Confirma la recarga",
+        "titulo_fino": "Confirma la", "titulo_fuerte": "recarga",
         "lineas": [f"{p['nombre']}: {dinero(p['importe'])}" for p in reparto]
-        + [f"Total: {dinero(total)}",
-           "Pagas en Mercado Pago con tarjeta o con tu saldo de Mercado Pago."],
-        "aviso": aviso, "accion": "/recargar/confirmar", "csrf": sesion.csrf, "campos": campos,
-        "boton": "Pagar con Mercado Pago", "volver": "/recargar"})
+        + [f"Total: {dinero(total)}"],
+        "ticket": {"renglones": [(p["nombre"], dinero(p["importe"])) for p in reparto],
+                   "total": dinero(total)},
+        "recuadro": {"icono": "credit_card",
+                     "antes": "El pago se realiza en un portal de Mercado Pago.",
+                     "fuerte": "No necesitas tener cuenta de Mercado Pago:",
+                     "despues": "puedes pagar directamente con tu tarjeta de crédito o débito."},
+        "aviso": aviso, "accion": "/recargar/confirmar", "csrf": sesion.csrf,
+        "campos": {**importes, "llave": llave},
+        # «Cambiar» regresa con los importes ya escritos; «Cancelar» al inicio.
+        "boton": "Pagar en línea", "volver": "/recargar?" + urlencode(importes),
+        "cancelar": "/"})
 
 
 @router.get("/recargar")
@@ -78,7 +87,10 @@ def formulario(request: Request, par: tuple[Sesion, Tutor] = Depends(tutor_listo
         hijos = _hijos(request, operador, tutor)
     except SinTPV:
         return _error(request, MSG_SIN_TPV)
-    return _formulario(request, sesion, hijos)
+    # «Cambiar» desde la confirmación regresa con lo que ya se había escrito (sólo para pintar:
+    # al revisar se valida todo otra vez).
+    valores = {k: v[:10] for k, v in request.query_params.items() if k.startswith("importe_")}
+    return _formulario(request, sesion, hijos, valores=valores)
 
 
 @router.post("/recargar/revisar")
@@ -163,16 +175,22 @@ def detalle(recarga_id: int, request: Request, par: tuple[Sesion, Tutor] = Depen
             operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
     _, tutor = par
     r = _propia(db, operador, tutor, recarga_id)
+    # Sólo se ofrece pagar si de verdad se le preguntó a MP (sin token no se pregunta).
+    verificada = bool(operador.mp_access_token_cif)
     if r.estado in ("pendiente", "aprobada"):
         try:
             recargas.reintentar(db, request.app, operador, r.id)
             db.commit()
         except ErrorMP:
             db.rollback()  # MP no respondió: el aviso o el barrido lo terminan
+            verificada = False
         r = _propia(db, operador, tutor, recarga_id)
     vigente = r.estado == "pendiente" and r.init_point and r.liga_vence and \
         datetime.now(timezone.utc) < r.liga_vence
-    return _pagina(request, "tutor/recarga.html", {"r": r, "vigente": vigente})
+    # Sin poder preguntarle a MP, «pendiente» puede ser un pago que ya se hizo y cuyo aviso no ha
+    # llegado: la pantalla no ofrece pagar otra vez (sería un doble cobro). Hallazgo de Codex.
+    return _pagina(request, "tutor/recarga.html", {"r": r, "vigente": vigente,
+                                                    "verificada": verificada})
 
 
 def _id_de_pago(request: Request, cuerpo) -> str | None:

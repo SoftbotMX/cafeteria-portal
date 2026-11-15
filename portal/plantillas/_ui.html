@@ -53,6 +53,11 @@
 </div>
 {%- endmacro %}
 
+{#- Recuadro con borde e ícono (avisos que hay que leer: Mercado Pago, notificación). -#}
+{% macro recuadro(ic, antes, fuerte="", despues="") -%}
+<div class="recuadro">{{ icono(ic) }}<p>{{ antes }}{% if fuerte %} <b>{{ fuerte }}</b>{% endif %}{% if despues %} {{ despues }}{% endif %}</p></div>
+{%- endmacro %}
+
 {#- Cifra grande ($ 186 .50) con el importe completo para lectores de pantalla. -#}
 {% macro cifra(valor) -%}
 {%- set signo, entero, centavos = valor | dinero_partes -%}

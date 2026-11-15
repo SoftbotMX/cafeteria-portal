@@ -1,27 +1,45 @@
-{#- Contexto: r (Recarga), vigente (aún se puede pagar con su liga). -#}
+{#- Contexto: r (Recarga), vigente (aún se puede pagar con su liga), verificada (se pudo preguntar
+    a Mercado Pago; si no, no se ofrece pagar otra vez). 5m, 5s, 5r y los estados que
+    el mockup no dibuja (revisión, rechazada, vencida) con el mismo estilo. -#}
 {% extends "base.html" %}
-{% block titulo %}Recarga · Portal de tutores{% endblock %}
+{% import "_ui.html" as ui with context %}
+{% block titulo %}Recarga{% endblock %}
 {% block contenido %}
+{% set renglones = [] %}{% for p in r.reparto %}{% set _ = renglones.append((p.nombre, p.importe | dinero)) %}{% endfor %}
 {% if r.estado == "acreditada" %}
-  <h1>¡Listo!</h1>
-  <p class="listo">Se acreditaron {{ r.total | dinero }}.</p>
+  <div class="circulo">{{ icono("check") }}</div>
+  <h1 class="titulo enorme"><strong>¡Listo!</strong></h1>
+  <p class="aviso listo" role="status">Se acreditaron {{ r.total | dinero }}.</p>
+  {{ ui.ticket(renglones=renglones) }}
 {% elif r.estado == "aprobada" %}
-  <h1>Pago recibido</h1>
-  <p class="listo">Estamos acreditando el saldo; tarda un momento. No vuelvas a pagar.</p>
+  <div class="circulo">{{ icono("hourglass_top") }}</div>
+  {{ ui.titulo("Pago", "recibido", tam="grande") }}
+  <p class="aviso listo" role="status">Estamos acreditando el saldo; tarda un momento. No vuelvas a pagar.</p>
+  {{ ui.recuadro("notifications_active", "En cuanto el pago se confirme recibirás una notificación en tu celular y el saldo quedará actualizado.") }}
+  {{ ui.ticket(renglones=renglones, total=r.total | dinero) }}
 {% elif r.estado == "revision" %}
-  <h1>Pago en revisión</h1>
-  <p class="aviso">Recibimos tu pago y la cafetería lo está revisando. No vuelvas a pagar.</p>
+  <div class="circulo">{{ icono("hourglass_top") }}</div>
+  {{ ui.titulo("Pago en", "revisión", tam="grande") }}
+  {{ ui.aviso("Recibimos tu pago y la cafetería lo está revisando. No vuelvas a pagar.") }}
+  {{ ui.ticket(renglones=renglones, total=r.total | dinero) }}
 {% elif r.estado == "pendiente" %}
-  <h1>Aún no vemos tu pago</h1>
-  {% if r.error %}<p class="aviso">Tu pago no se aprobó. Puedes intentar con otra tarjeta.</p>{% endif %}
-  {% if vigente %}<p><a class="boton" href="{{ r.init_point }}">Pagar {{ r.total | dinero }} en Mercado Pago</a></p>
-  {% else %}<p>La liga de pago venció. <a href="/recargar">Arma otra recarga</a>.</p>{% endif %}
+  <div class="circulo blanco">{{ icono("open_in_new") }}</div>
+  {{ ui.titulo("Aún no vemos tu", "pago") }}
+  {% if not verificada %}
+  {{ ui.aviso("No pudimos confirmar con Mercado Pago si ya pagaste. Si ya pagaste, no vuelvas a pagar: revisa de nuevo en unos minutos.", "error", "alert") }}
+  {% elif r.error %}{{ ui.aviso("Tu pago no se aprobó. Puedes intentar con otra tarjeta.", "error", "alert") }}{% endif %}
+  {{ ui.ticket(renglones=renglones, total=r.total | dinero) }}
+  {% if not verificada %}<a class="boton" href="/recargas/{{ r.id }}">Revisar de nuevo</a>
+  {% elif vigente %}<a class="boton" href="{{ r.init_point }}">Pagar {{ r.total | dinero }} en línea</a>
+  {% else %}<p class="nota">La liga de pago venció.</p><a class="boton" href="/recargar">Arma otra recarga</a>{% endif %}
 {% else %}
-  <h1>Esta recarga no se pagó</h1>
-  <p><a class="boton" href="/recargar">Recargar</a></p>
+  <div class="circulo error">{{ icono("error") }}</div>
+  {{ ui.titulo("Esta recarga", "no se pagó") }}
+  {{ ui.ticket(renglones=renglones, total=r.total | dinero) }}
+  <a class="boton" href="/recargar">Recargar</a>
 {% endif %}
-<ul class="resumen">
-  {% for p in r.reparto %}<li>{{ p.nombre }}: {{ p.importe | dinero }}</li>{% endfor %}
-</ul>
-<p><a href="/">&larr; Inicio</a> · <a href="/recargas">Mis recargas</a></p>
+<nav class="par desigual empuja" aria-label="Seguir">
+  <a class="boton{{ '' if r.estado == 'acreditada' else ' secundario' }}" href="/">Inicio</a>
+  <a class="boton secundario" href="/recargas">Mis recargas</a>
+</nav>
 {% endblock %}
