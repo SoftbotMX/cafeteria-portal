@@ -1,28 +1,40 @@
 {#- Contexto: hijos (fichas del TPV), csrf, error (opcional), origen, destino, importe (lo capturado). -#}
 {% extends "base.html" %}
-{% block titulo %}Transferir saldo · Portal de tutores{% endblock %}
+{% import "_ui.html" as ui with context %}
+{% block titulo %}Transferir saldo{% endblock %}
 {% block contenido %}
-<h1>Transferir saldo</h1>
-<p>Pasa saldo disponible de un hijo a otro.</p>
-{% if error %}<p class="aviso">{{ error }}</p>{% endif %}
-<form method="post" action="/transferir/revisar">
+{{ ui.volver("/", "Volver") }}
+{{ ui.titulo("Transferir", "saldo") }}
+<p class="nota">Pasa saldo disponible de un hijo a otro.</p>
+{% if error %}{{ ui.aviso(error, "error", "alert") }}{% endif %}
+<form method="post" action="/transferir/revisar" class="pedido">
   <input type="hidden" name="csrf" value="{{ csrf }}">
-  <label>De
-    <select name="origen_id" required>
-      <option value="">Elige</option>
-      {% for h in hijos %}<option value="{{ h.id }}"{{ ' selected' if origen == h.id|string }}>{{ h.nombre }} — {{ h.disponible | dinero }} disponible</option>{% endfor %}
-    </select>
-  </label>
-  <label>Para
-    <select name="destino_id" required>
-      <option value="">Elige</option>
-      {% for h in hijos %}<option value="{{ h.id }}"{{ ' selected' if destino == h.id|string }}>{{ h.nombre }}</option>{% endfor %}
-    </select>
-  </label>
-  <label>Importe
-    <input type="text" name="importe" inputmode="decimal" autocomplete="off" required value="{{ importe }}" placeholder="150.00">
-  </label>
-  <button type="submit">Revisar</button>
+  <div class="campos">
+    <label class="campo seleccion"><span>De</span>
+      <select name="origen_id" required>
+        <option value="">Elige</option>
+        {% for h in hijos %}<option value="{{ h.id }}"{{ ' selected' if origen == h.id|string }}>{{ h.nombre }} — {{ h.disponible | dinero }} disponible</option>{% endfor %}
+      </select>
+      {{ icono("expand_more") }}
+    </label>
+    <label class="campo seleccion"><span>Para</span>
+      <select name="destino_id" required>
+        <option value="">Elige</option>
+        {% for h in hijos %}<option value="{{ h.id }}"{{ ' selected' if destino == h.id|string }}>{{ h.nombre }}</option>{% endfor %}
+      </select>
+      {{ icono("expand_more") }}
+    </label>
+    <label class="campo codigo importe-grande"><span>Importe</span>
+      <span class="importe-grande-fila"><span class="signo" aria-hidden="true">$</span>
+        <input type="text" name="importe" inputmode="decimal" autocomplete="off" required value="{{ importe }}" placeholder="0.00">
+      </span>
+    </label>
+  </div>
+  <div class="barra">
+    <div class="barra-botones">
+      <a class="boton barra-cancelar" href="/">Cancelar</a>
+      <button type="submit" class="barra-listo">Listo {{ icono("arrow_forward") }}</button>
+    </div>
+  </div>
 </form>
-<p><a href="/">&larr; Volver</a></p>
 {% endblock %}

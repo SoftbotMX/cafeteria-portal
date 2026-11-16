@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from portal.models import Operador, Tutor
+from portal.nombres import partir
 from portal.tpv import ClienteTPV, ErrorTPV, registrar_escritura
 
 
@@ -45,6 +46,15 @@ def validar_hijo(nombres: str, paterno: str, materno: str, matricula: str) -> "H
     return Hijo(nombres, paterno, materno or None, matricula or None)
 
 
+def _partes(nombre: str) -> dict:
+    return _partes_de(partir(nombre))
+
+
+def _partes_de(partes) -> dict:
+    n, a1, a2 = partes
+    return {"nombres": n[:100] or None, "apellido_1": a1 and a1[:100], "apellido_2": a2 and a2[:100]}
+
+
 class ErrorAlta(Exception):
     """Mensaje para la administración. Lo hecho hasta aquí es verdad y debe confirmarse."""
 
@@ -56,6 +66,9 @@ class DatosAlta:
     correo: str | None  # ya en minúsculas
     hijos: list["Hijo"]
     llave: str
+    # Nombre del padre de familia por partes (el TPV recibe `nombre`, el completo). Sin partes, se
+    # separan de `nombre` con la regla del TPV.
+    partes: tuple[str, str | None, str | None] | None = None
 
 
 def tutor_por_llave(db: Session, operador_id: int, llave: str, bloquear: bool = False) -> Tutor | None:
@@ -65,8 +78,8 @@ def tutor_por_llave(db: Session, operador_id: int, llave: str, bloquear: bool = 
 
 
 def _choque(db: Session, operador: Operador, datos: DatosAlta, propio: Tutor | None) -> str | None:
-    for campo, valor, msg in ((Tutor.telefono, datos.telefono, "Ya hay un tutor con ese teléfono"),
-                              (Tutor.correo, datos.correo, "Ya hay un tutor con ese correo")):
+    for campo, valor, msg in ((Tutor.telefono, datos.telefono, "Ya hay un padre de familia con ese teléfono"),
+                              (Tutor.correo, datos.correo, "Ya hay un padre de familia con ese correo")):
         if valor is None:
             continue
         q = select(Tutor.id).where(Tutor.operador_id == operador.id, campo == valor)
@@ -94,7 +107,7 @@ def mensaje_tpv(e: ErrorTPV, paso: str, en_ficha: bool = False) -> str:
             return ("Esta solicitud ya se había enviado con otros datos. Recarga la ficha y "
                     "vuelve a capturarla.")
         return ("Los datos cambiaron desde el primer intento. Reintenta con los datos originales "
-                "o corrige desde la ficha del tutor.")
+                "o corrige desde la ficha del padre de familia.")
     if e.status <= 0 or e.status >= 500:
         return "No se pudo contactar al TPV. Vuelve a intentar en un momento."
     return f"El TPV rechazó la operación ({paso}): {e.mensaje} Revisa los datos y reintenta."
@@ -109,7 +122,7 @@ def dar_de_alta(db: Session, operador: Operador, cliente: ClienteTPV, actor: str
             datos.nombre, datos.telefono, datos.correo):
         # Los accesos saldrían al contacto original: un reintento no puede cambiarlo en silencio.
         raise ErrorAlta("Este alta ya se había registrado con otro nombre, teléfono o correo del "
-                        "tutor. Reenvía el formulario con los mismos datos del tutor.")
+                        "padre de familia. Reenvía el formulario con los mismos datos.")
     choque = _choque(db, operador, datos, tutor)
     if choque:
         raise ErrorAlta(choque)
@@ -124,11 +137,13 @@ def dar_de_alta(db: Session, operador: Operador, cliente: ClienteTPV, actor: str
             r = escribir_tpv(db, operador, cliente, actor, "admin/tutor/crear", cuerpo)
             ref = r["tutor"]["tutor_ref"]
         except ErrorTPV as e:
-            raise ErrorAlta(mensaje_tpv(e, "crear al tutor")) from None
+            raise ErrorAlta(mensaje_tpv(e, "crear al padre de familia")) from None
         except (KeyError, TypeError):
-            raise ErrorAlta("El TPV respondió algo inesperado al crear al tutor.") from None
+            raise ErrorAlta("El TPV respondió algo inesperado al crear al padre de familia.") from None
         tutor = Tutor(
-            operador_id=operador.id, tutor_ref=ref, nombre=datos.nombre, telefono=datos.telefono,
+            operador_id=operador.id, tutor_ref=ref, nombre=datos.nombre,
+            **(_partes_de(datos.partes) if datos.partes else _partes(datos.nombre)),
+            telefono=datos.telefono,
             correo=datos.correo, contrasena_hash="!", debe_cambiar=True, alta_llave=datos.llave)
         try:
             # Savepoint: si falla el insert sólo se deshace éste y la fila de bitácora del TPV queda.
@@ -139,7 +154,7 @@ def dar_de_alta(db: Session, operador: Operador, cliente: ClienteTPV, actor: str
                 raise ErrorAlta("Otro alta con esta misma solicitud se está procesando. Espera "
                                 "un momento y reintenta.") from None
             raise ErrorAlta(_choque(db, operador, datos, None)
-                            or "Ya hay un tutor con ese teléfono o correo") from None
+                            or "Ya hay un padre de familia con ese teléfono o correo") from None
 
     creados = []
     for i, hijo in enumerate(datos.hijos):

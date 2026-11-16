@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
@@ -292,6 +293,9 @@ def test_respuesta_inesperada_no_es_exito(tpv, c, dos):
     tpv._transferencia = lambda d: httpx.Response(200, json={"ok": True, "alumnos": []})
     r = c.post("/transferir/confirmar", data=o)
     assert "Listo" not in r.text and "inesperado" in r.text
+    # Pudo aplicarse: a ver saldos, no a armar otra transferencia con otra llave.
+    assert '<a class="boton empuja" href="/">Volver</a>' in r.text
+    assert "No sabemos si se transfirió" in r.text and "No se pudo transferir" not in r.text
 
 
 def test_lecturas_caidas_al_confirmar_conservan_la_llave(tpv, c, dos):
@@ -340,3 +344,61 @@ def test_importe_gigante_con_comas_no_da_500(tpv, c, dos):
     luis, ana = dos
     r = _revisar(c, luis["id"], ana["id"], "999," * 12 + "999")
     assert r.status_code == 200 and "importe" in r.text.lower()
+
+
+def test_cambiar_regresa_con_lo_elegido(c, dos):
+    luis, ana = dos
+    r = _revisar(c, luis["id"], ana["id"], "75.50")
+    volver = re.search(r'class="volver" href="([^"]+)"', r.text).group(1).replace("&amp;", "&")
+    t = c.get(volver).text
+    assert re.search(f'value="{luis["id"]}" selected', t) and re.search(f'value="{ana["id"]}" selected', t)
+    assert 'value="75.50"' in t
+    assert '<a class="boton secundario" href="/" data-salir>Cancelar</a>' in r.text
+
+
+def test_sin_respuesta_no_ofrece_cancelar_ni_cambiar(tpv, c, dos):
+    luis, ana = dos
+    o = _confirmacion(c, luis, ana, "30")
+    tpv.fallar_en = {"transferencia"}
+    r = c.post("/transferir/confirmar", data=o)
+    assert "puede haberse registrado" in r.text and _ocultos(r)["llave"] == o["llave"]
+    assert ">Cancelar</a>" not in r.text and "/transferir?" not in r.text and "Ver saldos" in r.text
+
+
+def test_al_enviar_se_desactivan_cambiar_y_cancelar(c, dos):
+    luis, ana = dos
+    r = _revisar(c, luis["id"], ana["id"], "10")
+    assert "classList.add('enviando')" in r.text and "data-salir-envoltura" in r.text
+    assert 'data-salir>Cancelar</a>' in r.text and "removeAttribute('href')" in r.text
+
+
+def test_rechazo_tras_intento_sin_respuesta_manda_a_saldos(tpv, c, dos):
+    luis, ana = dos
+    o = _confirmacion(c, luis, ana, "40")
+    tpv.fallar_en = {"transferencia"}
+    c.post("/transferir/confirmar", data=o)  # sin respuesta: intento incierto con esta llave
+    tpv.fallar_en = set()
+    tpv._transferencia = lambda d: httpx.Response(
+        401, json={"ok": False, "error": {"codigo": "firma_invalida", "mensaje": "Firma"}})
+    r = c.post("/transferir/confirmar", data=o)
+    assert '<a class="boton empuja" href="/">Volver</a>' in r.text
+    assert "No sabemos si se transfirió" in r.text
+
+
+@pytest.mark.parametrize("raro", [None, "NaN", "abc"])
+def test_saldos_raros_no_son_exito(tpv, c, dos, raro):
+    luis, ana = dos
+    o = _confirmacion(c, luis, ana, "40")
+    tpv._transferencia = lambda d: httpx.Response(200, json={"ok": True, "alumnos": [
+        {"id": luis["id"], "disponible": raro}, {"id": ana["id"], "disponible": 90}]})
+    r = c.post("/transferir/confirmar", data=o)
+    assert "Listo" not in r.text and "No sabemos si se transfirió" in r.text
+
+
+def test_id_raro_en_la_respuesta_no_tumba_la_pagina(tpv, c, dos):
+    luis, ana = dos
+    o = _confirmacion(c, luis, ana, "40")
+    tpv._transferencia = lambda d: httpx.Response(200, json={"ok": True, "alumnos": [
+        {"id": {}, "disponible": 1}, {"id": [1], "disponible": 2}]})
+    r = c.post("/transferir/confirmar", data=o)
+    assert r.status_code == 200 and "No sabemos si se transfirió" in r.text

@@ -42,7 +42,7 @@ def test_validaciones(db, op, admin):
     p = admin.get("/admin/pedidos")
     for campo, malo in [("hora_limite", "25:00"), ("hora_limite", "9am"), ("dias", []),
                         ("dias", ["7"]), ("zona_horaria", "Europe/Madrid"),
-                        ("dias_anticipacion", "0"), ("dias_anticipacion", "61"),
+                        ("dias_anticipacion", "0"), ("dias_anticipacion", "31"),
                         ("dias_anticipacion", "abc")]:
         r = admin.post("/admin/pedidos", data=datos(p, **{campo: malo}))
         assert r.status_code == 400, (campo, malo)

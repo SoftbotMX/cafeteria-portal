@@ -1,17 +1,34 @@
 {#- Contexto: titulo, lineas (list[str]), accion (URL del POST), campos (dict nombre -> str | list[str];
     incluye `llave`), boton, volver, csrf (OBLIGATORIO: el token de la sesión; sin él el POST da 403),
-    aviso (opcional). Lo usan Tasks 3–7. -#}
+    aviso (opcional).
+    Opcionales del diseño: titulo_fino / titulo_fuerte (título en dos tonos; si no, `titulo`),
+    subtitulo, volver_texto («Cambiar»), cancelar (URL: botón CANCELAR bajo el principal),
+    ticket ({encabezado, lineas, renglones [(texto, importe)], total}: en lugar de `lineas`),
+    nota (texto bajo el ticket), recuadro ({icono, antes, fuerte, despues}: aviso con borde),
+    peligro (botón principal en rojo). -#}
 {% extends "base.html" %}
-{% block titulo %}{{ titulo }} · Portal de tutores{% endblock %}
+{% import "_ui.html" as ui with context %}
+{% block titulo %}{{ titulo }}{% endblock %}
 {% block contenido %}
-<h1>{{ titulo }}</h1>
-{% if aviso %}<p class="aviso">{{ aviso }}</p>{% endif %}
+<div data-salir-envoltura>{{ ui.volver(volver, volver_texto or "Cambiar") }}</div>
+{% if titulo_fuerte %}{{ ui.titulo(titulo_fino or "", titulo_fuerte) }}
+{% else %}<h1 class="titulo chico"><strong>{{ titulo }}</strong></h1>{% endif %}
+{% if subtitulo %}<p class="subtitulo">{{ subtitulo }}</p>{% endif %}
+{% if aviso %}{{ ui.aviso(aviso, "error", "alert") }}{% endif %}
 {% block resumen %}
-<ul class="resumen">
+{% if ticket %}
+{{ ui.ticket(ticket.encabezado, ticket.lineas or (), ticket.total, ticket.renglones or (), ticket.total_etiqueta or "Total") }}
+{% if nota %}<p class="nota">{{ nota }}</p>{% endif %}
+{% if recuadro %}{{ ui.recuadro(recuadro.icono, recuadro.antes, recuadro.fuerte, recuadro.despues) }}{% endif %}
+{% else %}
+<ul class="ticket">
   {% for l in lineas %}<li>{{ l }}</li>{% endfor %}
 </ul>
+{% endif %}
 {% endblock %}
-<form method="post" action="{{ accion }}" onsubmit="this.querySelector('button[type=submit]').disabled=true">
+{#- Al enviar se desactivan también «Cambiar» y «Cancelar»: salir mientras el TPV o Mercado Pago
+    responden haría creer que no pasó nada y una segunda vuelta usaría OTRA llave (Codex). -#}
+<form method="post" action="{{ accion }}" class="empuja" onsubmit="this.querySelector('button[type=submit]').disabled=true; document.body.classList.add('enviando'); document.querySelectorAll('[data-salir], [data-salir-envoltura] a').forEach(function (a) { a.setAttribute('aria-disabled', 'true'); a.tabIndex = -1; a.removeAttribute('href'); })">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   {% for nombre, valor in campos.items() %}
     {% if valor is string %}
@@ -20,7 +37,7 @@
       {% for v in valor %}<input type="hidden" name="{{ nombre }}" value="{{ v }}">{% endfor %}
     {% endif %}
   {% endfor %}
-  <button type="submit">{{ boton }}</button>
+  <button type="submit" class="{{ 'peligro' if peligro }}{{ ' largo' if boton|length > 18 }}">{{ boton }}</button>
 </form>
-<p><a href="{{ volver }}">&larr; Cambiar</a></p>
+{% if cancelar %}<a class="boton secundario" href="{{ cancelar }}" data-salir>Cancelar</a>{% endif %}
 {% endblock %}

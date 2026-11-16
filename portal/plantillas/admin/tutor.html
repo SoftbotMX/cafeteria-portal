@@ -1,87 +1,135 @@
-{% extends "base.html" %}
+{#- 4e. Ficha del padre de familia. -#}
+{% extends "admin/_base.html" %}
+{% import "_ui.html" as ui with context %}
+{% set seccion = "padres" %}
 {% block titulo %}{{ tutor.nombre }} · Administración{% endblock %}
 {% block contenido %}
-<p><a href="/admin">Volver a la lista</a></p>
-<h1>{{ tutor.nombre }}{% if incompleta %} <strong>Alta incompleta</strong>{% endif %}</h1>
-{% if error %}<p class="aviso" role="alert">{{ error }}</p>{% endif %}
-<p>Usuario: <code>{{ usuario or "—" }}</code><br>
-   Teléfono: {{ tutor.telefono or "—" }} · Correo: {{ tutor.correo or "—" }}<br>
-   Estado: {{ "Activo" if tutor.activo else "Desactivado" }}{% if tutor.debe_cambiar %} · debe cambiar su contraseña{% endif %}</p>
+<div class="admin-dos">
+  <div class="admin-columna">
+    {{ ui.volver("/admin", "Volver a la lista") }}
+    <div class="ficha-titulo">
+      {{ ui.titulo(tutor.nombre_pila, tutor.apellidos, tam="admin") }}
+      <span class="ficha-estados">
+        <span class="estado {{ 'cobrada' if tutor.activo else 'cancelada' }}">{{ "Activo" if tutor.activo else "Desactivado" }}</span>
+        {% if tutor.debe_cambiar %}<span class="estado retenida">Debe cambiar su contraseña</span>{% endif %}
+        {% if incompleta %}<span class="estado revision">Alta incompleta</span>{% endif %}
+      </span>
+    </div>
+    {% if error %}{{ ui.aviso(error, "error", "alert") }}{% endif %}
+    {% if recuperacion_bloqueada %}{{ ui.aviso("Recuperación bloqueada por intentos fallidos (se libera sola en 24 h o al reenviar el acceso).") }}{% endif %}
+    <div class="campos rejilla-3">
+      <div class="campo"><span>Usuario</span><code class="valor">{{ usuario or "—" }}</code></div>
+      <div class="campo"><span>Teléfono</span><span class="valor">{{ tutor.telefono or "—" }}</span></div>
+      <div class="campo"><span>Correo</span><span class="valor">{{ tutor.correo or "—" }}</span></div>
+    </div>
 
-{% if recuperacion_bloqueada %}<p class="aviso" role="status">Recuperación bloqueada por intentos fallidos (se libera sola en 24 h o al reenviar el acceso).</p>{% endif %}
+    {% if not incompleta %}
+    <details class="plegable"{% if nombre_form.llave %} open{% endif %}>
+      <summary><span class="opcion-texto"><span class="plegable-titulo">Corregir nombre</span><span class="chico">Nombre(s), apellido 1 y apellido 2</span></span>{{ icono("expand_less", "flechita abierta") }}{{ icono("expand_more", "flechita cerrada") }}</summary>
+      <form method="post" action="/admin/tutores/{{ tutor.id }}/nombre" class="plegable-cuerpo relleno" onsubmit="this.querySelector('button[type=submit]').disabled=true">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="llave" value="{{ nombre_form.llave or nueva_llave() }}">
+        <input type="hidden" name="antes" value="{{ nombre_form.antes }}">
+        <div class="campos rejilla-3">
+          <label class="campo"><span>Nombre(s)</span><input name="nombres" value="{{ nombre_form.nombres }}" required maxlength="100"></label>
+          <label class="campo"><span>Apellido 1</span><input name="apellido_1" value="{{ nombre_form.apellido_1 }}" required maxlength="100"></label>
+          <label class="campo"><span>Apellido 2 (opcional)</span><input name="apellido_2" value="{{ nombre_form.apellido_2 }}" maxlength="100"></label>
+        </div>
+        <button type="submit" class="secundario chico-boton">Guardar nombre</button>
+      </form>
+    </details>
+    {% endif %}
 
-<h2>Hijos</h2>
-{% if error_tpv %}
-<p class="aviso" role="alert">{{ error_tpv }}</p>
-{% else %}
-<ul>
-  {% for h in hijos %}
-  <li>{{ h.nombre }}{% if h.matricula %} ({{ h.matricula }}){% endif %} — código {{ h.codigo }}
-    <form method="post" action="/admin/tutores/{{ tutor.id }}/desvincular" onsubmit="return confirm('¿Quitar a este hijo de este tutor?')">
+    {{ ui.titulo("Sus", "hijos", nivel=2, tam="seccion") }}
+    {% if error_tpv %}
+    {{ ui.aviso(error_tpv, "error", "alert") }}
+    {% else %}
+    <ul class="grupo lista-hijos">
+      {% for h in hijos %}
+      <li class="hijo-alta">
+        <span class="opcion-texto">
+          <span class="hijo-nombre">{{ h.nombre }}</span>
+          <span class="chico">{% if h.matricula %}Matrícula {{ h.matricula }} · {% endif %}código {{ h.codigo }}</span>
+        </span>
+        <form method="post" action="/admin/tutores/{{ tutor.id }}/desvincular" onsubmit="return confirm('¿Quitar a este hijo de este padre de familia?')">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="llave" value="{{ nueva_llave() }}">
+          <input type="hidden" name="alumno_id" value="{{ h.id }}">
+          <button type="submit" class="quitar">{{ icono("link_off") }}Desvincular</button>
+        </form>
+      </li>
+      {% else %}
+      <li class="hijo-alta"><span class="nota">Este padre de familia todavía no tiene hijos vinculados.</span></li>
+      {% endfor %}
+    </ul>
+
+    <span class="etiqueta-seccion">Agregar un hijo nuevo</span>
+    <form method="post" action="/admin/tutores/{{ tutor.id }}/hijos" class="sin-hueco" onsubmit="this.querySelector('button[type=submit]').disabled=true">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="llave" value="{{ hijo_form.llave or nueva_llave() }}">
+      <div class="campos rejilla-4">
+        <label class="campo"><span>Nombre(s)</span><input name="nombres" value="{{ hijo_form.nombres }}" required maxlength="100" placeholder="Nombre(s)"></label>
+        <label class="campo"><span>Apellido 1</span><input name="apellido_paterno" value="{{ hijo_form.apellido_paterno }}" required maxlength="100" placeholder="Apellido 1"></label>
+        <label class="campo"><span>Apellido 2</span><input name="apellido_materno" value="{{ hijo_form.apellido_materno }}" maxlength="100" placeholder="opcional"></label>
+        <label class="campo"><span>Matrícula</span><input name="matricula" value="{{ hijo_form.matricula }}" maxlength="50" placeholder="opcional"></label>
+      </div>
+      <button type="submit" class="secundario chico-boton">{{ icono("add") }}Agregar hijo</button>
+    </form>
+
+    <span class="etiqueta-seccion">Vincular un hijo que ya existe</span>
+    <form method="get" action="/admin/tutores/{{ tutor.id }}" class="en-linea">
+      <label class="campo seleccion caja"><span class="solo-lector">Padre de familia</span>
+        <select name="otro" required>
+          <option value="">Elige un padre de familia</option>
+          {% for o in otros %}<option value="{{ o.id }}"{% if otro_tutor and otro_tutor.id == o.id %} selected{% endif %}>{{ o.nombre }} ({{ o.telefono or o.correo or "sin contacto" }})</option>{% endfor %}
+        </select>
+        {{ icono("expand_more") }}
+      </label>
+      <button type="submit" class="secundario chico-boton">Ver sus hijos</button>
+    </form>
+    <p class="nota">Para el segundo papá o mamá: elige al padre de familia que ya tiene al hijo dado de alta.</p>
+    {% if otro_tutor %}
+    <ul class="grupo lista-hijos">
+      {% for h in hijos_otro %}
+      <li class="hijo-alta">
+        <span class="opcion-texto">
+          <span class="hijo-nombre">{{ h.nombre }}</span>
+          <span class="chico">{% if h.matricula %}Matrícula {{ h.matricula }} · {% endif %}código {{ h.codigo }}</span>
+        </span>
+        <form method="post" action="/admin/tutores/{{ tutor.id }}/vincular">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="llave" value="{{ nueva_llave() }}">
+          <input type="hidden" name="otro_tutor_id" value="{{ otro_tutor.id }}">
+          <input type="hidden" name="alumno_id" value="{{ h.id }}">
+          <button type="submit" class="secundario chico-boton">Vincular</button>
+        </form>
+      </li>
+      {% else %}
+      <li class="hijo-alta"><span class="nota">{{ otro_tutor.nombre }} no tiene hijos que se puedan vincular aquí.</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% endif %}
+  </div>
+
+  <div class="admin-columna lateral">
+    {{ ui.titulo("Su", "acceso", nivel=2, tam="seccion") }}
+    <div class="ticket mono">
+      <span class="ticket-encabezado">ÚLTIMO ENVÍO DE ACCESO</span>
+      <span class="guia fuerte"><span>Estado</span><span class="puntos"></span><span id="ultima-entrega">{{ ultima_entrega or "ninguno" }}</span></span>
+    </div>
+    <form method="post" action="/admin/tutores/{{ tutor.id }}/reenviar" onsubmit="this.querySelector('button[type=submit]').disabled=true">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <input type="hidden" name="llave" value="{{ nueva_llave() }}">
-      <input type="hidden" name="alumno_id" value="{{ h.id }}">
-      <button type="submit" class="secundario">Desvincular</button>
+      <input type="hidden" name="intento" value="{{ intento }}">
+      <p class="nota">Genera una contraseña nueva, la envía al padre de familia y cierra sus sesiones. La contraseña se muestra una sola vez.</p>
+      <button type="submit">Reenviar acceso</button>
     </form>
-  </li>
-  {% else %}
-  <li>Este tutor todavía no tiene hijos vinculados.</li>
-  {% endfor %}
-</ul>
-
-<h3>Agregar un hijo nuevo</h3>
-<form method="post" action="/admin/tutores/{{ tutor.id }}/hijos" onsubmit="this.querySelector('button[type=submit]').disabled=true">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <input type="hidden" name="llave" value="{{ hijo_form.llave or nueva_llave() }}">
-  <label>Nombre(s) <input name="nombres" value="{{ hijo_form.nombres }}" required maxlength="100"></label>
-  <label>Apellido 1 <input name="apellido_paterno" value="{{ hijo_form.apellido_paterno }}" required maxlength="100"></label>
-  <label>Apellido 2 (opcional) <input name="apellido_materno" value="{{ hijo_form.apellido_materno }}" maxlength="100"></label>
-  <label>Matrícula (opcional) <input name="matricula" value="{{ hijo_form.matricula }}" maxlength="50"></label>
-  <button type="submit">Agregar hijo</button>
-</form>
-
-<h3>Vincular un hijo que ya existe</h3>
-<p>Para el segundo papá o mamá: elige al tutor que ya tiene al hijo dado de alta.</p>
-<form method="get" action="/admin/tutores/{{ tutor.id }}">
-  <label>Tutor
-    <select name="otro" required>
-      <option value="">Elige un tutor</option>
-      {% for o in otros %}<option value="{{ o.id }}"{% if otro_tutor and otro_tutor.id == o.id %} selected{% endif %}>{{ o.nombre }} ({{ o.telefono or o.correo or "sin contacto" }})</option>{% endfor %}
-    </select>
-  </label>
-  <button type="submit" class="secundario">Ver sus hijos</button>
-</form>
-{% if otro_tutor %}
-<ul>
-  {% for h in hijos_otro %}
-  <li>{{ h.nombre }}{% if h.matricula %} ({{ h.matricula }}){% endif %} — código {{ h.codigo }}
-    <form method="post" action="/admin/tutores/{{ tutor.id }}/vincular">
+    <form method="post" action="/admin/tutores/{{ tutor.id }}/activo" class="empuja">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <input type="hidden" name="llave" value="{{ nueva_llave() }}">
-      <input type="hidden" name="otro_tutor_id" value="{{ otro_tutor.id }}">
-      <input type="hidden" name="alumno_id" value="{{ h.id }}">
-      <button type="submit">Vincular</button>
+      <input type="hidden" name="activo" value="{{ '0' if tutor.activo else '1' }}">
+      <button type="submit" class="{{ 'peligro-borde' if tutor.activo else 'secundario' }}">{{ "Desactivar" if tutor.activo else "Activar" }}</button>
     </form>
-  </li>
-  {% else %}
-  <li>{{ otro_tutor.nombre }} no tiene hijos que se puedan vincular aquí.</li>
-  {% endfor %}
-</ul>
-{% endif %}
-{% endif %}
-
-<h2>Acceso</h2>
-<p>Último envío de acceso: <span id="ultima-entrega">{{ ultima_entrega or "ninguno" }}</span></p>
-<form method="post" action="/admin/tutores/{{ tutor.id }}/reenviar" onsubmit="this.querySelector('button[type=submit]').disabled=true">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <input type="hidden" name="llave" value="{{ nueva_llave() }}">
-  <input type="hidden" name="intento" value="{{ intento }}">
-  <p>Genera una contraseña nueva, la envía al tutor y cierra sus sesiones. La contraseña se muestra una sola vez.</p>
-  <button type="submit">Reenviar acceso</button>
-</form>
-<form method="post" action="/admin/tutores/{{ tutor.id }}/activo">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <input type="hidden" name="activo" value="{{ '0' if tutor.activo else '1' }}">
-  <button type="submit" class="secundario">{{ "Desactivar tutor" if tutor.activo else "Activar tutor" }}</button>
-</form>
+  </div>
+</div>
 {% endblock %}

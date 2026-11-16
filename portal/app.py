@@ -23,7 +23,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         async with servidor_mcp.session_manager.run():
             yield
 
-    app = FastAPI(title="Portal de tutores", lifespan=vida)
+    app = FastAPI(title="Portal de padres de familia", lifespan=vida)
     app.state.settings = settings
     app.state.engine = crear_engine(settings.database_url)
     # Las pruebas sustituyen estos transportes por simulados.
@@ -57,7 +57,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"ok": True}
 
     from portal.rutas import (
-        acceso, admin, conduit_entrante, legal, pedidos, recargas, recuperar, transferir, tutor)
+        acceso, admin, conduit_entrante, legal, marca, pedidos, recargas, recuperar, transferir,
+        tutor)
 
     app.include_router(acceso.router)
     app.include_router(recuperar.router)
@@ -68,4 +69,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(recargas.router)
     app.include_router(conduit_entrante.router)
     app.include_router(legal.router)
+    app.include_router(marca.router)
     return app

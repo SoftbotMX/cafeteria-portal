@@ -1,8 +1,17 @@
-{% extends "base.html" %}
+{% extends "admin/_base.html" %}
+{% import "_ui.html" as ui with context %}
+{% set seccion = "padres" %}
 {% block titulo %}Alta completada · Administración{% endblock %}
 {% block contenido %}
-<h1>Este alta ya se completó</h1>
-<p>{{ tutor.nombre }} ya tiene su acceso y sus hijos dados de alta. No se generó otra contraseña. Si el tutor no recibió su acceso, usa «Reenviar acceso» desde su ficha: genera una contraseña nueva.</p>
-<p>Estado del envío de acceso: <span id="envio">{{ envio }}</span></p>
-<p><a href="/admin">Ver en la lista de tutores</a> · <a href="/admin/alta">Dar de alta otro</a></p>
+<div class="admin-columna">
+  <div class="circulo">{{ icono("check") }}</div>
+  {{ ui.titulo("Este alta ya se", "completó", tam="admin") }}
+  <p class="nota">{{ tutor.nombre }} ya tiene su acceso y sus hijos dados de alta. No se generó otra contraseña. Si el padre de familia no recibió su acceso, usa «Reenviar acceso» desde su ficha: genera una contraseña nueva.</p>
+  <p class="envio"><span class="nota">Estado del envío de acceso:</span> <span class="estado retenida sin-punto" id="envio">{{ envio }}</span></p>
+  <nav class="botonera" aria-label="Seguir">
+    <a class="boton secundario" href="/admin/tutores/{{ tutor.id }}">Ver su ficha</a>
+    <a class="boton secundario" href="/admin">Ir a la lista</a>
+    <a class="boton" href="/admin/alta">Dar de alta otro</a>
+  </nav>
+</div>
 {% endblock %}

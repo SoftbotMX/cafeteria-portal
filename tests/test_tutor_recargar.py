@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from portal.cifrado import cifrar
 from portal.models import Recarga
 from tests.conftest import FERNET_PRUEBAS
-from tests.fabricas import crear_operador, crear_tutor, csrf_de, entrar_tutor
+from tests.fabricas import crear_operador, crear_tutor, csrf_de, entrar_tutor, texto
 from tests.mp_falso import MPFalso
 from tests.tpv_falso import TPVFalso
 
@@ -91,8 +91,10 @@ def test_formulario_con_un_importe_por_hijo(dos, c):
 
 def test_revisar_muestra_reparto_y_total(dos, c):
     r = _revisar(c, *dos)
-    assert "Luis Pérez: $100.00" in r.text and "Ana Pérez: $50.00" in r.text
-    assert "Total: $150.00" in r.text and "Pagar con Mercado Pago" in r.text
+    t = texto(r.text)
+    assert "Luis Pérez $100.00" in t and "Ana Pérez $50.00" in t and "Total $150.00" in t
+    assert "Pagar en línea" in t and "No necesitas tener cuenta de Mercado Pago" in t
+    assert '<a class="boton secundario" href="/" data-salir>Cancelar</a>' in r.text  # CANCELAR va al inicio
 
 
 @pytest.mark.parametrize("il,ia", [("20", "20"), ("2000", "5"), ("10.50", "50"), ("", "")])
@@ -156,7 +158,7 @@ def test_regreso_sin_pago_ofrece_pagar(db, dos, c, mp):
     _pagar(c, *dos)
     rec = db.query(Recarga).one()
     r = c.get(f"/recargas/{rec.id}")
-    assert "Aún no vemos tu pago" in r.text and rec.init_point in r.text
+    assert "Aún no vemos tu pago" in texto(r.text) and rec.init_point in r.text
 
 
 def test_regreso_con_pago_rechazado(db, dos, c, mp, tpv):
@@ -182,3 +184,78 @@ def test_mis_recargas(db, dos, c, mp):
     rec = db.query(Recarga).one()
     r = c.get("/recargas")
     assert f'href="/recargas/{rec.id}"' in r.text and "$150.00" in r.text
+
+
+def test_cambiar_regresa_con_los_importes(db, dos, c, mp):
+    luis, ana = dos
+    r = _revisar(c, *dos)
+    volver = re.search(r'class="volver" href="([^"]+)"', r.text).group(1).replace("&amp;", "&")
+    t = c.get(volver).text
+    assert re.search(f'name="importe_{luis["id"]}"[^>]*value="100"', t)
+    assert re.search(f'name="importe_{ana["id"]}"[^>]*value="50"', t)
+    assert "$150.00" in t and "total · 2 hijos" in t  # la barra ya trae el total
+
+
+def test_pago_recibido_avisa_que_llegara_notificacion(db, dos, c, mp, monkeypatch):
+    _pagar(c, *dos)
+    rec = db.query(Recarga).one()
+    rec.estado = "revision"  # no se reintenta: se queda como está
+    db.commit()
+    assert "notificación en tu celular" not in c.get(f"/recargas/{rec.id}").text
+    rec.estado = "aprobada"
+    db.commit()
+    # Sigue «aprobada»: el TPV todavía no acredita.
+    monkeypatch.setattr("portal.recargas.reintentar", lambda *a, **k: None)
+    t = texto(c.get(f"/recargas/{rec.id}").text)
+    assert "Pago recibido" in t and "No vuelvas a pagar" in t
+    assert ("En cuanto el pago se confirme recibirás una notificación en tu celular y el saldo "
+            "quedará actualizado.") in t
+
+
+def test_sin_respuesta_de_mp_no_ofrece_pagar_otra_vez(db, dos, c, mp):
+    """Si no se puede preguntar a MP, «pendiente» puede ser un pago cuyo aviso no ha llegado: no se
+    ofrece pagar de nuevo (doble cobro). Hallazgo de Codex challenge."""
+    _pagar(c, *dos)
+    rec = db.query(Recarga).one()
+    mp.fallar.update({"pago", "buscar"})
+    r = c.get(f"/recargas/{rec.id}")
+    assert "No pudimos confirmar con Mercado Pago si ya pagaste" in r.text
+    assert rec.init_point not in r.text and "Revisar de nuevo" in r.text
+    mp.fallar.clear()
+    assert rec.init_point in c.get(f"/recargas/{rec.id}").text
+
+
+def test_hijos_con_el_mismo_nombre_corto_se_distinguen(tutor, tpv, c, mp):
+    tpv.agregar_hijo(tutor.tutor_ref, "Juan Pérez López", disponible=10)
+    tpv.agregar_hijo(tutor.tutor_ref, "JUAN PÉREZ GARCÍA", disponible=10)  # se ven en mayúsculas
+    tpv.agregar_hijo(tutor.tutor_ref, "Ana Pérez López", disponible=10)
+    assert entrar_tutor(c, "8341445807", "temporal123").status_code == 303
+    for ruta in ("/recargar", "/"):
+        t = c.get(ruta).text
+        assert "Juan Pérez López" in t and "JUAN PÉREZ GARCÍA" in t
+        assert "Ana Pérez López" in t  # con una coincidencia, todos van completos
+
+
+def test_total_de_la_barra_solo_suma_pesos_enteros(dos, c, mp):
+    luis, ana = dos
+    for raro in ("1e3", "100.99", "１００"):
+        t = c.get(f"/recargar?importe_{luis['id']}={raro}").text
+        assert "$0.00" in t and "total · 0 hijos" in t, raro
+
+
+def test_sin_token_de_mp_no_ofrece_pagar(db, dos, c, mp, op):
+    _pagar(c, *dos)
+    rec = db.query(Recarga).one()
+    op.mp_access_token_cif = None
+    db.commit()
+    r = c.get(f"/recargas/{rec.id}")
+    assert rec.init_point not in r.text and "No pudimos confirmar con Mercado Pago" in r.text
+
+
+def test_nombres_completos_no_crean_otra_coincidencia():
+    from portal.formato import nombres_visibles
+    hijos = [{"id": 1, "nombre": "Juan Pérez López"}, {"id": 2, "nombre": "Juan Pérez García"},
+             {"id": 3, "nombre": "Juan Pérez López Martínez"}]
+    vistos = nombres_visibles(hijos)
+    assert len({v.casefold() for v in vistos.values()}) == 3
+    assert nombres_visibles([{"id": 1, "nombre": "Sofía Méndez Ruiz"}]) == {1: "Sofía Méndez"}

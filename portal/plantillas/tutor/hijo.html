@@ -1,54 +1,107 @@
 {% extends "base.html" %}
-{% block titulo %}{{ hijo.nombre if hijo else "Hijo" }} · Portal de tutores{% endblock %}
+{% import "_ui.html" as ui with context %}
+{% block titulo %}{{ hijo.nombre if hijo else "Hijo" }}{% endblock %}
 {% block contenido %}
-{% if hay_varios %}<p><a href="/">&larr; Mis hijos</a></p>{% endif %}
+{% if hay_varios %}{{ ui.volver("/", "Mis hijos") }}{% endif %}
 {% if error_tpv %}
-  <p class="aviso">{{ error_tpv }}</p>
+  {{ ui.aviso(error_tpv, "error", "alert") }}
 {% else %}
-  <h1>{{ hijo.nombre }}</h1>
-  <p class="saldo">{{ hijo.disponible | dinero }} <span>disponible</span></p>
-  <p class="apartado">{{ hijo.retenido | dinero }} apartado</p>
-  {% if hijo.credenciales %}
-  <h2>Tarjeta y código QR</h2>
-  {% for c in hijo.credenciales if c.id is integer and c.bloqueada is boolean %}
-  <div class="movimiento">
-    <div><strong>{{ tipos_credencial.get(c.tipo, "Credencial") }}</strong><br>
-      <small class="{{ 'alerta' if c.bloqueada else '' }}">{{ "Bloqueada" if c.bloqueada else "Activa" }}</small></div>
-    <div class="importe">
-      <a class="boton secundario" href="/hijos/{{ hijo.id }}/credenciales/{{ c.id }}/{{ 'desbloquear' if c.bloqueada else 'bloquear' }}">{{ "Desbloquear" if c.bloqueada else "Bloquear" }}</a>
-    </div>
+  {% set nombres = hijo | nombres_de %}
+  {{ ui.titulo(nombres, hijo | apellidos_de, tam="chico") }}
+  <div>
+    {{ ui.cifra(hijo.disponible) }}
+    <span class="chico">disponible · <b>{{ hijo.retenido | dinero }}</b> apartado</span>
   </div>
-  {% endfor %}
+  <div class="par">
+    <a class="boton" href="/hijos/{{ hijo.id }}/pedir">Pedir</a>
+    {% if recargas %}<a class="boton secundario" href="/recargar">Recargar</a>{% endif %}
+  </div>
+
+  {#- Interruptores: el valor sólo cambia al confirmar (cada uno lleva a su pantalla de
+      confirmación de siempre). -#}
+  {% set creds = hijo.credenciales | selectattr("id", "integer") | selectattr("bloqueada", "boolean") | list if hijo.credenciales else [] %}
+  {% if creds %}
+  <span class="etiqueta-seccion">Con qué puede pagar</span>
+  <div class="grupo">
+    {% for c in creds %}
+    {% set activa = not c.bloqueada %}
+    {% set es_qr = c.tipo == "qr" %}
+    <a class="opcion {{ 'si' if activa else 'no' }}"
+       href="/hijos/{{ hijo.id }}/credenciales/{{ c.id }}/{{ 'bloquear' if activa else 'desbloquear' }}">
+      {{ icono("qr_code_2" if es_qr else "credit_card") }}
+      <span class="opcion-texto">
+        <span class="opcion-titulo">{{ tipos_credencial.get(c.tipo, "Credencial") }}</span>
+        <span class="opcion-estado">{% if es_qr %}{{ "Activo · puede pagar con él" if activa else "Bloqueado · nadie puede pagar con él" }}{% else %}{{ "Activa · puede pagar con ella" if activa else "Bloqueada · nadie puede pagar con ella" }}{% endif %}</span>
+      </span>
+      <span class="si-no" aria-hidden="true">{{ "SÍ" if activa else "NO" }}</span>
+      <span class="interruptor" aria-hidden="true"></span>
+      <span class="solo-lector">{{ "Bloquear" if activa else "Desbloquear" }}</span>
+    </a>
+    {% endfor %}
+  </div>
   {% endif %}
-  <p><a class="boton" href="/hijos/{{ hijo.id }}/pedir">Pedir</a>
-    {% if recargas %}<a class="boton secundario" href="/recargar">Recargar</a>{% endif %}</p>
-  {% if hijo.compra_sin_pedido is sameas true %}
-    <p>{{ hijo.nombre }} puede comprar sin pedido.
-      <a class="boton secundario" href="/hijos/{{ hijo.id }}/permiso?valor=no">Que sólo recoja lo que pida</a></p>
-  {% elif hijo.compra_sin_pedido is sameas false %}
-    <p>{{ hijo.nombre }} sólo puede recoger lo que pidas.
-      <a class="boton secundario" href="/hijos/{{ hijo.id }}/permiso?valor=si">Permitir que compre sin pedido</a></p>
+
+  {% if hijo.compra_sin_pedido is boolean %}
+  {% set puede = hijo.compra_sin_pedido %}
+  <span class="etiqueta-seccion">Permisos</span>
+  <div class="grupo">
+    <a class="opcion {{ 'si' if puede else 'no' }}" href="/hijos/{{ hijo.id }}/permiso?valor={{ 'no' if puede else 'si' }}">
+      {{ icono("storefront") }}
+      <span class="opcion-texto">
+        <span class="opcion-titulo">Comprar sin pedido</span>
+        <span class="opcion-estado">{{ nombres }} {{ "puede comprar sin pedido" if puede else "sólo puede recoger lo que pidas" }}</span>
+      </span>
+      <span class="si-no" aria-hidden="true">{{ "SÍ" if puede else "NO" }}</span>
+      <span class="interruptor" aria-hidden="true"></span>
+      <span class="solo-lector">{{ "Que sólo recoja lo que pida" if puede else "Permitir que compre sin pedido" }}</span>
+    </a>
+  </div>
   {% endif %}
-  <h2>Pedidos</h2>
-  {% if error_pedidos %}<p class="aviso">{{ error_pedidos }}</p>
-  {% elif not pedidos %}<p>Todavía no hay pedidos.</p>{% endif %}
-  {% for p in pedidos %}
-  <div class="movimiento">
-    <div><strong>{{ p.nombre or "Pedido" }}</strong><br>
-      <small>{{ p.fecha_entrega | fecha }} · {{ estados_pedido.get(p.estado, "Desconocido") }}</small></div>
-    <div class="importe">
-      {% if p.total is defined %}<span>{{ p.total | dinero }}</span>{% endif %}
-      {% if p.cancelable %}<a class="boton secundario" href="/hijos/{{ hijo.id }}/pedidos/{{ p.id }}/cancelar">Cancelar</a>{% endif %}
+
+  {% set por_recoger = pedidos | selectattr("estado", "equalto", "retenida") | list %}
+  <details class="plegable" open>
+    <summary>
+      {{ icono("receipt_long") }}
+      <span class="opcion-texto">
+        <span class="plegable-titulo">Pedidos</span>
+        <span class="chico">{% if error_pedidos %}No se pudieron consultar{% elif por_recoger %}{{ por_recoger|length }} por recoger{% elif pedidos %}Nada por recoger{% else %}Sin pedidos{% endif %}</span>
+      </span>
+      {{ icono("expand_less", "flechita abierta") }}{{ icono("expand_more", "flechita cerrada") }}
+    </summary>
+    <div class="plegable-cuerpo">
+      {% if error_pedidos %}<p>{{ ui.aviso(error_pedidos) }}</p>
+      {% elif not pedidos %}<p class="nota">Todavía no hay pedidos.</p>{% endif %}
+      {% for p in pedidos %}
+      <div class="renglon{{ ' destacado' if p.estado == 'retenida' }}">
+        <div class="renglon-fila">
+          <div class="renglon-datos">
+            <span class="renglon-titulo">{{ p.fecha_entrega | fecha }}</span>
+            <span class="renglon-sub">
+              <span class="estado {{ p.estado }}">{{ estados_pedido.get(p.estado, "Desconocido") }}</span>
+              {% if p.nombre %}<span class="folio">{{ p.nombre }}</span>{% endif %}
+            </span>
+          </div>
+          {% if p.total is defined %}<span class="cifra-media">{{ p.total | dinero }}</span>{% endif %}
+        </div>
+        {% if p.cancelable %}<a class="boton peligro" href="/hijos/{{ hijo.id }}/pedidos/{{ p.id }}/cancelar">Cancelar pedido</a>{% endif %}
+      </div>
+      {% endfor %}
     </div>
-  </div>
-  {% endfor %}
-  <h2>Movimientos</h2>
-  <div id="movimientos">
-    {% include "tutor/_movimientos.html" %}
-  </div>
+  </details>
+
+  <details class="plegable"{% if pagina > 1 or error_mov %} open{% endif %}>
+    <summary>
+      {{ icono("swap_vert") }}
+      <span class="opcion-texto">
+        <span class="plegable-titulo">Movimientos</span>
+        <span class="chico">{% if error_mov %}No se pudieron consultar{% elif movs %}Último: {{ movs[0].fecha | fecha(zona) }}{% else %}Sin movimientos{% endif %}</span>
+      </span>
+      {{ icono("expand_less", "flechita abierta") }}{{ icono("expand_more", "flechita cerrada") }}
+    </summary>
+    <div class="plegable-cuerpo" id="movimientos">
+      {% include "tutor/_movimientos.html" %}
+    </div>
+  </details>
 {% endif %}
-<form method="post" action="/salir">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <button type="submit" class="secundario">Salir</button>
-</form>
+{{ ui.salir(csrf) }}
 {% endblock %}

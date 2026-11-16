@@ -6,6 +6,7 @@ saldos nuevos que se muestran son los de la respuesta del TPV, nunca una resta l
 import re
 import uuid
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from portal import tutor_tpv
 from portal.db import get_db
-from portal.formato import dinero, parse_importe
+from portal.formato import _cantidad, dinero, parse_importe
 from portal.models import Operador, Sesion, Tutor
 from portal.sesiones import exigir_csrf, operador_actual, tutor_listo
 from portal.tutor_tpv import (
@@ -33,15 +34,16 @@ MSG_SIN_RESPUESTA = ("No se pudo contactar al TPV. Tu transferencia puede habers
 MSG_INESPERADO = ("El TPV respondió algo inesperado. Revisa los movimientos de {} antes de volver a "
                   "transferir.")
 TITULO_ERROR = "No se pudo transferir el saldo"
+TITULO_INCIERTO = "No sabemos si se transfirió el saldo"
 
 
 def _pagina(request, plantilla, ctx, status=200):
     return templates.TemplateResponse(request, plantilla, ctx, status_code=status, headers=SIN_CACHE)
 
 
-def _error(request, mensaje: str):
+def _error(request, mensaje: str, volver: str = "/transferir", titulo: str = TITULO_ERROR):
     return _pagina(request, "tutor/resultado.html", {
-        "titulo": TITULO_ERROR, "mensaje": mensaje, "volver": "/transferir", "detalles": [],
+        "titulo": titulo, "mensaje": mensaje, "volver": volver, "detalles": [],
         "error": True})
 
 
@@ -67,16 +69,30 @@ def _alcanza(origen: dict, importe: Decimal) -> bool:
         return True
 
 
-def _contexto_confirmar(sesion, origen, destino, importe: Decimal, llave, aviso=None) -> dict:
-    return {
+def _contexto_confirmar(sesion, origen, destino, importe: Decimal, llave, aviso=None,
+                        incierto=False) -> dict:
+    de = f"De: {origen['nombre']} (disponible {dinero(origen.get('disponible'))})"
+    nota = "Se mueve saldo disponible; no se puede deshacer desde el portal."
+    ctx = {
         "titulo": "Confirma la transferencia",
-        "lineas": [f"De: {origen['nombre']} (disponible {dinero(origen.get('disponible'))})",
-                   f"Para: {destino['nombre']}", f"Importe: {dinero(importe)}",
-                   "Se mueve saldo disponible; no se puede deshacer desde el portal."],
+        "titulo_fino": "Confirma la", "titulo_fuerte": "transferencia",
+        "lineas": [de, f"Para: {destino['nombre']}", f"Importe: {dinero(importe)}", nota],
+        "ticket": {"lineas": [de, f"Para: {destino['nombre']}"], "total": dinero(importe),
+                   "total_etiqueta": "Importe"},
+        "nota": nota,
         "aviso": aviso, "accion": "/transferir/confirmar", "csrf": sesion.csrf,
         "campos": {"origen_id": str(origen["id"]), "destino_id": str(destino["id"]),
                    "importe": f"{importe:.2f}", "llave": llave},
-        "boton": "Confirmar transferencia", "volver": "/transferir"}
+        "boton": "Confirmar transferencia",
+        # «Cambiar» regresa con lo elegido; «Cancelar» al inicio.
+        "volver": "/transferir?" + urlencode({"origen": origen["id"], "destino": destino["id"],
+                                             "importe": f"{importe:.2f}"}),
+        "cancelar": "/"}
+    if incierto:
+        # Sin respuesta del TPV la transferencia pudo aplicarse: ni «Cancelar» (no deshace nada)
+        # ni «Cambiar» (otra llave = otra transferencia). Sólo reintentar con la MISMA llave.
+        ctx.update(volver="/", volver_texto="Ver saldos", cancelar=None)
+    return ctx
 
 
 def _con_dos_o_mas(request, operador, tutor):
@@ -96,7 +112,12 @@ def formulario(request: Request, par: tuple[Sesion, Tutor] = Depends(tutor_listo
                operador: Operador = Depends(operador_actual)):
     sesion, tutor = par
     hijos, otra = _con_dos_o_mas(request, operador, tutor)
-    return otra or _formulario(request, sesion, hijos)
+    if otra:
+        return otra
+    # «Cambiar» desde la confirmación regresa con lo elegido (sólo para pintar: se valida al revisar).
+    q = request.query_params
+    return _formulario(request, sesion, hijos, None, q.get("origen", "")[:12],
+                       q.get("destino", "")[:12], q.get("importe", "")[:20])
 
 
 @router.post("/transferir/revisar")
@@ -147,7 +168,7 @@ def confirmar(request: Request, csrf: str = Form(""), origen_id: str = Form(""),
                 "aviso": MSG_SIN_TPV, "accion": "/transferir/confirmar", "csrf": sesion.csrf,
                 "campos": {"origen_id": origen_id.strip(), "destino_id": destino_id.strip(),
                            "importe": f"{monto:.2f}", "llave": llave},
-                "boton": "Reintentar", "volver": "/transferir"})
+                "boton": "Reintentar", "volver": "/", "volver_texto": "Ver saldos"})
         return _error(request, MSG_SIN_TPV)
     origen, destino = _ficha(hijos, origen_id), _ficha(hijos, destino_id)
     if not LLAVE.fullmatch(llave):
@@ -176,17 +197,28 @@ def confirmar(request: Request, csrf: str = Form(""), origen_id: str = Form(""),
                                  "volver a transferir")
     if estado == "incierto":
         return _pagina(request, "tutor/confirmar.html", _contexto_confirmar(
-            sesion, origen, destino, monto, llave, MSG_SIN_RESPUESTA))
+            sesion, origen, destino, monto, llave, MSG_SIN_RESPUESTA, incierto=True))
     if estado == "rechazo":
+        # Si un intento anterior con esta llave quedó sin respuesta, este rechazo no dice si aquél
+        # se aplicó: a ver saldos, no a armar otra transferencia con otra llave (Codex).
+        if ya_entro:
+            return _error(request, r, volver="/", titulo=TITULO_INCIERTO)
         return _error(request, r)
-    nuevos = {a.get("id"): a for a in r.get("alumnos") or [] if isinstance(a, dict)} \
+    # Sólo ids enteros: uno raro (objeto, lista) tumbaría la página justo después de transferir.
+    nuevos = {a["id"]: a for a in r.get("alumnos") or []
+              if isinstance(a, dict) and isinstance(a.get("id"), int)} \
         if isinstance(r.get("alumnos"), list) else {}
     n_origen, n_destino = nuevos.get(origen["id"]), nuevos.get(destino["id"])
-    if n_origen is None or n_destino is None or "disponible" not in n_origen \
-            or "disponible" not in n_destino:
-        return _error(request, MSG_INESPERADO.format(pareja["nombre"]))
+    # Saldos que no son números (null, «NaN», texto) cuentan como faltantes (Codex).
+    if n_origen is None or n_destino is None or _cantidad(n_origen.get("disponible")) is None \
+            or _cantidad(n_destino.get("disponible")) is None:
+        # El TPV dijo «ok» pero sin saldos: la transferencia pudo aplicarse. A ver saldos, no a
+        # armar otra (otra llave = otra transferencia). Hallazgo de Codex.
+        return _error(request, MSG_INESPERADO.format(pareja["nombre"]), volver="/",
+                      titulo=TITULO_INCIERTO)
     return _pagina(request, "tutor/resultado.html", {
         "titulo": "Listo, saldo transferido",
+        "titulo_fino": "Saldo", "titulo_fuerte": "transferido",
         "mensaje": f"Pasaste {dinero(monto)} de {origen['nombre']} a {destino['nombre']}.",
         "detalles": [f"Disponible de {origen['nombre']}: {dinero(n_origen['disponible'])}",
                      f"Disponible de {destino['nombre']}: {dinero(n_destino['disponible'])}"],

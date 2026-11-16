@@ -4,6 +4,8 @@ from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
+from portal.nombres import de_alumno, juntar
+
 ZONA = ZoneInfo("America/Mexico_City")
 DIAS = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
 
@@ -113,7 +115,59 @@ def fecha(d, zona: ZoneInfo | None = None) -> str:
     return f"{DIAS[d.weekday()]} {d.day:02d}/{d.month:02d}/{d.year}"
 
 
+def fecha_hora(d, zona: ZoneInfo | None = None) -> str:
+    """«14/11 08:12» en la zona de la cafetería (la lista de recargas de la administración)."""
+    if not isinstance(d, datetime):
+        return fecha(d, zona)
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    d = d.astimezone(zona or ZONA)
+    return f"{d.day:02d}/{d.month:02d} {d:%H:%M}"
+
+
+def dinero_partes(x) -> tuple[str, str, str]:
+    """Para la cifra grande: («$», «1,186», «.50»); con signo si es negativo (« -$»)."""
+    c = _cantidad(x)
+    if c is None:
+        return ("", SIN_DATO, "")
+    entero, centavos = f"{abs(c):,.2f}".split(".")
+    return ("-$" if c < 0 else "$", entero, "." + centavos)
+
+
+def nombres_de(alumno) -> str:
+    return de_alumno(alumno)[0] if isinstance(alumno, dict) else ""
+
+
+def apellidos_de(alumno) -> str:
+    if not isinstance(alumno, dict):
+        return ""
+    _, a1, a2 = de_alumno(alumno)
+    return juntar("", a1, a2)
+
+
+def nombre_corto(alumno) -> str:
+    """Nombre(s) y apellido 1 («Sofía Méndez»): el de las tarjetas de inicio."""
+    if not isinstance(alumno, dict):
+        return ""
+    n, a1, _ = de_alumno(alumno)
+    return juntar(n, a1, None) or str(alumno.get("nombre") or "")
+
+
+def nombres_visibles(hijos) -> dict:
+    """id -> nombre para las tarjetas: el corto («Sofía Méndez») si ninguno se repite; si dos
+    coinciden (como se ven, en mayúsculas), TODOS van con el nombre completo para no confundirlos
+    (al recargar o pedir mueve dinero). Expandir sólo a los repetidos podía crear otra coincidencia."""
+    hijos = [h for h in hijos if isinstance(h, dict)]
+    cortos = {h.get("id"): nombre_corto(h) for h in hijos}
+    if len({c.casefold() for c in cortos.values()}) == len(cortos):
+        return cortos
+    return {h.get("id"): str(h.get("nombre") or cortos[h.get("id")]) for h in hijos}
+
+
 def registrar(templates) -> None:
     templates.env.filters.update(dinero=dinero, fecha=fecha, cambio=cambio,
-                                 movimiento=etiqueta_movimiento)
+                                 movimiento=etiqueta_movimiento, dinero_partes=dinero_partes, fecha_hora=fecha_hora,
+                                 nombres_de=nombres_de, apellidos_de=apellidos_de,
+                                 nombre_corto=nombre_corto)
+    templates.env.globals.update(nombres_visibles=nombres_visibles)
     templates.env.globals.update(estados_pedido=ESTADOS_PEDIDO, tipos_credencial=TIPOS_CREDENCIAL)

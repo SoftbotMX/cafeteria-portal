@@ -81,7 +81,7 @@ def test_bloquear_y_desbloquear(db, tutor, hijo, c, tpv):
     assert fila.actor == f"tutor:{tutor.id}" and fila.http_status == 200
     # la ficha lo muestra
     t = c.get(f"/hijos/{hijo['id']}").text
-    assert t.count("Bloqueada") == 2 and "Activa" not in t
+    assert "Bloqueada · nadie" in t and "Bloqueado · nadie" in t and "Activ" not in t
     # y se desbloquea el QR
     g2 = c.get(_url(hijo, 2, "desbloquear"))
     assert DESBLOQUEAR_QR in g2.text
@@ -94,7 +94,7 @@ def test_bloquear_y_desbloquear(db, tutor, hijo, c, tpv):
 def test_la_ficha_muestra_tipo_estado_y_boton(hijo, c):
     t = c.get(f"/hijos/{hijo['id']}").text
     assert "Tarjeta" in t and "Código QR" in t
-    assert "Activa" in t and "Bloqueada" in t
+    assert "Activa · puede pagar" in t and "Bloqueado · nadie" in t  # tarjeta activa, QR bloqueado
     assert _url(hijo, 1, "bloquear") in t and _url(hijo, 2, "desbloquear") in t
     assert _url(hijo, 1, "desbloquear") not in t and _url(hijo, 2, "bloquear") not in t
     assert "/credenciales/3/" not in t  # la dada de baja no sale
@@ -173,7 +173,7 @@ def test_reintento_viejo_no_deshace_un_bloqueo_posterior(hijo, c, tpv):
     assert DESBLOQUEAR_QR in c.post(_url(hijo, 2, "desbloquear"), data=o).text
     tpv.alumnos[hijo["id"]]["credenciales"][1]["bloqueada"] = True  # se bloqueó después
     t = c.post(_url(hijo, 2, "desbloquear"), data=o).text
-    assert "otro tutor lo haya cambiado" in t and DESBLOQUEAR_QR not in t
+    assert "el otro padre de familia lo haya cambiado" in t and DESBLOQUEAR_QR not in t
     assert _estado(tpv, 2) is True
 
 

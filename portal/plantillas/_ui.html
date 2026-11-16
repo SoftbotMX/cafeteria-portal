@@ -1,0 +1,81 @@
+{#- Piezas de «La Charola» que se repiten. Uso: {% import "_ui.html" as ui %} -#}
+
+{#- Título en dos tonos: «portal de» fino y «PADRES DE FAMILIA» en cobre (las mayúsculas y
+    minúsculas las pone el CSS: el lector de pantalla lee el texto normal). -#}
+{% macro titulo(fino, fuerte, nivel=1, tam="") -%}
+<h{{ nivel }} class="titulo {{ tam }}"><span class="fino">{{ fino }} </span><strong>{{ fuerte }}</strong></h{{ nivel }}>
+{%- endmacro %}
+
+{% macro volver(href, texto) -%}
+<a class="volver" href="{{ href }}">{{ icono("arrow_back") }}<span>{{ texto }}</span></a>
+{%- endmacro %}
+
+{#- Aviso con ícono. tipo: "" (ámbar), "error", "listo". -#}
+{% macro aviso(texto, tipo="", rol="status") -%}
+{% set ic = {"error": "error", "listo": "check"}.get(tipo, "info") %}
+<p class="aviso {{ tipo }}" role="{{ rol }}">{{ icono(ic) }}<span>{{ texto }}</span></p>
+{%- endmacro %}
+
+{#- Logo y nombre de la cafetería de esta instalación (configurable por la administración). -#}
+{% macro marca() -%}
+{%- set c = request.state.cafeteria if request.state.cafeteria is defined else none -%}
+{% if c %}
+<div class="marca">
+  {% if c.logo_version %}<img class="marca-logo" src="/logo?v={{ c.logo_version }}" alt="Logo de {{ c.nombre }}" width="148" height="148">{% endif %}
+  <span class="marca-nombre">{{ c.nombre }}</span>
+</div>
+{% endif %}
+{%- endmacro %}
+
+{#- Encabezado de inicio: logo y nombre de la cafetería, «hola, LAURA» y salir. -#}
+{% macro saludo(nombre, csrf) -%}
+{%- set c = request.state.cafeteria if request.state.cafeteria is defined else none -%}
+<header class="saludo">
+  {% if c and c.logo_version %}<img class="saludo-logo" src="/logo?v={{ c.logo_version }}" alt="" width="48" height="48">{% endif %}
+  <div class="saludo-texto">
+    {% if c %}<span class="chico">{{ c.nombre }}</span>{% endif %}
+    {{ titulo("Hola,", nombre) }}
+  </div>
+  <form method="post" action="/salir">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="solo-icono" aria-label="Salir" title="Salir">{{ icono("logout") }}</button>
+  </form>
+</header>
+{%- endmacro %}
+
+{#- Ticket: encabezado, renglones y total con puntos guía. `renglones` son (texto, importe). -#}
+{% macro ticket(encabezado=none, lineas=(), total=none, renglones=(), total_etiqueta="Total") -%}
+<div class="ticket mono">
+  {% if encabezado %}<span class="ticket-encabezado">{{ encabezado }}</span>{% endif %}
+  {% for l in lineas %}<span>{{ l }}</span>{% endfor %}
+  {% for texto, importe in renglones %}<span class="guia"><span>{{ texto }}</span><span class="puntos"></span><span>{{ importe }}</span></span>{% endfor %}
+  {% if total %}<span class="guia fuerte"><span>{{ total_etiqueta }}</span><span class="puntos"></span><span>{{ total }}</span></span>{% endif %}
+</div>
+{%- endmacro %}
+
+{#- Recuadro con borde e ícono (avisos que hay que leer: Mercado Pago, notificación). -#}
+{% macro recuadro(ic, antes, fuerte="", despues="") -%}
+<div class="recuadro">{{ icono(ic) }}<p>{{ antes }}{% if fuerte %} <b>{{ fuerte }}</b>{% endif %}{% if despues %} {{ despues }}{% endif %}</p></div>
+{%- endmacro %}
+
+{#- Cifra grande ($ 186 .50) con el importe completo para lectores de pantalla. -#}
+{% macro cifra(valor) -%}
+{%- set signo, entero, centavos = valor | dinero_partes -%}
+<p class="cifra"><span aria-hidden="true"><span class="signo">{{ signo }}</span>{{ entero }}<span class="centavos">{{ centavos }}</span></span><span class="solo-lector">{{ valor | dinero }}</span></p>
+{%- endmacro %}
+
+{#- Botón SALIR de pie de pantalla. -#}
+{% macro salir(csrf) -%}
+<form method="post" action="/salir" class="empuja">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit" class="secundario">Salir</button>
+</form>
+{%- endmacro %}
+
+{#- «Funciona con Cafetería by Softbot»: la marca de Softbot va sólo aquí. -#}
+{% macro funciona_con(legales=true) -%}
+<footer class="funciona">
+  <img src="{{ estatico('marca/cafeteria-softbot.png') }}" alt="" width="72" height="72">
+  <span>Funciona con Cafetería by Softbot{% if legales %}<br><a href="/privacidad">Aviso de privacidad</a> · <a href="/terminos">Condiciones del servicio</a>{% endif %}</span>
+</footer>
+{%- endmacro %}

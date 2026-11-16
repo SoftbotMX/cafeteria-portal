@@ -1,31 +1,50 @@
 {% extends "base.html" %}
-{% block titulo %}Inicio · Portal de tutores{% endblock %}
+{% import "_ui.html" as ui with context %}
+{% block titulo %}Mis hijos{% endblock %}
 {% block contenido %}
-<h1>Hola, {{ tutor.nombre }}</h1>
+{{ ui.saludo(tutor.nombre_pila, csrf) }}
 {% if error_tpv %}
-  <p class="aviso">{{ error_tpv }}</p>
+  {{ ui.aviso(error_tpv, "error", "alert") }}
 {% elif not hijos %}
-  <p>Aún no tienes hijos vinculados. Pide a la cafetería que los dé de alta.</p>
+  <p class="nota">Aún no tienes hijos vinculados. Pide a la cafetería que los dé de alta.</p>
 {% else %}
-  <ul class="tarjetas">
+  {% set visibles = nombres_visibles(hijos) %}
+  <ul class="grupo hijos" role="list">
   {% for h in hijos %}
-    <li class="tarjeta">
-      <strong>{{ h.nombre }}</strong>
-      <p class="saldo">{{ h.disponible | dinero }} <span>disponible</span></p>
-      <p class="apartado">{{ h.retenido | dinero }} apartado</p>
-      {% if h.compra_sin_pedido is sameas false %}<p class="apartado">Sólo puede recoger lo que pidas</p>{% endif %}
-      {% for c in h.credenciales if c.bloqueada %}
-        <p class="alerta">Bloqueada: {{ tipos_credencial.get(c.tipo, c.tipo) }}</p>
-      {% endfor %}
-      <p class="acciones"><a class="boton" href="/hijos/{{ h.id }}/pedir">Pedir</a> <a class="boton secundario" href="/hijos/{{ h.id }}">Ver detalle</a></p>
+    <li class="hijo">
+      <div class="hijo-fila">
+        <div class="hijo-datos">
+          <h2 class="hijo-nombre">{{ visibles[h.id] }}</h2>
+          <span class="chico">{{ h.retenido | dinero }} apartado</span>
+          {% if h.compra_sin_pedido is sameas false %}<span class="hijo-nota">Sólo puede recoger lo que pidas</span>{% endif %}
+          {% for c in h.credenciales if c.bloqueada %}
+            <span class="hijo-nota rojo">{{ "Bloqueado" if c.tipo == "qr" else "Bloqueada" }}: {{ tipos_credencial.get(c.tipo, c.tipo) }}</span>
+          {% endfor %}
+        </div>
+        <div class="hijo-saldo">
+          <span class="cifra-media">{{ h.disponible | dinero }}</span>
+          <span class="chico">disponible</span>
+        </div>
+      </div>
+      <div class="par">
+        <a class="boton compacto" href="/hijos/{{ h.id }}/pedir">Pedir</a>
+        <a class="boton compacto secundario" href="/hijos/{{ h.id }}">Ver detalle</a>
+      </div>
     </li>
   {% endfor %}
   </ul>
-  {% if recargas %}<p><a class="boton" href="/recargar">Recargar saldo</a> <a href="/recargas">Mis recargas</a></p>{% endif %}
-  {% if hijos|length >= 2 %}<p><a class="boton" href="/transferir">Transferir saldo</a></p>{% endif %}
+  {% set accesos = [] %}
+  {% if recargas %}
+    {% set _ = accesos.append(("/recargar", "add_card", "Recargar saldo", true)) %}
+    {% set _ = accesos.append(("/recargas", "receipt_long", "Mis recargas", false)) %}
+  {% endif %}
+  {% if hijos|length >= 2 %}{% set _ = accesos.append(("/transferir", "swap_horiz", "Transferir saldo", false)) %}{% endif %}
+  {% if accesos %}
+  <nav class="grupo mosaico" style="--n: {{ accesos|length }}" aria-label="Saldo">
+    {% for href, ic, texto, destacado in accesos %}
+    <a href="{{ href }}"{% if destacado %} class="destacado"{% endif %}>{{ icono(ic) }}{{ texto }}</a>
+    {% endfor %}
+  </nav>
+  {% endif %}
 {% endif %}
-<form method="post" action="/salir">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <button type="submit" class="secundario">Salir</button>
-</form>
 {% endblock %}

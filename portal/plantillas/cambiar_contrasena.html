@@ -1,23 +1,26 @@
 {% extends "base.html" %}
-{% block titulo %}Cambiar contraseña · Portal de tutores{% endblock %}
+{% import "_ui.html" as ui with context %}
+{% block titulo %}Cambiar contraseña{% endblock %}
 {% block contenido %}
-<h1>Cambiar contraseña</h1>
-{% if obligatorio %}<p>Por seguridad, elige una contraseña nueva antes de continuar.</p>{% endif %}
-{% if error %}<p class="aviso" role="alert">{{ error }}</p>{% endif %}
+{{ ui.titulo("Cambiar", "contraseña") }}
+{% if obligatorio %}<p class="nota">Por seguridad, elige una contraseña nueva antes de continuar.</p>{% endif %}
+{% if error %}{{ ui.aviso(error, "error", "alert") }}{% endif %}
 <form method="post" action="/cambiar-contrasena">
   <input type="hidden" name="csrf" value="{{ csrf }}">
-  <label>Contraseña actual
-    <input type="password" name="actual" autocomplete="current-password" required>
-  </label>
-  <label>Contraseña nueva (mínimo 8 caracteres)
-    <input type="password" name="nueva" autocomplete="new-password" minlength="8" required>
-  </label>
-  <label>Repite la contraseña nueva
-    <input type="password" name="confirmar" autocomplete="new-password" minlength="8" required>
-  </label>
+  <div class="campos">
+    <label class="campo"><span>Contraseña actual</span>
+      <input type="password" name="actual" autocomplete="current-password" required>
+    </label>
+    <label class="campo"><span>Contraseña nueva (mínimo 8 caracteres)</span>
+      <input type="password" name="nueva" autocomplete="new-password" minlength="8" required>
+    </label>
+    <label class="campo"><span>Repite la contraseña nueva</span>
+      <input type="password" name="confirmar" autocomplete="new-password" minlength="8" required>
+    </label>
+  </div>
   <button type="submit">Guardar contraseña</button>
 </form>
-<form method="post" action="/salir">
+<form method="post" action="/salir" class="empuja">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <button type="submit" class="secundario">Salir</button>
 </form>

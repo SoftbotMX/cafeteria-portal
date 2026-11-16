@@ -1,10 +1,13 @@
+import hashlib
+import io
 import re
 import secrets
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
+from PIL import Image
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -18,6 +21,7 @@ from portal.credenciales import (
 )
 from portal.db import get_db
 from portal.models import Admin, Bitacora, ConfigPedidos, DiaSinServicio, Operador, Sesion, Tutor, Recarga
+from portal.nombres import juntar, partir
 from portal.reglas import ZONAS, ahora_local, cargar_reglas
 from portal.rutas.acceso import (
     MSG_EXPIRO, MSG_LIMITE, MSG_MALO,
@@ -34,7 +38,9 @@ from portal.web import templates
 
 router = APIRouter(prefix="/admin")
 
-FILAS_HIJOS = 5
+# Hijos por alta: se agregan uno por uno (la pantalla no tiene filas fijas); tope de cordura.
+MAX_HIJOS = 10
+MSG_MAX_HIJOS = f"Máximo {MAX_HIJOS} hijos por alta. Agrega los demás desde la ficha."
 _LLAVE_OK = re.compile(r"^[A-Za-z0-9-]{8,64}$")
 
 
@@ -124,25 +130,28 @@ def _filas(nombres: list[str], paternos: list[str], maternos: list[str],
            matriculas: list[str]) -> list[dict]:
     def en(lista, i):
         return lista[i] if i < len(lista) else ""
+    # Todas las filas que lleguen (el lector de formularios ya limita los campos): ninguna se
+    # descarta en silencio; si hay más de MAX_HIJOS con datos, la validación rechaza el alta.
+    n = max(len(nombres), len(paternos), len(maternos), len(matriculas))
     return [{"nombres": en(nombres, i), "paterno": en(paternos, i), "materno": en(maternos, i),
-             "matricula": en(matriculas, i)} for i in range(FILAS_HIJOS)]
+             "matricula": en(matriculas, i)} for i in range(n)]
 
 
 MSG_BLOQUEADO = ("Reintenta sin cambiar nada. Si algo está mal, termina el alta y corrígelo "
-                 "desde la ficha del tutor.")
+                 "desde la ficha del padre de familia.")
 
 
 def _pagina_alta(request: Request, sesion: Sesion, llave: str, datos: dict | None = None,
                  status: int = 200, error: str | None = None, bloqueado: bool = False):
-    d = {"nombre": "", "telefono": "", "correo": "", "filas": _filas([], [], [], [])}
+    d = {"nombre": "", "nombres": "", "apellido_1": "", "apellido_2": "", "telefono": "",
+         "correo": "", "filas": []}
     d.update(datos or {})
-    if bloqueado:
-        # El TPV ya recibió estos datos: no se editan; sólo se muestran las filas con hijo.
-        d["filas"] = [f for f in d["filas"] if any(v.strip() for v in f.values())]
+    # Sólo las filas con hijo: la pantalla las muestra en la lista y deja vacío «Agregar un hijo».
+    d["filas"] = [f for f in d["filas"] if any(v.strip() for v in f.values())]
     return templates.TemplateResponse(
         request, "admin/alta.html",
         {"csrf": sesion.csrf, "llave": llave, "error": error, "bloqueado": bloqueado,
-         "aviso_bloqueo": MSG_BLOQUEADO, **d}, status_code=status)
+         "aviso_bloqueo": MSG_BLOQUEADO, "max_hijos": MAX_HIJOS, **d}, status_code=status)
 
 
 @router.get("/alta")
@@ -150,11 +159,29 @@ def alta_form(request: Request, par: tuple[Sesion, Admin] = Depends(sesion_admin
     return _pagina_alta(request, par[0], str(uuid.uuid4()))
 
 
-def _validar(nombre: str, telefono: str, correo: str,
-             filas: list[dict]) -> tuple[DatosAlta | None, str | None]:
-    nombre = nombre.strip()
-    if not nombre or len(nombre) > 200:
-        return None, "Escribe el nombre del tutor (máximo 200 caracteres)."
+MSG_NOMBRE = ("Escribe el nombre del padre de familia: nombre(s) y apellido 1 (máximo 100 "
+              "caracteres cada uno); el apellido 2 es opcional.")
+
+
+def validar_nombre(nombre: str, nombres: str, apellido_1: str, apellido_2: str):
+    """(nombre completo, partes) o (None, mensaje). Con las partes vacías se acepta `nombre`
+    completo (formularios de antes) y se separa con la regla del TPV."""
+    n, a1, a2 = (x.strip() for x in (nombres, apellido_1, apellido_2))
+    if not (n or a1 or a2):
+        completo = nombre.strip()
+        if not completo or len(completo) > 200:
+            return None, MSG_NOMBRE
+        return completo, partir(completo)
+    if not n or not a1 or any(len(x) > 100 for x in (n, a1, a2)) or len(juntar(n, a1, a2)) > 200:
+        return None, MSG_NOMBRE
+    return juntar(n, a1, a2), (n, a1, a2 or None)
+
+
+def _validar(nombre: str, telefono: str, correo: str, filas: list[dict], nombres: str = "",
+             apellido_1: str = "", apellido_2: str = "") -> tuple[DatosAlta | None, str | None]:
+    nombre, partes = validar_nombre(nombre, nombres, apellido_1, apellido_2)
+    if nombre is None:
+        return None, partes
     tel = None
     if telefono.strip():
         tel = normalizar_telefono(telefono)
@@ -175,18 +202,25 @@ def _validar(nombre: str, telefono: str, correo: str,
         hijos.append(hijo)
     if not hijos:
         return None, "Agrega al menos un hijo."
-    return DatosAlta(nombre, tel, mail, hijos, ""), None
+    if len(hijos) > MAX_HIJOS:
+        return None, MSG_MAX_HIJOS
+    return DatosAlta(nombre, tel, mail, hijos, "", partes), None
 
 
 @router.post("/alta")
-def alta(request: Request, nombre: str = Form(""), telefono: str = Form(""),
+def alta(request: Request, nombre: str = Form(""), nombres: str = Form(""),
+         apellido_1: str = Form(""), apellido_2: str = Form(""), telefono: str = Form(""),
          correo: str = Form(""), hijo_nombres: list[str] = Form([]),
          hijo_paterno: list[str] = Form([]), hijo_materno: list[str] = Form([]),
          hijo_matricula: list[str] = Form([]), llave: str = Form(""), csrf: str = Form(""),
          par: tuple[Sesion, Admin] = Depends(sesion_admin),
          operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
     sesion, admin = par
-    ctx = {"nombre": nombre, "telefono": telefono, "correo": correo,
+    # Formulario de antes (sólo el nombre completo): se valida tal cual llegó, como siempre, para que
+    # el reintento de un alta a medias coincida exacto con lo que ya recibió el TPV (Codex).
+    legado = nombre if not (nombres.strip() or apellido_1.strip() or apellido_2.strip()) else ""
+    ctx = {"nombre": nombre, "legado": legado.strip(), "nombres": nombres, "apellido_1": apellido_1, "apellido_2": apellido_2,
+           "telefono": telefono, "correo": correo,
            "filas": _filas(hijo_nombres, hijo_paterno, hijo_materno, hijo_matricula)}
     try:
         exigir_csrf(csrf, sesion.csrf)
@@ -211,7 +245,7 @@ def alta(request: Request, nombre: str = Form(""), telefono: str = Form(""),
                 {"csrf": sesion.csrf, "tutor": previo, "admin": admin, "envio": envio})
 
     bloq = previo is not None  # el TPV ya conoce los datos de este alta
-    datos, error = _validar(nombre, telefono, correo, ctx["filas"])
+    datos, error = _validar(nombre, telefono, correo, ctx["filas"], nombres, apellido_1, apellido_2)
     if error:
         return _pagina_alta(request, sesion, llave, ctx, 400, error, bloq)
     datos.llave = llave
@@ -251,9 +285,9 @@ def _alumnos_del_tpv(cliente, tutor_ref: str) -> list[dict]:
                 isinstance(a, dict) and isinstance(a.get("id"), int) for a in alumnos):
             raise TypeError
     except ErrorTPV as e:
-        raise _SinTPV(mensaje_tpv(e, "consultar al tutor", True)) from None
+        raise _SinTPV(mensaje_tpv(e, "consultar al padre de familia", True)) from None
     except (KeyError, TypeError):
-        raise _SinTPV("El TPV respondió algo inesperado al consultar al tutor.") from None
+        raise _SinTPV("El TPV respondió algo inesperado al consultar al padre de familia.") from None
     return alumnos
 
 
@@ -276,7 +310,8 @@ def _otro_o_404(db: Session, admin: Admin, tutor: Tutor, otro_id: int) -> Tutor:
 
 def _ficha(request: Request, sesion: Sesion, admin: Admin, operador: Operador, db: Session,
            tutor: Tutor, *, otro: int | None = None, status: int = 200, error: str | None = None,
-           mensajes: list[str] | None = None, hijo_form: dict | None = None):
+           mensajes: list[str] | None = None, hijo_form: dict | None = None,
+           nombre_form: dict | None = None):
     """Pinta la ficha. Si el TPV falla, la ficha sale igual con las acciones que no lo necesitan."""
     cliente = cliente_admin(request.app, operador, request.app.state.settings.fernet_key)
     hijos, error_tpv = None, None
@@ -313,6 +348,10 @@ def _ficha(request: Request, sesion: Sesion, admin: Admin, operador: Operador, d
         "hijos": hijos, "error_tpv": error_tpv, "error": error, "mensajes": mensajes or [],
         "hijo_form": hijo_form or {"llave": "", "nombres": "", "apellido_paterno": "",
                                    "apellido_materno": "", "matricula": ""},
+        "nombre_form": nombre_form or {"llave": "", "nombres": tutor.nombres or "",
+                                       "apellido_1": tutor.apellido_1 or "",
+                                       "apellido_2": tutor.apellido_2 or "",
+                                       "antes": version_nombre(tutor)},
         "otros": otros, "otro_tutor": otro_tutor, "hijos_otro": hijos_otro,
         "ultima_entrega": ultima_entrega,
         "recuperacion_bloqueada": recuperacion_bloqueada(db, operador.id, tutor.id),
@@ -330,7 +369,7 @@ def _ctx(request, par, operador, db, tutor_id, bloquear=False):
 
 # Un envío vivo dura como mucho el timeout de Conduit (10 s) o del SMTP (15 s); 2 min deja holgura.
 ENVIO_EN_CURSO = timedelta(minutes=2)
-MSG_SIN_REF = ("El alta de este tutor no está completa en el TPV (no tiene referencia): "
+MSG_SIN_REF = ("El alta de este padre de familia no está completa en el TPV (no tiene referencia): "
                "no se pueden consultar ni cambiar sus hijos.")
 MSG_FORM_CADUCO = "El formulario caducó. Revisa los datos y envíalo de nuevo."
 
@@ -456,10 +495,10 @@ def reenviar(request: Request, tutor_id: int, intento: int = Form(0), llave: str
         return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_FORM_CADUCO)
     if not tutor.tutor_ref:
         return _ficha(request, sesion, admin, operador, db, tutor, status=400,
-                      error="El alta de este tutor no está completa en el TPV: no se generó ninguna contraseña.")
+                      error="El alta de este padre de familia no está completa en el TPV: no se generó ninguna contraseña.")
     if not tutor.activo:
         return _ficha(request, sesion, admin, operador, db, tutor, status=400,
-                      error="El tutor está desactivado. Actívalo antes de reenviar su acceso.")
+                      error="El padre de familia está desactivado. Actívalo antes de reenviar su acceso.")
     previas = entregas_de(db, operador.id, tutor.id)
     # La comparación va en SQL: el reloj es el de la BD, el mismo que puso `creado`.
     if previas and previas[-1].http_status is None and db.scalar(select(exists().where(
@@ -468,13 +507,13 @@ def reenviar(request: Request, tutor_id: int, intento: int = Form(0), llave: str
         # invalidaría la que aún está saliendo.
         db.rollback()
         return _ficha(request, sesion, admin, operador, db, tutor, status=409,
-                      error="Hay un envío de acceso en curso para este tutor. Espera un momento "
+                      error="Hay un envío de acceso en curso para este padre de familia. Espera un momento "
                             "y revisa la ficha antes de generar otra contraseña.")
     actual = len(previas) + 1
     if intento != actual:
         db.rollback()
         return _ficha(request, sesion, admin, operador, db, tutor, status=409,
-                      error="El acceso de este tutor cambió desde que abriste la ficha (¿otro clic o "
+                      error="El acceso de este padre de familia cambió desde que abriste la ficha (¿otro clic o "
                             "otra persona?). Revisa el estado y vuelve a intentar si hace falta.")
     try:
         res = entregar_credenciales(db, request.app, operador, tutor, actual,
@@ -504,11 +543,12 @@ def activo(request: Request, tutor_id: int, activo: str = Form(""), csrf: str = 
         cerrar_sesiones(db, "tutor", tutor.id)  # misma transacción: no queda una sesión viva
     db.commit()
     return _ficha(request, sesion, admin, operador, db, tutor,
-                  mensajes=["Tutor activado." if tutor.activo else "Tutor desactivado: sus sesiones se cerraron."])
+                  mensajes=["Padre de familia activado." if tutor.activo else "Padre de familia desactivado: sus sesiones se cerraron."])
 
 
 # --- Configuración de pedidos -------------------------------------------------------------
 
+MAX_ANTICIPACION = 30
 DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 _HORA = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
@@ -529,6 +569,7 @@ def _pagina_pedidos(request: Request, sesion: Sesion, admin: Admin, db: Session,
     resp = templates.TemplateResponse(
         request, "admin/pedidos.html",
         {"csrf": sesion.csrf, "admin": admin, "v": valores, "zonas": ZONAS, "error": error,
+         "max_anticipacion": MAX_ANTICIPACION,
          "dias_semana": list(enumerate(DIAS_SEMANA)), "mensajes": mensajes,
          "proximos": [d for d in dias if d.fecha >= hoy],
          "pasados": [d for d in reversed(dias) if d.fecha < hoy]},
@@ -563,8 +604,8 @@ def pedidos_guardar(request: Request, hora_limite: str = Form(""), dias: list[st
     elif zona_horaria not in ZONAS:
         error = "Elige una zona horaria de la lista."
     elif not (valores["dias_anticipacion"].isascii() and valores["dias_anticipacion"].isdigit()
-              and 1 <= int(valores["dias_anticipacion"]) <= 60):
-        error = "Los días de anticipación deben ser un número del 1 al 60."
+              and 1 <= int(valores["dias_anticipacion"]) <= MAX_ANTICIPACION):
+        error = f"Los días de anticipación deben ser un número del 1 al {MAX_ANTICIPACION}."
     if error:
         return _pagina_pedidos(request, sesion, admin, db, valores=valores, error=error, status=400)
     cfg = db.scalars(select(ConfigPedidos).where(ConfigPedidos.operador_id == admin.operador_id)
@@ -636,7 +677,8 @@ def recargas_lista(request: Request, estado: str = "",
                    par: tuple[Sesion, Admin] = Depends(sesion_admin),
                    db: Session = Depends(get_db)):
     """Las recargas del operador; las que requieren a la administración (`revision`) primero."""
-    _, admin = par
+    sesion, admin = par
+    zona = cargar_reglas(db, admin.operador_id).zona
     q = (select(Recarga, Tutor).join(Tutor, Tutor.id == Recarga.tutor_id)
          .where(Recarga.operador_id == admin.operador_id))
     if estado in ESTADOS_RECARGA:
@@ -645,7 +687,8 @@ def recargas_lista(request: Request, estado: str = "",
     atender = or_(Recarga.estado == "revision", func.jsonb_array_length(Recarga.pagos_extra) > 0)
     q = q.order_by(~atender, Recarga.id.desc()).limit(200)
     resp = templates.TemplateResponse(request, "admin/recargas.html", {
-        "filas": db.execute(q).all(), "estado": estado, "estados": ESTADOS_RECARGA})
+        "filas": db.execute(q).all(), "estado": estado, "estados": ESTADOS_RECARGA,
+        "csrf": sesion.csrf, "zona": zona})
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -660,6 +703,7 @@ def _pagina_cafeteria(request, sesion, admin, operador, numero=None, error=None,
         "csrf": sesion.csrf, "admin": admin, "error": error, "mensajes": mensajes,
         "numero": numero if numero is not None else (numero_visible(guardado) if guardado else ""),
         "visible": numero_visible(guardado) if guardado else "", "enlace": enlace_whatsapp(operador),
+        "logo_version": operador.logo_version, "nombre_cafeteria": operador.nombre,
     }, status_code=status)
     resp.headers["Cache-Control"] = "no-store"
     return resp
@@ -688,3 +732,176 @@ def cafeteria_guardar(request: Request, wa_numero: str = Form(""), csrf: str = F
     op.wa_numero = digitos or None
     db.commit()
     return _pagina_cafeteria(request, sesion, admin, op, mensajes=["Guardado."])
+
+
+# ---- logo de la cafetería (cada instalación muestra el suyo) ----
+
+LOGO_MAX = 512 * 1024
+LOGO_MIN = 64  # menos que esto no es una imagen que se pueda ver
+# Sólo mapas de bits, por su contenido (no se cree la extensión ni el tipo que manda el
+# navegador). SVG no: puede llevar scripts.
+MSG_LOGO = "Sube una imagen PNG, JPG o WebP de hasta 512 KB."
+LOGO_LADO_MAX = 2048  # se muestra a 148 px; acota la memoria al decodificar
+_IEND = b"\0\0\0\0IEND\xaeB`\x82"
+_FORMATOS_LOGO = {"PNG": "image/png", "JPEG": "image/jpeg", "WEBP": "image/webp"}
+
+
+def _webp_medidas_ok(datos: bytes) -> bool:
+    """Medidas del lienzo WebP leídas del encabezado, sin decodificar (formato RIFF de libwebp)."""
+    if len(datos) < 30 or datos[8:12] != b"WEBP":
+        return False
+    bloque = datos[12:16]
+    if bloque == b"VP8X":
+        ancho = int.from_bytes(datos[24:27], "little") + 1
+        alto = int.from_bytes(datos[27:30], "little") + 1
+    elif bloque == b"VP8 ":
+        ancho = int.from_bytes(datos[26:28], "little") & 0x3FFF
+        alto = int.from_bytes(datos[28:30], "little") & 0x3FFF
+    elif bloque == b"VP8L":
+        bits = int.from_bytes(datos[21:25], "little")
+        ancho, alto = (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
+    else:
+        return False
+    return 1 <= ancho <= LOGO_LADO_MAX and 1 <= alto <= LOGO_LADO_MAX
+
+
+def _tipo_logo(datos: bytes) -> str | None:
+    """El tipo si el archivo es una imagen PNG, JPEG o WebP que se decodifica completa. Se decide por
+    el contenido (Pillow), no por la extensión ni el tipo que manda el navegador: un archivo truncado,
+    corrupto o de otro formato no llega a guardarse y romper el logo en todo el portal."""
+    if len(datos) < LOGO_MIN:
+        return None
+    # PNG: verify() deja de leer al encontrar IEND sin revisar su suma; se exige el cierre completo.
+    if datos.startswith(b"\x89PNG") and not datos.endswith(_IEND):
+        return None
+    # WebP: Pillow reserva el lienzo al abrirlo, antes de que se puedan revisar las medidas.
+    if datos[:4] == b"RIFF" and not _webp_medidas_ok(datos):
+        return None
+    try:
+        with Image.open(io.BytesIO(datos), formats=list(_FORMATOS_LOGO)) as img:
+            tipo = _FORMATOS_LOGO.get(img.format)
+            ancho, alto = img.size
+            # Las medidas se leen del encabezado: se revisan antes de decodificar los pixeles.
+            if tipo is None or not (1 <= ancho <= LOGO_LADO_MAX and 1 <= alto <= LOGO_LADO_MAX):
+                return None
+            if getattr(img, "is_animated", False):  # load() sólo revisaría el primer cuadro
+                return None
+            # verify() revisa el contenedor (en PNG: sumas de cada bloque y que cierre con IEND);
+            # load() no lo hace, pero sí decodifica los pixeles. verify() deja la imagen inservible:
+            # se vuelve a abrir para load().
+            img.verify()
+        with Image.open(io.BytesIO(datos), formats=list(_FORMATOS_LOGO)) as img:
+            img.load()  # decodifica todo; truncado o corrupto lanza aquí
+    except Exception:  # cualquier falla del decodificador = no es una imagen que se pueda mostrar
+        return None
+    return tipo
+
+
+@router.post("/cafeteria/logo")
+def cafeteria_logo(request: Request, logo: UploadFile = File(...), csrf: str = Form(""),
+                         par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                         operador: Operador = Depends(operador_actual),
+                         db: Session = Depends(get_db)):
+    sesion, admin = par
+    exigir_csrf(csrf, sesion.csrf)
+    # Ruta síncrona (FastAPI la corre en el pool de hilos): leer y guardar en BD no congela el
+    # servidor si la fila del operador está ocupada (Codex).
+    datos = logo.file.read(LOGO_MAX + 1)
+    tipo = _tipo_logo(datos)
+    if not datos or len(datos) > LOGO_MAX or tipo is None:
+        return _pagina_cafeteria(request, sesion, admin, operador, status=400, error=MSG_LOGO)
+    op = db.get(Operador, operador.id)
+    op.logo, op.logo_tipo = datos, tipo
+    op.logo_version = hashlib.sha256(datos).hexdigest()[:12]
+    db.commit()
+    request.state.cafeteria = {"nombre": op.nombre, "logo_version": op.logo_version}
+    return _pagina_cafeteria(request, sesion, admin, op, mensajes=["Logo guardado."])
+
+
+@router.post("/cafeteria/logo/quitar")
+def cafeteria_logo_quitar(request: Request, csrf: str = Form(""),
+                          par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                          operador: Operador = Depends(operador_actual),
+                          db: Session = Depends(get_db)):
+    sesion, admin = par
+    exigir_csrf(csrf, sesion.csrf)
+    op = db.get(Operador, operador.id)
+    op.logo = op.logo_tipo = op.logo_version = None
+    db.commit()
+    request.state.cafeteria = {"nombre": op.nombre, "logo_version": None}
+    return _pagina_cafeteria(request, sesion, admin, op, mensajes=["Logo quitado."])
+
+
+# ---- corregir el nombre del padre de familia (por partes) ----
+
+def version_nombre(tutor: Tutor) -> str:
+    """Huella del nombre tal como lo tiene la ficha. Viaja en el formulario: si al guardar ya no es
+    la misma, alguien lo cambió después (otra pestaña, un reenvío viejo) y no se pisa."""
+    datos = "\x1f".join(x or "" for x in (tutor.nombre, tutor.nombres, tutor.apellido_1, tutor.apellido_2))
+    return hashlib.sha256(datos.encode()).hexdigest()[:16]
+
+
+MSG_NOMBRE_CAMBIO = "El nombre cambió desde que abriste la ficha. Revísalo y vuelve a corregirlo."
+
+
+@router.post("/tutores/{tutor_id}/nombre")
+def corregir_nombre(request: Request, tutor_id: int, nombres: str = Form(""),
+                    apellido_1: str = Form(""), apellido_2: str = Form(""), llave: str = Form(""),
+                    antes: str = Form(""), csrf: str = Form(""),
+                    par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                    operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
+    # FOR UPDATE hasta el commit: dos correcciones a la vez no se pisan.
+    sesion, admin, tutor = _ctx(request, par, operador, db, tutor_id, bloquear=True)
+    exigir_csrf(csrf, sesion.csrf)
+    # Al fallar se conservan llave, datos y huella: reintentar no escribe dos veces.
+    nombre_form = {"llave": llave, "nombres": nombres, "apellido_1": apellido_1,
+                   "apellido_2": apellido_2, "antes": antes}
+    if not tutor.tutor_ref:
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_SIN_REF)
+    if tutor.id not in tutores_con_entrega(db, operador.id):
+        # El reintento del alta exige los datos originales: no se cambia el nombre a medias.
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400,
+                      error="Termina el alta antes de corregir el nombre.")
+    if antes != version_nombre(tutor):
+        # Página vieja o reenvío tardío: no deshace una corrección posterior (Codex).
+        return _ficha(request, sesion, admin, operador, db, tutor, status=409, error=MSG_NOMBRE_CAMBIO)
+    if not _LLAVE_OK.match(llave):
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=MSG_FORM_CADUCO,
+                      nombre_form={**nombre_form, "llave": ""})
+    if not nombres.strip() and not apellido_1.strip():
+        completo, partes = None, MSG_NOMBRE
+    else:
+        completo, partes = validar_nombre("", nombres, apellido_1, apellido_2)
+    if completo is None:
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, error=partes,
+                      nombre_form=nombre_form)
+    # Siempre se escribe el nombre completo (si no cambió, el TPV no cambia nada) y se confirma
+    # con una lectura: lo que queda en la ficha es lo que el TPV tiene AHORA.
+    cliente = cliente_admin(request.app, operador, request.app.state.settings.fernet_key)
+    try:
+        escribir_tpv(db, operador, cliente, f"admin:{admin.usuario}"[:50], "admin/tutor/editar",
+                     {"tutor_ref": tutor.tutor_ref, "nombre": completo, "llave": llave})
+    except ErrorTPV as e:
+        db.commit()  # la bitácora del intento fallido es verdad
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400,
+                      error=mensaje_tpv(e, "corregir el nombre", True), nombre_form=nombre_form)
+    try:
+        vigente = cliente.leer("admin/tutor/detalle", {"tutor_ref": tutor.tutor_ref})["tutor"]["nombre"]
+        if not isinstance(vigente, str) or not vigente.strip():
+            raise TypeError
+    except (ErrorTPV, KeyError, TypeError):
+        db.commit()  # la bitácora de la escritura es verdad; la ficha no se toca
+        return _ficha(request, sesion, admin, operador, db, tutor, status=400, nombre_form=nombre_form,
+                      error="El TPV recibió el cambio, pero no pudimos confirmar el nombre que quedó. "
+                            "Vuelve a tocar «Guardar nombre» en un momento (no se repite).")
+    vigente = vigente.strip()[:200]
+    if vigente == completo:
+        aviso = "Nombre corregido."
+    else:
+        partes = partir(vigente)
+        aviso = f"El TPV tiene otro nombre; la ficha quedó como «{vigente}»."
+    tutor.nombre = vigente
+    tutor.nombres, tutor.apellido_1, tutor.apellido_2 = (
+        (partes[0] or "")[:100] or None, partes[1] and partes[1][:100], partes[2] and partes[2][:100])
+    db.commit()
+    return _ficha(request, sesion, admin, operador, db, tutor, mensajes=[aviso])

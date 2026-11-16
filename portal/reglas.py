@@ -98,3 +98,70 @@ def puede_cancelar(reglas: Reglas, fecha_entrega: date, ahora_utc: datetime) -> 
     if fecha_entrega == hoy:
         return not _paso_limite(reglas, local)
     return True
+
+
+MESES_CORTOS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
+DIAS_CORTOS = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
+
+
+@dataclass(frozen=True)
+class DiaPedido:
+    fecha: date
+    hoy: bool
+    motivo: str | None  # None = se puede pedir
+
+    @property
+    def corto(self) -> str:
+        """«LUN»… o «HOY»."""
+        return "HOY" if self.hoy else DIAS_CORTOS[self.fecha.weekday()].upper()
+
+    @property
+    def dia_mes(self) -> str:
+        return f"{self.fecha.day} {MESES_CORTOS[self.fecha.month - 1]}"
+
+
+@dataclass(frozen=True)
+class SemanaPedido:
+    inicio: date              # lunes
+    dias: tuple[DiaPedido, ...]
+    actual: bool = False      # la semana de hoy
+
+    @property
+    def etiqueta(self) -> str:
+        """«del 11 al 15 nov» o «del 25 nov al 1 dic» (del primer al último día que se muestra)."""
+        a, b = self.dias[0].fecha, self.dias[-1].fecha
+        if a.month == b.month:
+            return f"del {a.day} al {b.day} {MESES_CORTOS[b.month - 1]}"
+        return f"del {a.day} {MESES_CORTOS[a.month - 1]} al {b.day} {MESES_CORTOS[b.month - 1]}"
+
+
+def semanas_para_pedir(reglas: Reglas, ahora_utc: datetime,
+                       motivos: dict[date, str] | None = None) -> list[SemanaPedido]:
+    """Semanas (de lunes) desde la de hoy hasta la del último día que se puede pedir. Columnas:
+    lunes a viernes, y sábado o domingo sólo si la cafetería da servicio ese día. Cada día dice
+    por qué no se puede (la misma regla que valida el pedido); `motivos` agrega el motivo que
+    capturó la administración a los días sin servicio."""
+    hoy = ahora_local(reglas, ahora_utc).date()
+    ultimo = hoy + timedelta(days=reglas.anticipacion)
+    columnas = [d for d in range(7) if d < 5 or d in reglas.dias_servicio]
+    semanas = []
+    lunes = hoy - timedelta(days=hoy.weekday())
+    while lunes <= ultimo:
+        dias = []
+        for d in columnas:
+            f = lunes + timedelta(days=d)
+            motivo = motivo_fecha_invalida(reglas, f, ahora_utc)
+            if motivo == "Ese día no hay servicio." and (motivos or {}).get(f):
+                motivo = f"Sin servicio: {motivos[f]}"
+            dias.append(DiaPedido(f, f == hoy, motivo))
+        # Una semana sin ningún día disponible (p. ej. hoy es sábado sin servicio) no se ofrece.
+        if any(d.motivo is None for d in dias):
+            semanas.append(SemanaPedido(lunes, tuple(dias), lunes <= hoy < lunes + timedelta(days=7)))
+        lunes += timedelta(days=7)
+    return semanas
+
+
+def motivos_sin_servicio(db: Session, operador_id: int) -> dict[date, str]:
+    return {f: m for f, m in db.execute(
+        select(DiaSinServicio.fecha, DiaSinServicio.motivo)
+        .where(DiaSinServicio.operador_id == operador_id)) if m}

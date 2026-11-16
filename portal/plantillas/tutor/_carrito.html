@@ -1,18 +1,22 @@
+{#- 5t: una sección por categoría. Necesita `nombre` (nombre(s) del hijo) y `ui`. -#}
 {% for categoria, productos in grupos %}
-<h2>{{ categoria }}</h2>
-{% for p in productos %}
-<div class="producto">
-  <div><strong>{{ p.nombre }}</strong><br><small>{{ p.precio | dinero }}</small></div>
-  <div class="cantidad">
-    <button type="button" class="paso secundario" aria-label="Quitar uno: {{ p.nombre }}"
-            onclick="paso(this, -1)">&minus;</button>
-    <input type="number" name="cant_{{ p.id }}" min="0" max="20" step="1" inputmode="numeric"
-           value="{{ cantidades.get(p.id, 0) }}" aria-label="Cantidad: {{ p.nombre }}">
-    <button type="button" class="paso secundario" aria-label="Agregar uno: {{ p.nombre }}"
-            onclick="paso(this, 1)">+</button>
+<section class="panel" id="cat-{{ loop.index }}" aria-labelledby="titulo-cat-{{ loop.index }}">
+  <a class="volver" href="#categorias" data-a-categorias>{{ icono("arrow_back") }}<span>Categorías</span></a>
+  <h2 class="titulo mediano" id="titulo-cat-{{ loop.index }}"><span class="fino">{{ nombre }} · </span><strong>{{ categoria }}</strong></h2>
+  <p class="nota">Entrega: <b data-entrega>{{ fecha | fecha }}</b> · <a href="#dia">cambiar día</a></p>
+  {% for p in productos %}
+  <div class="producto">
+    <div class="producto-datos">
+      <span class="producto-nombre">{{ p.nombre }}</span>
+      <span class="producto-precio">{{ p.precio | dinero }}</span>
+    </div>
+    <div class="cantidad">
+      <button type="button" class="paso" data-paso="-1" aria-label="Quitar uno: {{ p.nombre }}">{{ icono("remove") }}</button>
+      <input type="number" name="cant_{{ p.id }}" min="0" max="20" step="1" inputmode="numeric"
+             value="{{ cantidades.get(p.id, 0) }}" aria-label="Cantidad: {{ p.nombre }}">
+      <button type="button" class="paso mas" data-paso="1" aria-label="Agregar uno: {{ p.nombre }}">{{ icono("add") }}</button>
+    </div>
   </div>
-</div>
+  {% endfor %}
+</section>
 {% endfor %}
-{% endfor %}
-{% include "tutor/_total.html" %}
-{% if hijo is defined %}<p class="apartado">Disponible de {{ hijo.nombre }}: {{ hijo.disponible | dinero }}</p>{% endif %}

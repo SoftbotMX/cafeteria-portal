@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from portal.models import Bitacora, ConfigPedidos
 from portal.reglas import ahora_utc
-from tests.fabricas import crear_operador, crear_tutor, csrf_de, entrar_tutor
+from tests.fabricas import crear_operador, crear_tutor, csrf_de, entrar_tutor, texto
 from tests.test_tutor_pedir import MENU, _confirmacion, _confirmar, _ocultos
 from tests.tpv_falso import TPVFalso
 
@@ -108,7 +108,7 @@ def test_sin_pedidos_lo_dice(hijo, c):
 def test_pedidos_caidos_no_tumban_la_pantalla(hijo, c, tpv):
     _pedir(c, hijo)
     tpv.fallar_en = {"alumno/pedidos"}
-    t = c.get(f"/hijos/{hijo['id']}").text
+    t = texto(c.get(f"/hijos/{hijo['id']}").text)
     assert "Luis Pérez" in t and "$110.00" in t and "Saldo apartado" in t  # saldo y movimientos
     assert "No pudimos consultar los pedidos" in t and "PC-00001" not in t
 

@@ -91,9 +91,12 @@ def _confirmacion(c, hijo, fecha=MANANA, **cants):
 
 def test_menu_agrupado_por_categoria_con_precio(hijo, c):
     t = c.get(f"/hijos/{hijo['id']}/pedir").text
-    assert t.index("Comida") < t.index("Torta de jamón") < t.index("Quesadilla") < t.index("Bebidas")
-    assert t.index("Bebidas") < t.index("Agua de limón")
-    assert t.count("Comida") == 1
+    # Lista de categorías (5g) y luego una sección por categoría (5t), en el orden del menú.
+    lista, comida, bebidas = t.split('class="panel"')
+    assert lista.index("Comida") < lista.index("Bebidas") and "Torta de jamón" not in lista
+    assert "<strong>Comida</strong>" in comida and "<strong>Bebidas</strong>" in bebidas
+    assert comida.index("Torta de jamón") < comida.index("Quesadilla") and "Agua de limón" in bebidas
+    assert t.count("<strong>Comida</strong>") == 1 and 'href="#cat-1"' in t
     assert "$45.00" in t and "$15.50" in t and "$30.00" in t
     assert "mié 21/10/2026" in t  # primer día disponible (hoy)
     assert 'name="cant_10"' in t
@@ -504,4 +507,28 @@ def test_total_en_vivo_no_lee_los_hijos(hijo, c, tpv):
 
 def test_pedir_muestra_el_disponible_junto_al_total(hijo, c):
     t = c.get(f"/hijos/{hijo['id']}/pedir").text
-    assert f"Disponible de {hijo['nombre']}: $" in t
+    assert f"· disponible {'$'}" in t  # en la barra, junto al total
+
+
+def test_seguir_pidiendo_conserva_dia_y_cantidades(hijo, c):
+    r = _revisar(c, hijo, **{"10": "2", "12": "1"})
+    volver = re.search(r'class="volver" href="([^"]+)"', r.text).group(1).replace("&amp;", "&")
+    assert "Seguir pidiendo" in r.text and f"fecha={MANANA}" in volver
+    t = c.get(volver).text
+    assert re.search(r'name="cant_10"[^>]*value="2"', t) and re.search(r'name="cant_12"[^>]*value="1"', t)
+    assert re.search(f'value="{MANANA}"[^>]*checked', t)
+    assert f'<a class="boton secundario" href="/hijos/{hijo["id"]}" data-salir>Cancelar</a>' in r.text
+
+
+def test_pedir_ignora_cantidades_raras_en_la_url(hijo, c):
+    t = c.get(f"/hijos/{hijo['id']}/pedir?cant_10=999&cant_x=1&cant_12=-1").text
+    assert re.search(r'name="cant_10"[^>]*value="0"', t) and re.search(r'name="cant_12"[^>]*value="0"', t)
+
+
+def test_sin_respuesta_no_ofrece_cancelar_ni_seguir_pidiendo(hijo, c, tpv):
+    o = _confirmacion(c, hijo, **{"10": "1"})
+    tpv.fallar_en = {"precompra"}
+    r = _confirmar(c, hijo, o)
+    assert "puede haberse registrado" in r.text and _ocultos(r)["llave"] == o["llave"]
+    assert ">Cancelar</a>" not in r.text and "Seguir pidiendo" not in r.text
+    assert f'href="/hijos/{hijo["id"]}"' in r.text and "Ver pedidos" in r.text

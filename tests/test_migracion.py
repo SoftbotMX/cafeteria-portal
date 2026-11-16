@@ -29,7 +29,7 @@ def test_migracion_crea_tablas():
     try:
         command.upgrade(cfg, "head")
         with eng.connect() as con:
-            assert con.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0007"
+            assert con.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0009"
         assert TABLAS <= set(inspect(eng).get_table_names())
         idx = {i["name"]: i for i in inspect(eng).get_indexes("tutor")}
         for n in ("uq_tutor_operador_telefono", "uq_tutor_operador_correo", "uq_tutor_operador_alta_llave"):

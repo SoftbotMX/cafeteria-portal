@@ -1,4 +1,4 @@
-# Portal de tutores — cafetería escolar
+# Portal de padres de familia — cafetería escolar
 
 Portal web de Softbot para los papás de una cafetería escolar que usa **Softbot TPV**: saldo de sus
 hijos, pedidos con fecha, recargas con MercadoPago y alta por la administración de la cafetería.
@@ -39,7 +39,7 @@ Los secretos (TPV, Conduit, contraseña del admin) se piden con `getpass`, nunca
 
 ## Límites de intentos
 
-Ventana de 15 min. Tutores: 5 fallos por usuario y 50 por IP (alto por CGNAT y wifi de la escuela).
+Ventana de 15 min. Padres de familia: 5 fallos por usuario y 50 por IP (alto por CGNAT y wifi de la escuela).
 Administración: contador propio de 20 por IP, para que los papás no puedan bloquear al personal.
 Recuperación de contraseña: 3 solicitudes de código por usuario y 30 por IP (no cuentan como fallos
 de login); los códigos incorrectos sí cuentan contra la IP.
@@ -66,7 +66,7 @@ MercadoPago (sólo tarjeta o saldo de MP: sin OXXO ni SPEI) y el TPV acredita co
 ## Bot de WhatsApp guiado
 
 Conduit (Broker Mode) reenvía lo que escribe el papá a `/api/conduit/incoming/{validate,message}`
-(firmado con el `broker_secret`); el portal identifica al tutor por su teléfono y el bot
+(firmado con el `broker_secret`); el portal identifica al padre de familia por su teléfono y el bot
 (`portal/bot.py`) contesta por `/api/broker/reply`. Menú por números: saldo, recargar (total y
 reparto por hijo, liga de MP), pedir (por categorías, carrito numerado, *eliminar N*), mis pedidos
 (cancelar), transferir (pesos enteros), compras sin pedido, tarjetas, terminar. Las acciones salen

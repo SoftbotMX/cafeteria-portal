@@ -222,7 +222,7 @@ def _cambiar(db, app, operador, tutor, hijo, operacion, cuerpo, llave, leer, obj
             actual = None
         if actual is not objetivo:
             return Resultado("ok", f"Tu cambio se registró, pero la ficha de {hijo['nombre']} ya "
-                                   "no está así: puede que otro tutor lo haya cambiado.")
+                                   "no está así: puede que otro padre de familia lo haya cambiado.")
     if ya_esta and not entro:
         return Resultado("ok", f"Ya estaba así: {texto_listo}")
     return Resultado("ok", f"Listo: {texto_listo}")

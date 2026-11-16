@@ -1,9 +1,11 @@
 {% extends "tutor/confirmar.html" %}
+{% import "_ui.html" as ui with context %}
 {% block resumen %}
-<p>Para <strong>{{ para }}</strong>, el día <strong>{{ dia | fecha }}</strong>:</p>
-<ul class="resumen">
-  {% for l in lineas %}<li>{{ l }}</li>{% endfor %}
-</ul>
-<p class="saldo">{{ total | dinero }} <span>total estimado</span></p>
-<p class="apartado">{{ disponible | dinero }} disponible de {{ para }}. El total final lo fija la cafetería.</p>
+<p class="nota">Para <b>{{ para }}</b>, el día <b>{{ dia | fecha }}</b>:</p>
+{{ ui.ticket(renglones=renglones) }}
+<div>
+  {{ ui.cifra(total) }}
+  <span class="chico">total estimado</span>
+</div>
+<p class="nota">{{ disponible | dinero }} disponible de {{ para }}. El total final lo fija la cafetería.</p>
 {% endblock %}

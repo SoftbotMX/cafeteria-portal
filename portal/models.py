@@ -2,11 +2,11 @@ from datetime import date, datetime, time
 from decimal import Decimal
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Time, UniqueConstraint,
-    func, text,
+    Boolean, Date, DateTime, ForeignKey, Index, Integer, LargeBinary, Numeric, String, Time,
+    UniqueConstraint, func, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, deferred, mapped_column
 
 from portal.cifrado import descifrar
 from portal.db import Base
@@ -39,6 +39,11 @@ class Operador(Base):
     wa_plantillas: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     # WhatsApp de la cafetería, sólo dígitos con lada de país (p. ej. 19563825162): va en los correos.
     wa_numero: Mapped[str | None] = mapped_column(String(20))
+    # Logo de la cafetería (lo sube la administración en «Datos de la cafetería»). Los bytes sólo
+    # se cargan al servir /logo; `logo_version` (huella corta) basta para pintar el <img>.
+    logo: Mapped[bytes | None] = deferred(mapped_column(LargeBinary))
+    logo_tipo: Mapped[str | None] = mapped_column(String(30))
+    logo_version: Mapped[str | None] = mapped_column(String(16))
     creado: Mapped[datetime] = _creado()
 
     def secreto_tpv(self, llave_fernet: str) -> str:
@@ -87,7 +92,12 @@ class Tutor(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     operador_id: Mapped[int] = mapped_column(ForeignKey("operador.id"))
     tutor_ref: Mapped[str] = mapped_column(String(100))
+    # `nombre` es el completo (el que recibe el TPV y sale en avisos); las partes son para el
+    # saludo y los formularios. Se escriben juntos (portal/nombres.py).
     nombre: Mapped[str] = mapped_column(String(200))
+    nombres: Mapped[str | None] = mapped_column(String(100))
+    apellido_1: Mapped[str | None] = mapped_column(String(100))
+    apellido_2: Mapped[str | None] = mapped_column(String(100))
     telefono: Mapped[str | None] = mapped_column(String(20))
     correo: Mapped[str | None] = mapped_column(String(255))
     contrasena_hash: Mapped[str] = mapped_column(String)
@@ -95,6 +105,20 @@ class Tutor(Base):
     activo: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     alta_llave: Mapped[str | None] = mapped_column(String(120))
     creado: Mapped[datetime] = _creado()
+
+    @property
+    def nombre_pila(self) -> str:
+        """Nombre(s) para el saludo («hola, Laura»)."""
+        from portal.nombres import partir
+        return self.nombres or partir(self.nombre)[0]
+
+    @property
+    def apellidos(self) -> str:
+        from portal.nombres import juntar, partir
+        if self.nombres:
+            return juntar("", self.apellido_1, self.apellido_2)
+        _, a1, a2 = partir(self.nombre)
+        return juntar("", a1, a2)
 
 
 class Sesion(Base):

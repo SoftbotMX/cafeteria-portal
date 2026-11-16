@@ -27,7 +27,7 @@ def test_entrar_con_telefono_formateado(db, op, c):
     crear_tutor(db, op, debe_cambiar=False)
     r = entrar_tutor(c, "(834) 144-5807", "temporal123")
     assert r.status_code == 303 and r.headers["location"] == "/"
-    assert "Ana López" in c.get("/").text
+    assert "<strong>Ana</strong>" in c.get("/").text  # «hola, ANA»: sólo el nombre
 
 
 def test_entrar_con_correo_en_mayusculas(db, op, c):
@@ -265,7 +265,9 @@ EXENTAS = {"/entrar", "/salir", "/cambiar-contrasena", "/salud", "/openapi.json"
            # Lo llama MercadoPago, sin sesión: no se le cree, se consulta el pago en su API.
            "/mp/aviso",
            # Páginas legales públicas: Meta las revisa sin iniciar sesión; no leen datos.
-           "/privacidad", "/terminos", "/eliminar-datos"}
+           "/privacidad", "/terminos", "/eliminar-datos",
+           # Logo de la cafetería: sale en la pantalla de entrar, antes de la sesión. Es público.
+           "/logo"}
 # /api/conduit: lo llama Conduit (Broker Mode), firmado con HMAC, sin sesión de papá.
 # /mcp: lo llama la IA con su token (Bearer), sin sesión de papá.
 PREFIJOS_EXENTOS = ("/estatico", "/admin", "/recuperar", "/api/conduit", "/mcp")

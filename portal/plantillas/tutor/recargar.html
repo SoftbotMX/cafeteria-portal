@@ -1,19 +1,42 @@
 {#- Contexto: hijos, csrf, error, valores (lo capturado), minimo, maximo. -#}
 {% extends "base.html" %}
-{% block titulo %}Recargar saldo · Portal de tutores{% endblock %}
+{% import "_ui.html" as ui with context %}
+{% block titulo %}Recargar saldo{% endblock %}
 {% block contenido %}
-<h1>Recargar saldo</h1>
-<p>Escribe cuánto le recargas a cada hijo, en pesos. El total va de {{ minimo | dinero | replace(".00", "") }} a {{ maximo | dinero | replace(".00", "") }}.</p>
-{% if error %}<p class="aviso">{{ error }}</p>{% endif %}
-<form method="post" action="/recargar/revisar">
+{{ ui.volver("/", "Volver") }}
+{{ ui.titulo("Recargar", "saldo") }}
+<p class="nota">Escribe cuánto le recargas a cada hijo, en pesos. El total va de {{ minimo | dinero | replace(".00", "") }} a {{ maximo | dinero | replace(".00", "") }}.</p>
+{% if error %}{{ ui.aviso(error, "error", "alert") }}{% endif %}
+<form id="recarga" class="pedido" method="post" action="/recargar/revisar">
   <input type="hidden" name="csrf" value="{{ csrf }}">
-  {% for h in hijos %}
-  <label>{{ h.nombre }} <small>({{ h.disponible | dinero }} disponible)</small>
-    <input type="text" name="importe_{{ h.id }}" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
-           placeholder="0" value="{{ valores.get('importe_' ~ h.id, '') }}">
-  </label>
-  {% endfor %}
-  <button type="submit">Revisar</button>
+  {% set visibles = nombres_visibles(hijos) %}
+  <div class="grupo">
+    {% for h in hijos %}
+    <label class="importe-hijo">
+      <span class="opcion-texto">
+        <span class="hijo-nombre">{{ visibles[h.id] }}</span>
+        <span class="chico">{{ h.disponible | dinero }} disponible</span>
+      </span>
+      <span class="importe-campo"><span aria-hidden="true">$</span>
+        <input type="text" name="importe_{{ h.id }}" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
+               placeholder="0" value="{{ valores.get('importe_' ~ h.id, '') }}" aria-label="Recarga para {{ h.nombre }}, en pesos">
+      </span>
+    </label>
+    {% endfor %}
+  </div>
+  <a class="enlace" href="/recargas">Mis recargas</a>
+  {% set ns = namespace(total=0, hijos=0) %}
+  {% for h in hijos %}{% set v = valores.get('importe_' ~ h.id, '') | trim %}{% set n = v | int(0) if v.isascii() and v.isdigit() and v|length <= 7 else 0 %}{% if n > 0 %}{% set ns.total = ns.total + n %}{% set ns.hijos = ns.hijos + 1 %}{% endif %}{% endfor %}
+  <div class="barra">
+    <div class="barra-total" aria-live="polite">
+      <span class="barra-cifra" data-total>{{ ns.total | dinero }}</span>
+      <span class="barra-info" data-hijos>total · {{ ns.hijos }} hijo{{ "s" if ns.hijos != 1 }}</span>
+    </div>
+    <div class="barra-botones">
+      <a class="boton barra-cancelar" href="/">Cancelar</a>
+      <button type="submit" class="barra-listo">Listo {{ icono("arrow_forward") }}</button>
+    </div>
+  </div>
 </form>
-<p><a href="/">&larr; Volver</a> · <a href="/recargas">Mis recargas</a></p>
+<script src="{{ estatico('recargar.js') }}" defer></script>
 {% endblock %}

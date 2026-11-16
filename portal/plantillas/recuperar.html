@@ -1,15 +1,19 @@
 {% extends "base.html" %}
-{% block titulo %}Recuperar contraseña · Portal de tutores{% endblock %}
+{% import "_ui.html" as ui with context %}
+{% block titulo %}Recuperar contraseña{% endblock %}
 {% block contenido %}
-<h1>Recuperar contraseña</h1>
-<p>Escribe tu teléfono o correo. {{ mensaje }}.</p>
-{% if error %}<p class="aviso" role="alert">{{ error }}</p>{% endif %}
+{{ ui.volver("/entrar", "Volver a entrar") }}
+{{ ui.titulo("Recuperar", "contraseña") }}
+<p class="nota">Escribe tu teléfono o correo. {{ mensaje }}.</p>
+{% if error %}{{ ui.aviso(error, "error", "alert") }}{% endif %}
 <form method="post" action="/recuperar">
   <input type="hidden" name="csrf" value="{{ csrf }}">
-  <label>Teléfono o correo
-    <input name="usuario" value="{{ usuario }}" autocomplete="username" required autofocus>
-  </label>
+  <div class="campos">
+    <label class="campo"><span>Teléfono o correo</span>
+      <input name="usuario" value="{{ usuario }}" autocomplete="username" autocapitalize="none"
+             spellcheck="false" required autofocus>
+    </label>
+  </div>
   <button type="submit">Mandar código</button>
 </form>
-<p><a href="/entrar">Volver a entrar</a></p>
 {% endblock %}

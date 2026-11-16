@@ -1,24 +1,28 @@
+{% import "_ui.html" as ui with context %}
 {% if error_mov and pagina > 1 %}
-<div id="mas-{{ pagina }}">
-  <p class="aviso">{{ error_mov }}</p>
+<div id="mas-{{ pagina }}" class="mas-renglones">
+  {{ ui.aviso(error_mov) }}
   <a class="boton secundario" href="/hijos/{{ alumno_id }}?pagina={{ pagina }}"
      hx-get="/hijos/{{ alumno_id }}/movimientos?pagina={{ pagina }}"
      hx-target="#mas-{{ pagina }}" hx-swap="outerHTML">Reintentar</a>
 </div>
-{% elif error_mov %}<p class="aviso">{{ error_mov }}</p>{% endif %}
-{% if not movs and not error_mov and pagina == 1 %}<p>Todavía no hay movimientos.</p>{% endif %}
+{% elif error_mov %}<p>{{ ui.aviso(error_mov) }}</p>{% endif %}
+{% if not movs and not error_mov and pagina == 1 %}<p class="nota">Todavía no hay movimientos.</p>{% endif %}
 {% for m in movs %}
-<div class="movimiento">
-  <div><strong>{{ m | movimiento }}</strong><br><small>{{ m.fecha | fecha(zona) }}</small></div>
-  <div class="importe">
+<div class="renglon movimiento-r">
+  <div class="renglon-datos">
+    <span class="renglon-titulo">{{ m | movimiento }}</span>
+    <span class="chico">{{ m.fecha | fecha(zona) }}</span>
+  </div>
+  <div class="importes">
     {% set d = m.disponible | cambio %}{% set r = m.retenido | cambio %}
-    {% if d %}<span class="{{ 'mas' if d[0] == '+' else ('menos' if d[0] == '-' else '') }}">{{ d }}</span>{% endif %}
-    {% if r %}<small>{{ r }} apartado</small>{% endif %}
+    {% if d %}<span class="cifra-media{{ ' mas' if d[0] == '+' }}">{{ d }}</span>{% endif %}
+    {% if r %}<span class="chico">{{ r }} apartado</span>{% endif %}
   </div>
 </div>
 {% endfor %}
 {% if hay_mas %}
-<div id="mas-{{ pagina + 1 }}">
+<div id="mas-{{ pagina + 1 }}" class="mas-renglones">
   {# Sin JavaScript es un enlace a la página completa de esa tanda; con HTMX se inserta aquí. #}
   <a class="boton secundario" href="/hijos/{{ alumno_id }}?pagina={{ pagina + 1 }}"
      hx-get="/hijos/{{ alumno_id }}/movimientos?pagina={{ pagina + 1 }}"

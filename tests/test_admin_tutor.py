@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from portal.models import Bitacora, Sesion, Tutor
 from portal.seguridad import verificar_contrasena
-from tests.fabricas import crear_admin, crear_operador, crear_tutor, csrf_de, entrar_tutor
+from tests.fabricas import crear_admin, crear_operador, crear_tutor, csrf_de, entrar_tutor, texto
 from tests.test_admin_alta import (  # noqa: F401  fixtures compartidas
     _contrasena, admin, c, conduit, datos_alta, entrar_admin, op, tpv,
 )
@@ -390,7 +390,7 @@ def test_formulario_de_alta_viejo_tras_un_reenvio_no_genera_contrasena(db, op, a
     h = db.query(Tutor).one().contrasena_hash
     datos["csrf"] = csrf_de(admin.get("/admin"))
     r2 = admin.post("/admin/alta", data=datos)
-    assert r2.status_code == 200 and "Este alta ya se completó" in r2.text
+    assert r2.status_code == 200 and "Este alta ya se completó" in texto(r2.text)
     assert 'id="contrasena"' not in r2.text
     db.expire_all()
     assert db.query(Tutor).one().contrasena_hash == h
