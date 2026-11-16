@@ -1,50 +1,74 @@
-{% extends "base.html" %}
+{#- 4f. Horario de pedidos y días sin servicio. -#}
+{% extends "admin/_base.html" %}
+{% import "_ui.html" as ui with context %}
+{% set seccion = "horario" %}
 {% block titulo %}Horario de pedidos · Administración{% endblock %}
 {% block contenido %}
-<h1>Horario de pedidos</h1>
-<p><a href="/admin">Volver a tutores</a></p>
-{% if error %}<p class="alerta" role="alert">{{ error }}</p>{% endif %}
-<form method="post" action="/admin/pedidos">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <label>Hora límite para pedir para el mismo día
-    <input type="time" name="hora_limite" value="{{ v.hora_limite }}">
-    <small>Déjala vacía si no hay hora límite. A partir de esa hora ya no se pide ni se cancela para hoy.</small>
-  </label>
-  <fieldset>
-    <legend>Días con servicio</legend>
-    {% for n, nombre in dias_semana %}
-    <label><span><input type="checkbox" name="dias" value="{{ n }}"{% if n|string in v.dias %} checked{% endif %}> {{ nombre }}</span></label>
-    {% endfor %}
-  </fieldset>
-  <label>Zona horaria
-    <select name="zona_horaria">
-      {% for z in zonas %}<option value="{{ z }}"{% if z == v.zona_horaria %} selected{% endif %}>{{ z }}</option>{% endfor %}
-    </select>
-  </label>
-  <label>Días de anticipación (1 a 60)
-    <input type="number" name="dias_anticipacion" min="1" max="60" value="{{ v.dias_anticipacion }}" required>
-  </label>
-  <button type="submit">Guardar</button>
-</form>
-
-<h2>Días sin servicio</h2>
-<form method="post" action="/admin/pedidos/sin-servicio">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <label>Fecha <input type="date" name="fecha" required></label>
-  <label>Motivo (opcional) <input type="text" name="motivo" maxlength="200"></label>
-  <button type="submit">Agregar</button>
-</form>
-{% macro fila(d, pasado) %}
-  <li class="movimiento"{% if pasado %} style="opacity:.55"{% endif %}>
-    <span>{{ d.fecha.strftime("%d/%m/%Y") }}{% if d.motivo %} · {{ d.motivo }}{% endif %}</span>
-    <form method="post" action="/admin/pedidos/sin-servicio/{{ d.id }}/borrar">
+<div class="admin-dos">
+  <div class="admin-columna">
+    {{ ui.titulo("Horario de", "pedidos", tam="admin") }}
+    {% if error %}{{ ui.aviso(error, "error", "alert") }}{% endif %}
+    <form method="post" action="/admin/pedidos">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button type="submit" class="secundario">Quitar</button>
+      <div class="campos">
+        <label class="campo"><span>Hora límite para pedir para el mismo día</span>
+          <input type="time" name="hora_limite" value="{{ v.hora_limite }}">
+        </label>
+      </div>
+      <p class="nota">Déjala vacía si no hay hora límite. A partir de esa hora ya no se pide ni se cancela para hoy.</p>
+      <fieldset class="dias-servicio">
+        <legend class="etiqueta-seccion">Días con servicio</legend>
+        <div class="grupo dias" style="--n: 7">
+          {% for n, nombre in dias_semana %}
+          <label class="dia"><input type="checkbox" name="dias" value="{{ n }}"{% if n|string in v.dias %} checked{% endif %}>
+            <span class="dia-nombre">{{ nombre[:3] }}</span><span class="solo-lector">{{ nombre }}</span></label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      <div class="campos rejilla-2">
+        <label class="campo seleccion"><span>Zona horaria</span>
+          <select name="zona_horaria">
+            {% for z in zonas %}<option value="{{ z }}"{% if z == v.zona_horaria %} selected{% endif %}>{{ z }}</option>{% endfor %}
+          </select>
+          {{ icono("expand_more") }}
+        </label>
+        <label class="campo"><span>Días de anticipación (1 a {{ max_anticipacion }})</span>
+          <input type="number" name="dias_anticipacion" min="1" max="{{ max_anticipacion }}" value="{{ v.dias_anticipacion }}" required>
+        </label>
+      </div>
+      <button type="submit" class="chico-boton">Guardar</button>
     </form>
-  </li>
-{% endmacro %}
-<ul class="tarjetas">
-  {% for d in proximos %}{{ fila(d, false) }}{% else %}<li>No hay días sin servicio próximos.</li>{% endfor %}
-</ul>
-{% if pasados %}<h3>Pasados</h3><ul class="tarjetas">{% for d in pasados %}{{ fila(d, true) }}{% endfor %}</ul>{% endif %}
+  </div>
+
+  <div class="admin-columna lateral">
+    {{ ui.titulo("Días sin", "servicio", nivel=2, tam="seccion") }}
+    <form method="post" action="/admin/pedidos/sin-servicio">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="campos">
+        <label class="campo"><span>Fecha</span><input type="date" name="fecha" required></label>
+        <label class="campo"><span>Motivo (opcional)</span><input type="text" name="motivo" maxlength="200" placeholder="Motivo"></label>
+      </div>
+      <button type="submit" class="secundario chico-boton">Agregar</button>
+    </form>
+    {% macro fila(d) %}
+      <li class="sin-servicio">
+        <span><b>{{ d.fecha.strftime("%d/%m/%Y") }}</b>{% if d.motivo %} · {{ d.motivo }}{% endif %}</span>
+        <form method="post" action="/admin/pedidos/sin-servicio/{{ d.id }}/borrar">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="quitar">Quitar</button>
+        </form>
+      </li>
+    {% endmacro %}
+    <div class="ticket mono">
+      <span class="ticket-encabezado">PRÓXIMOS</span>
+      <ul class="lista-sin-servicio">
+        {% for d in proximos %}{{ fila(d) }}{% else %}<li class="chico">No hay días sin servicio próximos.</li>{% endfor %}
+      </ul>
+      {% if pasados %}
+      <span class="ticket-encabezado">PASADOS</span>
+      <ul class="lista-sin-servicio pasados">{% for d in pasados %}{{ fila(d) }}{% endfor %}</ul>
+      {% endif %}
+    </div>
+  </div>
+</div>
 {% endblock %}

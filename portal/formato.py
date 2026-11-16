@@ -115,6 +115,16 @@ def fecha(d, zona: ZoneInfo | None = None) -> str:
     return f"{DIAS[d.weekday()]} {d.day:02d}/{d.month:02d}/{d.year}"
 
 
+def fecha_hora(d, zona: ZoneInfo | None = None) -> str:
+    """«14/11 08:12» en la zona de la cafetería (la lista de recargas de la administración)."""
+    if not isinstance(d, datetime):
+        return fecha(d, zona)
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    d = d.astimezone(zona or ZONA)
+    return f"{d.day:02d}/{d.month:02d} {d:%H:%M}"
+
+
 def dinero_partes(x) -> tuple[str, str, str]:
     """Para la cifra grande: («$», «1,186», «.50»); con signo si es negativo (« -$»)."""
     c = _cantidad(x)
@@ -156,7 +166,7 @@ def nombres_visibles(hijos) -> dict:
 
 def registrar(templates) -> None:
     templates.env.filters.update(dinero=dinero, fecha=fecha, cambio=cambio,
-                                 movimiento=etiqueta_movimiento, dinero_partes=dinero_partes,
+                                 movimiento=etiqueta_movimiento, dinero_partes=dinero_partes, fecha_hora=fecha_hora,
                                  nombres_de=nombres_de, apellidos_de=apellidos_de,
                                  nombre_corto=nombre_corto)
     templates.env.globals.update(nombres_visibles=nombres_visibles)

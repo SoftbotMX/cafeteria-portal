@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
 
 from portal.formato import registrar
+from portal.nombres import partir
 
 ESTATICO = Path(__file__).parent / "estatico"
 
@@ -38,4 +39,4 @@ def icono(nombre: str, clase: str = "") -> Markup:
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "plantillas"))
 registrar(templates)
-templates.env.globals.update(icono=icono, estatico=estatico)
+templates.env.globals.update(icono=icono, estatico=estatico, partir=partir)

@@ -432,7 +432,7 @@ class TPVFalso:
             return self._precompra(d)
         if op == "recarga":
             return self._recarga(d)
-        if op not in ("admin/tutor/crear", "admin/alumno/crear", "admin/vincular"):
+        if op not in ("admin/tutor/crear", "admin/tutor/editar", "admin/alumno/crear", "admin/vincular"):
             return _err("no_encontrada", "Operación desconocida.", 404)
         llave = d.get("llave")
         if not llave:
@@ -447,6 +447,14 @@ class TPVFalso:
             self.tutores[ref] = {"tutor_ref": ref, "nombre": d["nombre"], "telefono": d.get("telefono"),
                                  "correo": d.get("correo"), "activo": True, "alumnos": []}
             resp = {"ok": True, "tutor": self.tutores[ref]}
+        elif op == "admin/tutor/editar":
+            t = self.tutores.get(d.get("tutor_ref"))
+            if not t:
+                return _err("no_encontrado", "Tutor desconocido.", 404)
+            for campo in ("nombre", "telefono", "correo"):
+                if campo in d:
+                    t[campo] = d[campo]
+            resp = {"ok": True, "tutor": t}
         elif op == "admin/alumno/crear":
             for ref in d.get("tutores", []):
                 if ref not in self.tutores:

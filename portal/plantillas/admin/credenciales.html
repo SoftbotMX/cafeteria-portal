@@ -1,20 +1,44 @@
-{% extends "base.html" %}
-{% block titulo %}Acceso del tutor · Administración{% endblock %}
+{#- 4d. Acceso generado (alta o reenvío). Los id (usuario, contrasena, canal, estado) los usan las pruebas. -#}
+{% extends "admin/_base.html" %}
+{% import "_ui.html" as ui with context %}
+{% set seccion = "padres" %}
+{% block titulo %}{{ titulo }} · Administración{% endblock %}
 {% block contenido %}
-<h1>{{ titulo }}</h1>
-<p>Tutor: <strong>{{ tutor.nombre }}</strong></p>
-<p>Usuario: <code id="usuario">{{ usuario }}</code></p>
-<p>Contraseña temporal: <code id="contrasena">{{ res.contrasena }}</code></p>
-<p class="aviso">Esta contraseña solo se muestra ahora. Al entrar, el tutor deberá cambiarla.</p>
-<p>Envío: <span id="canal">{{ res.canal or "ninguno" }}</span> ·
-   <span id="estado">{{ res.estado }}</span> — {{ res.detalle }}</p>
-{% if hijos %}
-<h2>Hijos</h2>
-<ul>
-  {% for h in hijos %}
-  <li>{{ h.nombre }} — código {{ h.codigo }}</li>
-  {% endfor %}
-</ul>
-{% endif %}
-<p><a href="/admin/tutores/{{ tutor.id }}">Volver a la ficha</a> · <a href="/admin">Ir a la lista de tutores</a> · <a href="/admin/alta">Dar de alta otro</a></p>
+<div class="admin-dos">
+  <div class="admin-columna">
+    <div class="circulo">{{ icono("check") }}</div>
+    {% if titulo == "Alta completada" %}{{ ui.titulo("Alta", "completa", tam="admin") }}
+    {% else %}<h1 class="titulo admin"><strong>{{ titulo }}</strong></h1>{% endif %}
+    <div class="campos rejilla-2">
+      <div class="campo"><span>Padre de familia</span><b class="valor">{{ tutor.nombre }}</b></div>
+      <div class="campo"><span>Usuario</span><code class="valor" id="usuario">{{ usuario }}</code></div>
+      <div class="campo codigo doble contrasena-temporal">
+        <span>Contraseña temporal</span>
+        <span class="contrasena-fila">
+          <code id="contrasena">{{ res.contrasena }}</code>
+          <button type="button" class="solo-icono copiar js-solo" aria-label="Copiar contraseña" title="Copiar"
+                  onclick="navigator.clipboard && navigator.clipboard.writeText(document.getElementById('contrasena').textContent).then(function () { this.classList.add('copiado'); }.bind(this))">{{ icono("content_copy") }}</button>
+        </span>
+      </div>
+    </div>
+    <p class="aviso">{{ icono("warning") }}<span>Esta contraseña solo se muestra ahora. Al entrar, el padre de familia deberá cambiarla.</span></p>
+    <p class="envio">
+      <span class="estado {{ 'cobrada' if res.estado == 'enviado' else 'retenida' }}" id="estado">{{ res.estado }}</span>
+      <span class="nota">Envío: <span id="canal">{{ res.canal or "ninguno" }}</span> — {{ res.detalle }}</span>
+    </p>
+    <nav class="botonera" aria-label="Seguir">
+      <a class="boton secundario" href="/admin/tutores/{{ tutor.id }}">Ver su ficha</a>
+      <a class="boton secundario" href="/admin">Ir a la lista</a>
+      <a class="boton" href="/admin/alta">Dar de alta otro</a>
+    </nav>
+  </div>
+  {% if hijos %}
+  <div class="admin-columna lateral">
+    <div class="ticket mono">
+      <span class="ticket-encabezado">HIJOS · CÓDIGO</span>
+      {% for h in hijos %}<span class="guia"><span>{{ h.nombre }}</span><span class="puntos"></span><span>{{ h.codigo }}</span></span>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
 {% endblock %}

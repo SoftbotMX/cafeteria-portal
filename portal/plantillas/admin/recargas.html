@@ -1,27 +1,38 @@
-{#- Contexto: filas [(Recarga, Tutor)], estado (filtro), estados. -#}
-{% extends "base.html" %}
+{#- 4g. Contexto: filas [(Recarga, Tutor)], estado (filtro), estados. -#}
+{% extends "admin/_base.html" %}
+{% import "_ui.html" as ui with context %}
+{% set seccion = "recargas" %}
 {% block titulo %}Recargas · Administración{% endblock %}
 {% block contenido %}
-<h1>Recargas</h1>
-<p><a href="/admin">Volver a tutores</a></p>
-<p>Filtrar: <a href="/admin/recargas">todas</a>{% for e in estados %} · <a href="/admin/recargas?estado={{ e }}">{{ e }}</a>{% endfor %}</p>
-<p><small>«revision»: el pago entró a MercadoPago pero no se acreditó solo. Revísalo en MercadoPago y, si procede, acredítalo con un ajuste en el TPV.</small></p>
-<table>
-  <thead><tr><th>#</th><th>Fecha</th><th>Tutor</th><th>Reparto</th><th>Total</th><th>Estado</th><th>Pago MP</th></tr></thead>
-  <tbody>
+{{ ui.titulo("Todas las", "recargas", tam="admin") }}
+{% set nombres_estado = {"revision": "revisión", "aprobada": "aprobada", "pendiente": "pendiente",
+                         "acreditada": "acreditada", "vencida": "vencida", "rechazada": "rechazada"} %}
+<nav class="filtros" aria-label="Filtrar por estado">
+  <a href="/admin/recargas"{% if not estado %} aria-current="true"{% endif %}>Todas</a>
+  {% for e in estados %}<a href="/admin/recargas?estado={{ e }}"{% if estado == e %} aria-current="true"{% endif %}>{{ nombres_estado.get(e, e) }}</a>{% endfor %}
+</nav>
+<p class="nota">{{ icono("info", "ambar") }} <b class="ambar">Revisión:</b> el pago entró a Mercado Pago pero no se acreditó solo. Revísalo en Mercado Pago y, si procede, acredítalo con un ajuste en el TPV.</p>
+<div class="tabla recargas-admin" role="table" aria-label="Recargas">
+  <div class="tabla-cabeza" role="row">
+    <span role="columnheader">#</span><span role="columnheader">Fecha</span><span role="columnheader">Padre de familia</span>
+    <span role="columnheader">Reparto</span><span role="columnheader">Total</span><span role="columnheader">Estado</span><span role="columnheader">Pago MP</span>
+  </div>
   {% for r, t in filas %}
-    <tr>
-      <td>{{ r.id }}</td><td>{{ r.creada | fecha }}</td><td>{{ t.nombre }}</td>
-      <td>{% for p in r.reparto %}{{ p.nombre }} {{ p.importe | dinero }}{{ ", " if not loop.last }}{% endfor %}</td>
-      <td>{{ r.total | dinero }}</td>
-      <td>{% if r.estado == "revision" %}<strong>revision</strong>{% else %}{{ r.estado }}{% endif %}
-        {% if r.error and r.estado in ("revision", "aprobada") %}<br><small>{{ r.error }}</small>{% endif %}
-        {% if r.pagos_extra %}<br><strong>Pago extra: {{ r.pagos_extra | join(", ") }}</strong> <small>(el papá pagó de más: devolverlo en MercadoPago o acreditarlo a mano)</small>{% endif %}</td>
-      <td>{{ r.mp_pago_id or "—" }}</td>
-    </tr>
+  <div class="tabla-fila{{ ' atender' if r.estado == 'revision' or r.pagos_extra }}" role="row">
+    <span role="cell" class="mono">{{ r.id }}</span>
+    <span role="cell" class="mono">{{ r.creada | fecha_hora(zona) }}</span>
+    <span role="cell"><b>{{ t.nombre }}</b></span>
+    <span role="cell" class="chico">{% for p in r.reparto %}{{ p.nombre }} {{ p.importe | dinero }}{{ ", " if not loop.last }}{% endfor %}</span>
+    <span role="cell" class="mono"><b>{{ r.total | dinero }}</b></span>
+    <span role="cell">
+      <span class="estado recarga-{{ r.estado }}">{{ nombres_estado.get(r.estado, r.estado) }}</span>
+      {% if r.error and r.estado in ("revision", "aprobada") %}<span class="chico">{{ r.error }}</span>{% endif %}
+      {% if r.pagos_extra %}<span class="chico ambar"><b>Pago extra: {{ r.pagos_extra | join(", ") }}</b> (el padre de familia pagó de más: devolverlo en Mercado Pago o acreditarlo a mano)</span>{% endif %}
+    </span>
+    <span role="cell" class="mono chico">{{ r.mp_pago_id or "—" }}</span>
+  </div>
   {% else %}
-    <tr><td colspan="7">No hay recargas.</td></tr>
+  <p class="nota">No hay recargas.</p>
   {% endfor %}
-  </tbody>
-</table>
+</div>
 {% endblock %}

@@ -1,25 +1,30 @@
-{% extends "base.html" %}
-{% block titulo %}Tutores · Administración{% endblock %}
+{% extends "admin/_base.html" %}
+{% import "_ui.html" as ui with context %}
+{% set seccion = "padres" %}
+{% block titulo %}Padres de familia · Administración{% endblock %}
 {% block contenido %}
-<h1>Tutores</h1>
-{% if sin_horario %}<p class="aviso"><a href="/admin/pedidos">Horario de pedidos sin configurar</a></p>{% endif %}
-<p><a href="/admin/pedidos">Horario de pedidos</a> · <a href="/admin/recargas">Recargas</a> · <a href="/admin/cafeteria">Datos de la cafetería</a></p>
-<p><a href="/admin/alta">Dar de alta un tutor</a></p>
-<table>
-  <thead><tr><th>Nombre</th><th>Teléfono</th><th>Correo</th><th>Activo</th><th>Debe cambiar contraseña</th></tr></thead>
-  <tbody>
+<div class="admin-titulo">
+  {{ ui.titulo("Padres de", "familia", tam="admin") }}
+  <a class="boton admin-accion" href="/admin/alta" aria-label="Dar de alta">{{ icono("person_add") }}<span>Dar de alta</span></a>
+</div>
+{% if sin_horario %}<p class="aviso">{{ icono("info") }}<a href="/admin/pedidos">Horario de pedidos sin configurar</a></p>{% endif %}
+<div class="tabla padres" role="table" aria-label="Padres de familia">
+  <div class="tabla-cabeza" role="row">
+    <span role="columnheader">Nombre</span><span role="columnheader">Teléfono</span>
+    <span role="columnheader">Correo</span><span role="columnheader">Activo</span>
+    <span role="columnheader">Contraseña</span><span aria-hidden="true"></span>
+  </div>
   {% for t in tutores %}
-    <tr>
-      <td><a href="/admin/tutores/{{ t.id }}">{{ t.nombre }}</a>{% if t.id in incompletas %} <strong>Alta incompleta</strong>{% endif %}</td><td>{{ t.telefono or "—" }}</td><td>{{ t.correo or "—" }}</td>
-      <td>{{ "Sí" if t.activo else "No" }}</td><td>{{ "Sí" if t.debe_cambiar else "No" }}</td>
-    </tr>
+  <a class="tabla-fila" role="row" href="/admin/tutores/{{ t.id }}">
+    <span role="cell" class="tabla-nombre"><b>{{ t.nombre }}</b>{% if t.id in incompletas %} <span class="estado revision">Alta incompleta</span>{% endif %}</span>
+    <span role="cell" class="mono{{ ' solo-escritorio' if not t.telefono }}">{{ t.telefono or "—" }}</span>
+    <span role="cell" class="tabla-correo{{ ' solo-escritorio' if t.telefono }}">{{ t.correo or "—" }}</span>
+    <span role="cell"><span class="estado {{ 'cobrada' if t.activo else 'cancelada' }}">{{ "Activo" if t.activo else "Desactivado" }}</span></span>
+    <span role="cell">{% if t.debe_cambiar %}<span class="estado retenida sin-punto">Debe cambiarla</span>{% else %}<span class="chico solo-escritorio">Ya la cambió</span>{% endif %}</span>
+    <span class="tabla-ir" aria-hidden="true">{{ icono("chevron_right") }}</span>
+  </a>
   {% else %}
-    <tr><td colspan="5">Todavía no hay tutores.</td></tr>
+  <p class="nota">Todavía no hay padres de familia.</p>
   {% endfor %}
-  </tbody>
-</table>
-<form method="post" action="/admin/salir">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <button type="submit" class="secundario">Salir</button>
-</form>
+</div>
 {% endblock %}

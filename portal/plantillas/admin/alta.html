@@ -1,33 +1,94 @@
-{% extends "base.html" %}
-{% block titulo %}Alta de tutor · Administración{% endblock %}
+{#- 4c. Los hijos se agregan uno por uno (sin filas fijas): cada uno queda en la lista con sus campos
+    ocultos y el POST es el de siempre (hijo_nombres[], hijo_paterno[]…). Sin JS, la fila «Agregar
+    un hijo» viaja como un hijo más. -#}
+{% extends "admin/_base.html" %}
+{% import "_ui.html" as ui with context %}
+{% set seccion = "padres" %}
+{% block titulo %}Alta de padre de familia · Administración{% endblock %}
 {% block contenido %}
-<h1>Alta de tutor e hijos</h1>
-{% if error %}<p class="aviso" role="alert">{{ error }}</p>{% endif %}
-{% if bloqueado %}<p class="aviso">{{ aviso_bloqueo }}</p>{% endif %}
-<form method="post" action="/admin/alta" onsubmit="this.querySelector('button[type=submit]').disabled=true">
+<form id="alta" method="post" action="/admin/alta" class="admin-dos" onsubmit="this.querySelector('button[type=submit]').disabled=true"
+      data-max="{{ max_hijos }}">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="llave" value="{{ llave }}">
-  <label>Nombre del tutor
-    <input name="nombre" value="{{ nombre }}"{% if bloqueado %} readonly{% endif %} required maxlength="200">
-  </label>
-  <label>Teléfono (10 dígitos)
-    <input name="telefono" value="{{ telefono }}"{% if bloqueado %} readonly{% endif %} inputmode="tel" autocomplete="off">
-  </label>
-  <label>Correo
-    <input name="correo" value="{{ correo }}"{% if bloqueado %} readonly{% endif %} type="email" autocomplete="off">
-  </label>
-  <p>Escribe al menos un teléfono o un correo: es el usuario con el que entrará.</p>
-  <h2>Hijos</h2>
-  {% for f in filas %}
-  <fieldset>
-    <legend>Hijo {{ loop.index }}</legend>
-    <label>Nombre(s) <input name="hijo_nombres" value="{{ f.nombres }}"{% if bloqueado %} readonly{% endif %} maxlength="100"></label>
-    <label>Apellido 1 <input name="hijo_paterno" value="{{ f.paterno }}"{% if bloqueado %} readonly{% endif %} maxlength="100"></label>
-    <label>Apellido 2 (opcional) <input name="hijo_materno" value="{{ f.materno }}"{% if bloqueado %} readonly{% endif %} maxlength="100"></label>
-    <label>Matrícula (opcional) <input name="hijo_matricula" value="{{ f.matricula }}"{% if bloqueado %} readonly{% endif %} maxlength="50"></label>
-  </fieldset>
-  {% endfor %}
-  <button type="submit">Dar de alta</button>
+  <div class="admin-columna">
+    {{ ui.volver("/admin", "Volver a la lista") }}
+    {{ ui.titulo("Alta de padre de familia e", "hijos", tam="admin") }}
+    {% if error %}{{ ui.aviso(error, "error", "alert") }}{% endif %}
+    {% if bloqueado %}{{ ui.aviso(aviso_bloqueo) }}{% endif %}
+    {% set ro = " readonly" if bloqueado else "" %}
+    {% if legado %}
+    {#- Formulario de antes (nombre completo): se reenvía SIEMPRE tal cual (el TPV pudo recibirlo
+        aunque se perdiera la respuesta, y la llave exige los mismos datos); aquí sólo se muestra. -#}
+    {% set p = partir(legado) %}
+    {% set nombres, apellido_1, apellido_2 = p[0], p[1] or "", p[2] or "" %}
+    <input type="hidden" name="nombre" value="{{ legado }}">
+    {% endif %}
+    {% set con_nombre = not legado %}
+    <div class="campos rejilla-3">
+      <label class="campo"><span>Nombre(s)</span><input {% if con_nombre %}name="nombres" {% endif %}value="{{ nombres }}"{{ ro if con_nombre else " readonly" }} maxlength="100" required data-resumen="nombre"></label>
+      <label class="campo"><span>Apellido 1</span><input {% if con_nombre %}name="apellido_1" {% endif %}value="{{ apellido_1 }}"{{ ro if con_nombre else " readonly" }} maxlength="100" required data-resumen="nombre"></label>
+      <label class="campo"><span>Apellido 2 (opcional)</span><input {% if con_nombre %}name="apellido_2" {% endif %}value="{{ apellido_2 }}"{{ ro if con_nombre else " readonly" }} maxlength="100" data-resumen="nombre"></label>
+      <label class="campo"><span>Teléfono (10 dígitos)</span><input name="telefono" value="{{ telefono }}"{{ ro }} inputmode="tel" autocomplete="off" data-resumen="usuario"></label>
+      <label class="campo doble"><span>Correo</span><input name="correo" value="{{ correo }}"{{ ro }} type="email" autocomplete="off" data-resumen="usuario"></label>
+    </div>
+    <p class="nota">Escribe al menos un teléfono o un correo: es el usuario con el que entrará.</p>
+
+    {{ ui.titulo("Sus", "hijos", nivel=2, tam="seccion") }}
+    <ul class="grupo lista-hijos" data-lista {% if not filas %}hidden{% endif %}>
+      {% for f in filas %}
+      {% if bloqueado %}
+      <li class="hijo-alta">
+        <span class="opcion-texto">
+          <span class="hijo-nombre">{{ [f.nombres, f.paterno, f.materno] | select | join(" ") }}</span>
+          <span class="chico">{{ "Matrícula " ~ f.matricula if f.matricula else "Sin matrícula" }}</span>
+        </span>
+        <input type="hidden" name="hijo_nombres" value="{{ f.nombres }}">
+        <input type="hidden" name="hijo_paterno" value="{{ f.paterno }}">
+        <input type="hidden" name="hijo_materno" value="{{ f.materno }}">
+        <input type="hidden" name="hijo_matricula" value="{{ f.matricula }}">
+      </li>
+      {% else %}
+      {#- De regreso con error: editables, para corregir sin JS (borrar los datos lo quita). -#}
+      <li class="hijo-alta editable">
+        <span class="hijo-nombre" hidden>{{ [f.nombres, f.paterno, f.materno] | select | join(" ") }}</span>
+        <span class="campos rejilla-4">
+          <label class="campo"><span>Nombre(s)</span><input name="hijo_nombres" value="{{ f.nombres }}" maxlength="100"></label>
+          <label class="campo"><span>Apellido 1</span><input name="hijo_paterno" value="{{ f.paterno }}" maxlength="100"></label>
+          <label class="campo"><span>Apellido 2</span><input name="hijo_materno" value="{{ f.materno }}" maxlength="100"></label>
+          <label class="campo"><span>Matrícula</span><input name="hijo_matricula" value="{{ f.matricula }}" maxlength="50"></label>
+        </span>
+        <button type="button" class="quitar js-solo" data-quitar>{{ icono("close") }}Quitar</button>
+      </li>
+      {% endif %}
+      {% endfor %}
+    </ul>
+    {% if not bloqueado %}
+    <span class="etiqueta-seccion">Agregar un hijo</span>
+    <div class="campos rejilla-4" data-nuevo>
+      <label class="campo"><span>Nombre(s)</span><input name="hijo_nombres" maxlength="100" placeholder="Nombre(s)"></label>
+      <label class="campo"><span>Apellido 1</span><input name="hijo_paterno" maxlength="100" placeholder="Apellido 1"></label>
+      <label class="campo"><span>Apellido 2</span><input name="hijo_materno" maxlength="100" placeholder="opcional"></label>
+      <label class="campo"><span>Matrícula</span><input name="hijo_matricula" maxlength="50" placeholder="opcional"></label>
+    </div>
+    <p class="aviso error" data-error-hijo hidden role="alert">{{ icono("error") }}<span>Escribe nombre(s) y apellido 1 del hijo.</span></p>
+    <button type="button" class="secundario chico-boton js-solo" data-agregar>{{ icono("add") }}Agregar hijo</button>
+    {% endif %}
+  </div>
+
+  <div class="admin-columna lateral">
+    <div class="ticket mono" aria-live="polite">
+      <span class="ticket-encabezado">ALTA</span>
+      <span class="guia"><span>Nombre</span><span class="puntos"></span><span data-r-nombre>{{ [nombres, apellido_1, apellido_2] | select | join(" ") or "—" }}</span></span>
+      <span class="guia"><span>Usuario</span><span class="puntos"></span><span data-r-usuario>{{ telefono or correo or "—" }}</span></span>
+      <span class="guia"><span>Hijos</span><span class="puntos"></span><span data-r-cuantos>{{ filas | length }}</span></span>
+      <span class="ticket-lista" data-r-hijos>{% for f in filas %}<span>· {{ [f.nombres, f.paterno, f.materno] | select | join(" ") }}</span>{% endfor %}</span>
+    </div>
+    <p class="nota">Al dar de alta se genera una contraseña temporal y se le envía su acceso.</p>
+    <button type="submit">Dar de alta</button>
+  </div>
 </form>
-<p><a href="/admin">Volver a la lista</a></p>
+{% if not bloqueado %}
+<template id="boton-quitar"><button type="button" class="quitar" data-quitar>{{ icono("close") }}Quitar</button></template>
+<script src="{{ estatico('alta.js') }}" defer></script>
+{% endif %}
 {% endblock %}

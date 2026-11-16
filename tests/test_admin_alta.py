@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from portal.models import Bitacora, IntentoLogin, Tutor
 from portal.seguridad import verificar_contrasena
 from tests.conduit_falso import ConduitFalso
-from tests.fabricas import crear_admin, crear_operador, crear_tutor, csrf_de, entrar_tutor
+from tests.fabricas import crear_admin, crear_operador, crear_tutor, csrf_de, entrar_tutor, texto
 from tests.tpv_falso import TPVFalso
 
 HIJOS = {"hijo_nombres": ["Luis", "Sofía", "", "", ""],
@@ -191,7 +191,7 @@ def test_alta_doble_clic_no_duplica(db, op, admin, tpv, conduit):
     assert db.query(Tutor).count() == 1
     assert tpv.llamadas == {"admin/tutor/crear": 1, "admin/alumno/crear": 2}
     assert len(conduit.enviados) == 1
-    assert r2.status_code == 200 and "Este alta ya se completó" in r2.text
+    assert r2.status_code == 200 and "Este alta ya se completó" in texto(r2.text)
     assert _contrasena(r1) not in r2.text and 'id="contrasena"' not in r2.text
     db.expire_all()
     assert db.query(Tutor).one().contrasena_hash == h1
@@ -229,7 +229,7 @@ def test_alta_sin_conexion_al_tpv_conserva_formulario(db, op, admin, tpv):
 def test_alta_telefono_repetido_rechazada_sin_llamar_al_tpv(db, op, admin, tpv):
     crear_tutor(db, op, telefono="8341445807")
     r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta"), telefono="(834) 144-5807"))
-    assert r.status_code == 400 and "Ya hay un tutor con ese teléfono" in r.text
+    assert r.status_code == 400 and "Ya hay un padre de familia con ese teléfono" in r.text
     assert tpv.llamadas == {} and db.query(Tutor).count() == 1
 
 
@@ -237,7 +237,7 @@ def test_alta_correo_repetido_en_otra_capitalizacion(db, op, admin, tpv):
     crear_tutor(db, op, telefono=None, correo="ana@mail.com")
     r = admin.post("/admin/alta", data=datos_alta(
         admin.get("/admin/alta"), telefono="", correo="ANA@mail.com"))
-    assert r.status_code == 400 and "Ya hay un tutor con ese correo" in r.text
+    assert r.status_code == 400 and "Ya hay un padre de familia con ese correo" in r.text
     assert tpv.llamadas == {}
 
 
@@ -314,7 +314,7 @@ def test_reintento_con_otro_telefono_se_rechaza(db, op, admin, tpv, conduit):
     tpv.fallar_en = set()
     datos.update(csrf=csrf_de(r), telefono="834 000 0002")
     r2 = admin.post("/admin/alta", data=datos)
-    assert r2.status_code == 400 and "mismos datos del tutor" in r2.text
+    assert r2.status_code == 400 and "mismos datos" in r2.text
     assert conduit.enviados == [] and db.query(Tutor).one().telefono == "8341445807"
 
 
@@ -337,16 +337,23 @@ def _falla_en_hijo_2(admin, tpv):
 
 def test_falla_a_medias_vuelve_con_formulario_de_solo_lectura(db, op, admin, tpv):
     datos, r = _falla_en_hijo_2(admin, tpv)
-    assert "Reintenta sin cambiar nada. Si algo está mal, termina el alta y corrígelo desde la ficha del tutor." in r.text
-    assert len(re.findall(r"<input[^>]* readonly", r.text)) == 3 + 2 * 4  # tutor + 2 hijos (nombres, paterno, materno, matrícula)
-    assert r.text.count('name="hijo_nombres"') == 2  # sin filas vacías
+    assert "Reintenta sin cambiar nada. Si algo está mal, termina el alta y corrígelo desde la ficha del padre de familia." in r.text
+    # Los datos del padre de familia, de sólo lectura; los hijos ya van como campos ocultos (sin
+    # «Quitar» ni «Agregar un hijo»).
+    assert len(re.findall(r"<input[^>]* readonly", r.text)) == 5
+    assert r.text.count('name="hijo_nombres"') == 2 and "data-quitar" not in r.text
+    assert "Agregar un hijo" not in r.text
 
 
 def test_falla_antes_del_tutor_deja_el_formulario_editable(db, op, admin, tpv):
     tpv.fallar_en = {"admin/tutor/crear"}
-    r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta")))
+    r = admin.post("/admin/alta", data=datos_alta(admin.get("/admin/alta"), nombre="",
+                                                  nombres="María", apellido_1="Pérez"))
     assert "readonly" not in r.text and "Reintenta sin cambiar nada" not in r.text
-    assert r.text.count('name="hijo_nombres"') == 5
+    # Los hijos capturados siguen en la lista (con «Quitar») y queda la fila para agregar otro.
+    capturados = sum(1 for n in HIJOS["hijo_nombres"] if n)
+    assert r.text.count('name="hijo_nombres"') == capturados + 1
+    assert r.text.count("data-quitar>") == capturados + 1  # + la plantilla del botón
 
 
 def test_hijo_editado_tras_exito_parcial_no_duplica(db, op, admin, tpv, conduit):
@@ -369,7 +376,7 @@ def test_hijo_editado_tras_exito_parcial_no_duplica(db, op, admin, tpv, conduit)
     datos["hijo_nombres"] = ["Luis EDITADO", "Sofía", "", "", ""]
     r2 = admin.post("/admin/alta", data=datos)
     assert r2.status_code == 400
-    assert "Los datos cambiaron desde el primer intento. Reintenta con los datos originales o corrige desde la ficha del tutor." in r2.text
+    assert "Los datos cambiaron desde el primer intento. Reintenta con los datos originales o corrige desde la ficha del padre de familia." in r2.text
     assert len(tpv.alumnos) == 1 and len(tpv.tutores) == 1 and db.query(Tutor).count() == 1
     assert conduit.enviados == []
 

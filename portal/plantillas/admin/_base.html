@@ -1,0 +1,52 @@
+{#- Marco del portal del administrador: menú lateral en escritorio, barra inferior en celular.
+    Cada pantalla pone `{% set seccion = "padres" | "horario" | "recargas" | "cafeteria" %}`. -#}
+{% extends "base.html" %}
+{% import "_ui.html" as ui with context %}
+{% block clase_cuerpo %}admin{% endblock %}
+{% block cuerpo %}
+{%- set c = request.state.cafeteria if request.state.cafeteria is defined else none -%}
+{%- set secciones = [("padres", "/admin", "Padres de familia", "padres"),
+                     ("horario", "/admin/pedidos", "Horario de pedidos", "horario"),
+                     ("recargas", "/admin/recargas", "Recargas", "recargas"),
+                     ("cafeteria", "/admin/cafeteria", "Datos de la cafetería", "cafetería")] -%}
+<div class="admin-marco">
+  <aside class="admin-lateral">
+    <div class="admin-marca">
+      {% if c and c.logo_version %}<img class="saludo-logo" src="/logo?v={{ c.logo_version }}" alt="" width="56" height="56">{% endif %}
+      <span><b>{{ c.nombre if c else "Cafetería" }}</b><span class="admin-rol">Administración</span></span>
+    </div>
+    <nav class="admin-menu" aria-label="Administración">
+      {% for clave, href, texto, _ in secciones %}
+      <a href="{{ href }}"{% if seccion == clave %} aria-current="page"{% endif %}><span class="punto" aria-hidden="true"></span>{{ texto }}</a>
+      {% endfor %}
+    </nav>
+    <div class="admin-pie">
+      <form method="post" action="/admin/salir">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="admin-salir">{{ icono("logout") }}Salir</button>
+      </form>
+      <div class="funciona chico-marca"><img src="{{ estatico('marca/cafeteria-softbot.png') }}" alt="" width="48" height="48">Funciona con Cafetería by Softbot</div>
+    </div>
+  </aside>
+
+  <header class="admin-cabeza">
+    {% if c and c.logo_version %}<img class="saludo-logo" src="/logo?v={{ c.logo_version }}" alt="" width="48" height="48">{% endif %}
+    <span class="saludo-texto"><span class="chico">{{ c.nombre if c else "" }}</span><b>Administración</b></span>
+    <form method="post" action="/admin/salir">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="solo-icono" aria-label="Salir" title="Salir">{{ icono("logout") }}</button>
+    </form>
+  </header>
+
+  <main class="admin-contenido">
+    {% if mensajes %}{% for m in mensajes %}{{ ui.aviso(m, "listo") }}{% endfor %}{% endif %}
+    {% block contenido %}{% endblock %}
+  </main>
+
+  <nav class="admin-barra" aria-label="Administración">
+    {% for clave, href, _, corto in secciones %}
+    <a href="{{ href }}"{% if seccion == clave %} aria-current="page"{% endif %}><span class="punto" aria-hidden="true"></span>{{ corto }}</a>
+    {% endfor %}
+  </nav>
+</div>
+{% endblock %}

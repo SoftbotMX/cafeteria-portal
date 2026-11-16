@@ -1,18 +1,54 @@
-{#- Contexto: csrf, admin, numero (lo capturado), visible, enlace, error, mensajes. -#}
-{% extends "base.html" %}
+{#- 4h. Contexto: csrf, admin, numero (lo capturado), visible, enlace, error, mensajes,
+    logo_version, nombre_cafeteria. -#}
+{% extends "admin/_base.html" %}
+{% import "_ui.html" as ui with context %}
+{% set seccion = "cafeteria" %}
 {% block titulo %}Datos de la cafetería · Administración{% endblock %}
 {% block contenido %}
-<h1>Datos de la cafetería</h1>
-<p><a href="/admin">Volver a tutores</a></p>
-{% if error %}<p class="aviso">{{ error }}</p>{% endif %}
-<form method="post" action="/admin/cafeteria">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <label>WhatsApp de la cafetería
-    <input name="wa_numero" value="{{ numero }}" inputmode="tel" autocomplete="off" placeholder="+1 956 382 5162">
-  </label>
-  <p><small>Con lada de país. Va en los correos de acceso y de recuperación de contraseña, con una liga
-  para abrir el chat. Déjalo vacío para no mandarlo.</small></p>
-  {% if enlace %}<p>Vista previa: {{ visible }} · <a href="{{ enlace }}" target="_blank" rel="noopener">{{ enlace }}</a></p>{% endif %}
-  <button type="submit">Guardar</button>
-</form>
+<div class="admin-dos">
+  <div class="admin-columna">
+    {{ ui.titulo("Datos de la", "cafetería", tam="admin") }}
+    {% if error %}{{ ui.aviso(error, "error", "alert") }}{% endif %}
+    <form method="post" action="/admin/cafeteria">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="campos">
+        <label class="campo"><span>WhatsApp de la cafetería</span>
+          <input name="wa_numero" value="{{ numero }}" inputmode="tel" autocomplete="off" placeholder="+52 834 123 4567">
+        </label>
+      </div>
+      <p class="nota">Con lada de país. Va en los correos de acceso y de recuperación de contraseña, con una liga
+      para abrir el chat. Déjalo vacío para no mandarlo.</p>
+      {% if enlace %}
+      <div class="ticket mono">
+        <span class="ticket-encabezado">VISTA PREVIA</span>
+        <span>{{ visible }}</span>
+        <a href="{{ enlace }}" target="_blank" rel="noopener">{{ enlace }}</a>
+      </div>
+      {% endif %}
+      <button type="submit" class="chico-boton">Guardar</button>
+    </form>
+  </div>
+
+  <div class="admin-columna lateral">
+    {{ ui.titulo("Logo de la", "cafetería", nivel=2, tam="seccion") }}
+    <p class="nota">Sale en la pantalla de entrar y en el encabezado del portal de padres de familia y de la administración.</p>
+    <div class="logo-actual">
+      {% if logo_version %}<img class="marca-logo" src="/logo?v={{ logo_version }}" alt="Logo de {{ nombre_cafeteria }}" width="148" height="148">
+      {% else %}<span class="nota">Sin logo: se muestra sólo el nombre «{{ nombre_cafeteria }}».</span>{% endif %}
+    </div>
+    <form method="post" action="/admin/cafeteria/logo" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label class="campo archivo"><span>Imagen (PNG, JPG o WebP, hasta 512 KB)</span>
+        <input type="file" name="logo" accept="image/png,image/jpeg,image/webp" required>
+      </label>
+      <button type="submit" class="secundario chico-boton">{{ "Cambiar logo" if logo_version else "Subir logo" }}</button>
+    </form>
+    {% if logo_version %}
+    <form method="post" action="/admin/cafeteria/logo/quitar" onsubmit="return confirm('¿Quitar el logo de la cafetería?')">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="quitar">{{ icono("close") }}Quitar logo</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
 {% endblock %}

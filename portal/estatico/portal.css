@@ -91,7 +91,7 @@ h1, h2, h3, p { margin: 0; }
   display: flex; align-items: center; gap: 10px; padding-top: 12px;
   border-top: 2px dotted var(--linea); font-size: 12px; color: var(--texto-3);
 }
-.funciona img { width: 52px; height: 52px; object-fit: contain; flex: none; }
+.funciona img { width: 72px; height: 72px; object-fit: contain; flex: none; }
 .funciona a { color: inherit; }
 
 /* ---------------------------------------------------------------- íconos */
@@ -482,6 +482,210 @@ label.importe-hijo { display: flex; align-items: center; gap: 12px; padding: 10p
 }
 .campo.importe-grande input::placeholder { color: #b3a497; font-weight: 300; }
 .barra:not(:has(.barra-total)) { padding: 14px; }
+
+/* ================================================================ ADMINISTRACIÓN (4a–4i)
+   Celular: encabezado arriba y barra inferior. Escritorio (≥ 900 px): menú lateral. */
+body.admin { background: #fff; }
+.admin-marco { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
+.admin-lateral { display: none; }
+.admin-cabeza {
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px 0;
+}
+.admin-cabeza .saludo-texto b { font: 800 22px/1 var(--display); font-stretch: 60%; }
+.admin-contenido {
+  flex: 1; width: 100%; max-width: 1180px; margin: 0 auto;
+  padding: 16px 16px calc(110px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 16px;
+}
+.admin-barra {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; background: #fff;
+  border-top: 1px solid var(--borde); display: grid; grid-template-columns: repeat(4, 1fr);
+  padding: 10px 0 calc(8px + env(safe-area-inset-bottom));
+}
+.admin-barra::before {
+  content: ""; position: absolute; top: 17px; left: 12.5%; right: 12.5%; height: var(--trazo);
+  background: var(--cafe);
+}
+.admin-barra a {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  min-height: 56px; color: var(--cafe); text-decoration: none;
+  font: 400 15px/1.1 var(--display); font-stretch: 70%;
+}
+.punto {
+  position: relative; width: 16px; height: 16px; flex: none; border-radius: 999px;
+  border: var(--trazo) solid var(--cafe); background: #fff;
+}
+.admin-barra a[aria-current], .admin-menu a[aria-current] { font-weight: 800; text-transform: uppercase; }
+.admin-barra a[aria-current] .punto, .admin-menu a[aria-current] .punto { background: var(--cobre); }
+
+@media (min-width: 900px) {
+  .admin-marco { display: grid; grid-template-columns: 248px minmax(0, 1fr); }
+  .admin-cabeza, .admin-barra { display: none; }
+  .admin-lateral {
+    display: flex; flex-direction: column; gap: 22px; padding: 20px 18px;
+    border-right: var(--trazo) solid var(--cafe); position: sticky; top: 0; height: 100vh;
+  }
+  .admin-contenido { padding: 28px 32px 40px; margin: 0; }
+}
+.admin-marca { display: flex; align-items: center; gap: 10px; }
+.admin-marca .saludo-logo { width: 56px; height: 56px; }
+.admin-marca > span { display: flex; flex-direction: column; gap: 2px; font-size: 14px; line-height: 1.2; min-width: 0; }
+.admin-rol { font-size: 11px; font-weight: 600; color: var(--cobre-osc); }
+.admin-menu { position: relative; display: flex; flex-direction: column; gap: 6px; }
+.admin-menu::before {
+  content: ""; position: absolute; left: 7px; top: 22px; bottom: 22px; width: var(--trazo); background: var(--cafe);
+}
+.admin-menu a {
+  position: relative; display: flex; align-items: center; gap: 12px; min-height: var(--toque);
+  color: var(--cafe); text-decoration: none; font: 400 18px/1.1 var(--display); font-stretch: 70%;
+}
+.admin-menu a:hover { color: var(--cobre-osc); text-decoration: none; }
+.admin-pie { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+button.admin-salir {
+  justify-content: flex-start; min-height: var(--toque); padding: 0; background: transparent; color: var(--cafe);
+  font: 600 14px/1 var(--texto); text-transform: none; letter-spacing: 0; gap: 8px;
+}
+button.admin-salir:hover { background: transparent; color: var(--cobre-osc); }
+.admin-salir .icono { width: 20px; height: 20px; color: var(--cobre-osc); }
+.funciona.chico-marca { font-size: 11px; padding-top: 10px; }
+.funciona.chico-marca img { width: 48px; height: 48px; }
+
+.titulo.admin { font-size: 34px; }
+.titulo.seccion { font-size: 30px; }
+@media (min-width: 900px) { .titulo.admin { font-size: 52px; } }
+.admin-titulo { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.boton.admin-accion { min-height: 48px; padding: 0 16px; border-radius: 14px; font-size: 22px; flex: none; }
+.boton.admin-accion .icono { color: var(--cobre-claro); width: 22px; height: 22px; }
+@media (max-width: 599px) {
+  .boton.admin-accion span { display: none; }   /* en celular, sólo el ícono (4i) */
+  .boton.admin-accion { width: 48px; padding: 0; }
+}
+.admin-dos { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+@media (min-width: 1100px) { .admin-dos { grid-template-columns: minmax(0, 1fr) 320px; gap: 32px; } }
+.admin-columna { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.admin-columna.lateral form { gap: 12px; }
+
+/* tablas que en celular son tarjetas */
+.tabla { display: flex; flex-direction: column; border: var(--trazo) solid var(--cafe); border-radius: var(--radio); overflow: hidden; }
+.tabla-cabeza { display: none; }
+.tabla-fila {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 11px 14px;
+  border-bottom: var(--trazo) solid var(--cafe); color: var(--cafe); text-decoration: none; font-size: 14px;
+}
+.tabla-fila:last-child { border-bottom: 0; }
+a.tabla-fila:hover { background: var(--crema); text-decoration: none; }
+.tabla-fila.atender { background: #fff8eb; }
+.tabla-nombre { flex: 1 1 100%; min-width: 0; }
+.tabla-nombre b { font: 800 21px/1.3 var(--display); font-stretch: 60%; text-transform: uppercase; }
+.tabla-ir { margin-left: auto; color: var(--cobre-osc); }
+.tabla-ir .icono { width: 20px; height: 20px; }
+.tabla .nota { padding: 14px; }
+/* Tabla de padres como rejilla sólo con ancho suficiente (con el menú lateral, desde 1100 px). */
+@media (min-width: 1100px) {
+  .tabla { border: 0; border-radius: 0; }
+  .tabla:not(.recargas-admin) .tabla-cabeza, .tabla:not(.recargas-admin) .tabla-fila { display: grid; gap: 16px; align-items: center; padding: 0 4px; }
+  .tabla-cabeza { padding-bottom: 10px; border-bottom: var(--trazo) solid var(--cafe); font-size: 12px; font-weight: 600; color: var(--cobre-osc); }
+  .tabla-fila { min-height: 58px; border-bottom: 2px dotted var(--linea); }
+  .tabla-fila:last-child { border-bottom: 2px dotted var(--linea); }
+  .tabla-nombre b { font: 700 14px/1.3 var(--texto); text-transform: none; }
+  .padres .tabla-cabeza, .padres .tabla-fila { grid-template-columns: minmax(0, 1.7fr) 120px minmax(0, 1.1fr) 120px 150px 24px; }
+
+  .tabla-correo { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+.tabla-correo { color: var(--texto-2); }
+/* La tabla de recargas tiene 7 columnas: rejilla sólo con ancho suficiente; antes, tarjetas. */
+@media (min-width: 900px) and (max-width: 1239px) {
+  .tabla.recargas-admin { border: var(--trazo) solid var(--cafe); border-radius: var(--radio); }
+  .recargas-admin .tabla-cabeza { display: none; }
+  .recargas-admin .tabla-fila { min-height: 0; border-bottom: var(--trazo) solid var(--cafe); }
+}
+@media (min-width: 1240px) {
+  .recargas-admin .tabla-cabeza, .recargas-admin .tabla-fila {
+    display: grid; gap: 16px; align-items: center; padding: 10px 4px;
+    grid-template-columns: 40px 100px minmax(0, 1.1fr) minmax(0, 1.4fr) 90px 170px 110px;
+  }
+  .recargas-admin .tabla-cabeza { padding-top: 0; }
+}
+.recargas-admin .tabla-fila > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mono { font-family: var(--mono); font-size: 13px; }
+.ambar { color: var(--ambar); }
+.estado.sin-punto::before { display: none; }
+.estado.revision, .estado.recarga-revision { color: var(--ambar); }
+.estado.recarga-acreditada { color: var(--verde); }
+.estado.recarga-aprobada { color: var(--cobre-osc); }
+.estado.recarga-rechazada { color: var(--rojo); }
+/* Filtros: un solo renglón; en celular se desliza de lado en vez de partirse en dos. */
+.filtros {
+  display: flex; flex-wrap: nowrap; max-width: 100%; overflow-x: auto; align-self: flex-start;
+  border: var(--trazo) solid var(--cafe); border-radius: 14px; scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.filtros::-webkit-scrollbar { display: none; }
+.filtros a {
+  flex: none; white-space: nowrap;
+  min-height: var(--toque); padding: 0 12px; display: flex; align-items: center; color: var(--cafe);
+  text-decoration: none; font-size: 14px; border-left: var(--trazo) solid var(--cafe);
+}
+.filtros a:first-child { border-left: 0; }
+.filtros a[aria-current] { background: var(--cafe); color: #fff; font-weight: 700; }
+
+/* formularios del admin */
+.rejilla-2, .rejilla-3, .rejilla-4 { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 600px) {
+  .rejilla-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rejilla-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .rejilla-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .campo.doble { grid-column: span 2; }
+}
+.campo > .valor { color: var(--cafe); }
+@media (max-width: 899px) { .solo-escritorio { display: none !important; } }
+.campo .valor { font-size: 16px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+code.valor { font-family: var(--mono); }
+.contrasena-fila { display: flex; align-items: center; gap: 16px; }
+.contrasena-fila code { flex: 1; font: 700 clamp(28px, 7vw, 44px)/1.1 var(--mono); letter-spacing: .06em; }
+button.copiar { border: var(--trazo) solid var(--cafe); width: 48px; min-height: 48px; color: var(--cafe); }
+button.copiar.copiado { background: var(--cobre); }
+.js-solo { display: none !important; }
+.js .js-solo { display: flex !important; }
+button.chico-boton, .boton.chico-boton { min-height: 48px; border-radius: 14px; font-size: 20px; align-self: flex-start; padding: 0 18px; }
+button.chico-boton .icono { width: 20px; height: 20px; }
+button.peligro-borde {
+  min-height: 48px; border-radius: 14px; font-size: 20px; background: #fff; color: var(--rojo);
+  border: var(--trazo) solid var(--rojo);
+}
+button.peligro-borde:hover { background: #fef2f2; color: var(--rojo); }
+.lista-hijos .hijo-alta { display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 16px; }
+.lista-hijos .hijo-nombre { font-size: 20px; white-space: normal; }
+.lista-hijos .hijo-alta.editable { padding: 8px; flex-wrap: wrap; }
+.hijo-alta.editable .campos { flex: 1 1 100%; border-width: 1.5px; }
+.lista-hijos form { gap: 0; }
+button.quitar {
+  min-height: var(--toque); padding: 0 6px; gap: 4px; background: transparent; color: var(--rojo); flex: none;
+  font: 700 13px/1 var(--texto); text-transform: none; letter-spacing: 0; align-self: center;
+}
+button.quitar:hover { background: #fef2f2; color: var(--rojo); }
+button.quitar .icono { width: 18px; height: 18px; }
+.ticket-lista { display: flex; flex-direction: column; gap: 4px; border-top: 2px dashed var(--linea); padding-top: 10px; }
+.ticket-lista:empty { display: none; }
+.botonera { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.botonera .boton { min-height: 48px; border-radius: 14px; font-size: 20px; padding: 0 18px; }
+.envio { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ficha-titulo { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.ficha-estados { display: flex; gap: 12px; flex-wrap: wrap; padding-bottom: 6px; }
+form.en-linea { flex-direction: row; gap: 10px; align-items: stretch; flex-wrap: wrap; }
+.campo.caja { flex: 1 1 220px; border: var(--trazo) solid var(--cafe); border-radius: 14px; justify-content: center; }
+.campo.caja > .icono { bottom: auto; top: 50%; transform: translateY(-50%); }
+form.sin-hueco { gap: 10px; }
+.plegable-cuerpo.relleno { padding: 16px; gap: 12px; }
+.dias-servicio { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.dias-servicio legend { padding: 0; margin-bottom: 4px; }
+.lista-sin-servicio { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.lista-sin-servicio li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lista-sin-servicio form { gap: 0; }
+.lista-sin-servicio.pasados { opacity: .55; }
+.logo-actual { display: flex; }
+.campo.archivo { border: var(--trazo) solid var(--cafe); border-radius: var(--radio); }
+.campo.archivo input { font-size: 14px; min-height: 36px; }
 
 /* ================================================================ PROVISIONAL
    Reglas del diseño anterior para las pantallas que aún no pasan a «La Charola». Se borran

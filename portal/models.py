@@ -112,6 +112,14 @@ class Tutor(Base):
         from portal.nombres import partir
         return self.nombres or partir(self.nombre)[0]
 
+    @property
+    def apellidos(self) -> str:
+        from portal.nombres import juntar, partir
+        if self.nombres:
+            return juntar("", self.apellido_1, self.apellido_2)
+        _, a1, a2 = partir(self.nombre)
+        return juntar("", a1, a2)
+
 
 class Sesion(Base):
     __tablename__ = "sesion"
