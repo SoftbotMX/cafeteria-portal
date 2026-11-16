@@ -1,4 +1,4 @@
-# Portal de tutores — cafetería escolar (Softbot)
+# Portal de padres de familia — cafetería escolar (Softbot)
 
 > **Única fuente de instrucciones del proyecto, compartida por todos los agentes.** `CLAUDE.md` y
 > `GEMINI.md` son **symlinks** a este archivo. **Edita siempre `AGENTS.md`.** Comprobación:
@@ -30,9 +30,9 @@ creer. Si Codex falla, dilo y sigue. El hook `scripts/hooks/pre-commit` lo recue
 (`git config core.hooksPath scripts/hooks`; registrar con `scripts/hooks/codex-visto`).
 
 ## Qué es
-Portal web para los **papás** (tutores) de una cafetería escolar que usa **Softbot TPV**
+Portal web para los **padres de familia** (en el código, `tutor`) de una cafetería escolar que usa **Softbot TPV**
 (repo `SoftbotMX/tpv`, módulo `softbot_tpv_cafeteria`): ven el saldo de sus hijos, piden con
-fecha, recargan con MercadoPago, y la **administración** de la cafetería da de alta tutores e hijos.
+fecha, recargan con MercadoPago, y la **administración** de la cafetería da de alta padres de familia e hijos.
 
 - Diseño: `docs/superpowers/specs/2026-10-20-portal-tutores-design.md` (local, no se sube).
 - Contrato con el TPV: `docs/API_TPV.md`. **El portal no guarda saldos**: todo se lee del TPV.

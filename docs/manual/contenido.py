@@ -41,9 +41,9 @@ def build(k):
     ], sz=18))
     o.append(h2('Datos que conviene tener a la mano'))
     for t in [
-        '**Dos teléfonos con WhatsApp**: el del papá y el de la mamá (o un segundo tutor), para comprobar que '
+        '**Dos teléfonos con WhatsApp**: el del papá y el de la mamá (o un segundo padre de familia), para comprobar que '
         'los avisos llegan a los dos.',
-        '**Un correo** para cada tutor: las contraseñas y los códigos también se mandan por correo.',
+        '**Un correo** para cada padre de familia: las contraseñas y los códigos también se mandan por correo.',
         '**Una ventana de incógnito** para entrar como papá mientras la administración está abierta en otra: si '
         'se usan en la misma ventana, una sesión cierra la otra.',
         'Las contraseñas **no** van en este documento: se piden a Softbot.',
@@ -78,7 +78,7 @@ def build(k):
         ['Alumnos', 'Ficha de cada alumno: Nombre(s), Apellido 1, Apellido 2, matrícula, **código** para la caja, '
                     'saldo disponible y apartado, credenciales y el botón **Ajustar saldo**.'],
         ['Tutores', 'Papás, mamás y tutores con su teléfono y correo.'],
-        ['Tutores y alumnos', 'Quién está vinculado con quién. Un alumno puede tener varios tutores.'],
+        ['Tutores y alumnos', 'Quién está vinculado con quién. Un alumno puede tener varios padres de familia.'],
         ['Credenciales', 'Tarjetas o códigos QR de cada alumno, activas o bloqueadas.'],
         ['Movimientos', 'Libro del monedero: recargas, compras, pedidos, ajustes y transferencias.'],
         ['Precompras', 'Pedidos hechos por los papás: por recoger, cobrados, no recogidos o cancelados.'],
@@ -94,8 +94,8 @@ def build(k):
         ['Código del alumno en caja', 'Abrir la caja → Cliente → buscar por nombre o escribir el **código** del '
          'alumno.', 'Aparece el alumno y una notificación «… · disponible $X» con su saldo.'],
         ['Compra con monedero', 'Con un alumno que **puede comprar sin pedido**: agregar productos y pagar con '
-         '«Monedero del alumno».', 'Se cobra; baja su disponible; en Movimientos aparece la compra; a los tutores '
-         'les llega el aviso de compra por WhatsApp.'],
+         '«Monedero del alumno».', 'Se cobra; baja su disponible; en Movimientos aparece la compra; a los padres '
+         'de familia les llega el aviso de compra por WhatsApp.'],
         ['Alumno sin permiso de compra', 'Elegir un alumno al que el papá le quitó «compras sin pedido».',
          'Al elegirlo sale el aviso «Sin monedero para compras»; el monedero no se ofrece como pago.'],
         ['Pedido del papá en caja', 'Elegir a un alumno con pedido para hoy.', 'Sale «Pedido por cobrar» con el '
@@ -114,13 +114,13 @@ def build(k):
          'de turno).', 'El pedido sigue «por recoger» y su saldo sigue apartado; no sale aviso.'],
         ['Hora de fin de servicio', 'Poner la hora de fin de servicio unos minutos adelante; esperar a que pase '
          '(el proceso corre cada 15 minutos).', 'El pedido de hoy no recogido pasa a «Liberada»: el saldo vuelve '
-         'y a los tutores les llega «pedido no recogido».'],
+         'y a los padres de familia les llega «pedido no recogido».'],
         ['Pedido para hoy tras la hora', 'Pasada la hora de fin de servicio, pedir para hoy desde el portal.',
          'Se rechaza: «La cafetería ya terminó el servicio de hoy. Pide para otro día.» Para mañana sí se puede.'],
         ['Importar alumnos', 'Importar un CSV con dos alumnos y su tutor; importarlo otra vez.',
          'La primera vez los crea con su código; la segunda no duplica nada. Las filas con error se informan.'],
     ]))
-    o.append(note('Clientes archivados: la caja guarda la lista de clientes en el navegador. Si un alumno o tutor '
+    o.append(note('Clientes archivados: la caja guarda la lista de clientes en el navegador. Si un alumno o padre de familia '
                   'archivado sigue apareciendo, borrar los datos del sitio en el navegador de la caja (sin ventas '
                   'pendientes de sincronizar).'))
 
@@ -130,23 +130,24 @@ def build(k):
                   'las recargas. Se entra en **/admin/entrar** con el usuario de la cafetería.'))
     o.append(h2('Cómo recibe el papá su acceso'))
     o.append(para('**Por ahora, el papá recibe su usuario y contraseña del portal por correo.** Por eso, al darlo '
-                  'de alta, **captura siempre el correo del tutor**. El correo también le dice a qué número de '
+                  'de alta, **captura siempre el correo del padre de familia**. El correo también le dice a qué número de '
                   'WhatsApp de la cafetería escribir y trae una liga para abrir el chat; ese número se captura en '
                   '**Datos de la cafetería** (/admin/cafeteria). Lo mismo aplica al código para recuperar la contraseña.'))
     o.append(para('Más adelante, cuando Meta apruebe la plantilla de acceso (requiere la verificación del negocio), '
                   'el acceso y el código también llegarán por WhatsApp.'))
     o.append(h2('2.1 Pantallas'))
     o.append(table([2600, 7480], ['Pantalla', 'Qué hace'], [
-        ['Tutores (/admin)', 'Lista de tutores, altas incompletas y aviso si falta el horario de pedidos.'],
-        ['Alta (/admin/alta)', 'Tutor (nombre, teléfono de 10 dígitos y/o correo) y hasta 5 hijos con '
+        ['Padres de familia (/admin)', 'Lista de padres de familia, altas incompletas y aviso si falta el horario de pedidos.'],
+        ['Alta (/admin/alta)', 'Padre de familia (nombre por partes, teléfono de 10 dígitos y/o correo) y hasta 10 hijos, uno por uno, con '
                                '**Nombre(s), Apellido 1, Apellido 2 (opcional)** y matrícula opcional.'],
-        ['Ficha del tutor', 'Reenviar acceso, agregar un hijo nuevo, **vincular un hijo que ya existe** (el '
-                            'segundo papá o mamá), desvincular, activar o desactivar al tutor.'],
-        ['Pedidos (/admin/pedidos)', 'Días de servicio, días de anticipación, hora límite para pedir y días sin '
+        ['Ficha del padre de familia', 'Corregir su nombre, reenviar acceso, agregar un hijo nuevo, **vincular un hijo que ya existe** (el '
+                            'segundo papá o mamá), desvincular, activar o desactivar al padre de familia.'],
+        ['Horario de pedidos (/admin/pedidos)', 'Días de servicio, días de anticipación (1 a 30), hora límite para pedir y días sin '
                                      'servicio (vacaciones y festivos).'],
         ['Datos de la cafetería (/admin/cafeteria)', '**WhatsApp de la cafetería**, con lada de país (por '
                                                    'ejemplo +1 956 382 5162). Va en los correos de acceso y '
-                                                   'de recuperación, con una liga que abre el chat.'],
+                                                   'de recuperación, con una liga que abre el chat. También el **logo** de la cafetería '
+                                                   '(PNG, JPG o WebP), que sale al entrar y en los encabezados.'],
         ['Recargas (/admin/recargas)', 'Recargas de Mercado Pago por estado: pendiente, acreditada, rechazada, '
                                        'expirada o **revisión** (entró el pago pero no se acreditó solo).'],
     ], sz=18))
@@ -155,22 +156,22 @@ def build(k):
         ['WhatsApp de la cafetería', 'Datos de la cafetería → capturar +1 956 382 5162 → Guardar. Probar '
          'también un número sin lada.', 'Se guarda y muestra la liga https://wa.me/19563825162?text=hola; sin lada '
          'se rechaza.'],
-        ['Alta de tutor con dos hijos', 'Alta con teléfono y correo, y dos hijos con Nombre(s) y Apellido 1 '
+        ['Alta de padre de familia con dos hijos', 'Alta con teléfono y correo, y dos hijos con Nombre(s) y Apellido 1 '
          '(uno con Apellido 2).', 'Pantalla «Alta completada» con el usuario, la contraseña temporal y el código '
          'de caja de cada hijo. Los hijos aparecen en el TPV con su nombre por partes.'],
-        ['Entrega del acceso', 'Revisar el correo del tutor.', 'Le llega su acceso **por correo**, con el número '
+        ['Entrega del acceso', 'Revisar el correo del padre de familia.', 'Le llega su acceso **por correo**, con el número '
          'de WhatsApp de la cafetería y la liga; al tocarla se abre el chat con «hola» escrito. La pantalla de alta dice por qué canal salió.'],
         ['Validaciones del alta', 'Intentar un hijo sin Apellido 1, un teléfono de 9 dígitos y un teléfono ya '
          'registrado.', 'Cada caso se rechaza con su mensaje; no se crea nada en el TPV.'],
-        ['Segundo tutor', 'Dar de alta a la mamá sin hijos nuevos; en su ficha, «Vincular un hijo que ya existe» '
+        ['Segundo padre de familia', 'Dar de alta a la mamá sin hijos nuevos; en su ficha, «Vincular un hijo que ya existe» '
          'eligiendo al papá.', 'La mamá ve a los mismos hijos con el mismo saldo; los avisos llegan a los dos.'],
         ['Agregar un hijo', 'En la ficha, «Agregar un hijo nuevo» con Nombre(s) y Apellido 1.',
          'Aparece en la lista con su código; el papá lo ve al entrar.'],
         ['Reenviar acceso', 'En la ficha, reenviar acceso.', 'Se genera una contraseña temporal nueva; la anterior '
          'deja de servir y se cierran sus sesiones.'],
-        ['Desvincular', 'Desvincular a un hijo de un tutor.', 'Ese tutor deja de verlo y de recibir sus avisos; el '
-         'otro tutor lo sigue viendo.'],
-        ['Desactivar tutor', 'Desactivar a un tutor e intentar entrar con él.', 'No puede entrar ni usar WhatsApp.'],
+        ['Desvincular', 'Desvincular a un hijo de un padre de familia.', 'Ese padre de familia deja de verlo y de recibir sus '
+         'avisos; el otro lo sigue viendo.'],
+        ['Desactivar padre de familia', 'Desactivar a un padre de familia e intentar entrar con su usuario.', 'No puede entrar ni usar WhatsApp.'],
         ['Horario de pedidos', 'Configurar días de servicio, anticipación y hora límite; agregar un día sin '
          'servicio.', 'En el portal y WhatsApp sólo se ofrecen los días permitidos; el día sin servicio no sale.'],
         ['Recargas', 'Después de las pruebas de la sección 3, revisar /admin/recargas.', 'Cada recarga con su '
@@ -205,7 +206,7 @@ def build(k):
          'Bloqueada no paga; desbloqueada sí.'],
         ['Recargar', 'Recargar → repartir entre los hijos ($50 a $2,000) → pagar con tarjeta de prueba `APRO`.',
          'Mercado Pago aprueba; en menos de un minuto se acredita a cada hijo y llega el aviso de recarga a los '
-         'tutores.'],
+         'padres de familia.'],
         ['Recarga rechazada', 'Repetir con titular `FUND`.', 'El pago se rechaza y no se acredita nada.'],
         ['Mis recargas', 'Ver Mis recargas.', 'Cada recarga con su estado y reparto.'],
         ['Páginas legales', 'Abrir el aviso de privacidad y las condiciones desde la pantalla de entrada.',
@@ -217,7 +218,7 @@ def build(k):
                   'momento; **gracias**, **salir** u **8** terminan la conversación. Las palabras que hay que '
                   'escribir van en negritas.'))
     o.append(casos('3B', [
-        ['Número no registrado', 'Escribir desde un teléfono que no es de ningún tutor.', 'Responde que el número '
+        ['Número no registrado', 'Escribir desde un teléfono que no es de ningún padre de familia.', 'Responde que el número '
          'no está registrado.'],
         ['Menú', 'Escribir **hola**.', 'Saludo con el nombre y el menú del 1 al 8.'],
         ['Ver saldo', '**1**.', 'Disponible de cada hijo.'],
@@ -237,7 +238,7 @@ def build(k):
         ['Tarjetas', '**7** → hijo → tarjeta → **1**.', 'Bloquea o desbloquea; coincide con el portal.'],
         ['Terminar', '**8** o **gracias**.', 'Despedida; **hola** vuelve a empezar.'],
         ['Avisos', 'Hacer una compra con monedero en caja, una recarga y dejar un pedido sin recoger.',
-         'Llegan los avisos de compra, recarga y pedido no recogido **a todos los tutores** del alumno.'],
+         'Llegan los avisos de compra, recarga y pedido no recogido **a todos los padres de familia** del alumno.'],
     ]))
     o.append(note('Cuando algo no salga como dice el manual, anotar: número de prueba, hora, teléfono o usuario '
                   'usado y una captura. Con eso Softbot lo localiza en los registros del TPV, del portal y de '

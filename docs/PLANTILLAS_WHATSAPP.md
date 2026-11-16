@@ -39,18 +39,18 @@ anterior. Meta no permite saltos de línea ni tabuladores dentro de una variable
 
 | Nombre | Cuerpo | Ejemplo de variables | Evento del TPV hoy |
 |---|---|---|---|
-| `recarga_acreditada` | Hola, se acreditó tu recarga en la cafetería: {{1}}. Gracias por usar el portal. | {{1}} = `Luis +$100.00 (disponible $210.00); Ana +$50.00 (disponible $50.00)` | `recarga` (un aviso por tutor con sus hijos) |
+| `recarga_acreditada` | Hola, se acreditó tu recarga en la cafetería: {{1}}. Gracias por usar el portal. | {{1}} = `Luis +$100.00 (disponible $210.00); Ana +$50.00 (disponible $50.00)` | `recarga` (un aviso por padre de familia con sus hijos) |
 | `compra_realizada` | Aviso de la cafetería: {{1}} pagó {{2}} con su saldo. Le quedan {{3}} disponibles. | `Luis` · `$45.00` · `$165.00` | `compra` (hoy agrega «(su pedido PC-00002)»: se omite en la plantilla) |
 | `pedido_liberado` | Aviso de la cafetería: {{1}} no recogió su pedido {{2}} del {{3}}. Le devolvimos {{4}} a su saldo y tiene {{5}} disponibles. | `Luis` · `PC-00002` · `22/10/2026` · `$75.00` · `$240.00` | `pedido_liberado` |
 
 > El diseño de Conduit (#42) menciona `saldo_bajo`: el TPV **no** tiene ese aviso hoy. Si se quiere,
-> es trabajo nuevo en el TPV (umbral por alumno o por tutor).
+> es trabajo nuevo en el TPV (umbral por alumno o por padre de familia).
 
 ## Mensajes del portal
 
 | Nombre | Categoría | Cuerpo | Ejemplo | Cuándo |
 |---|---|---|---|---|
-| `acceso_portal` | Utilidad | Hola {{1}}, ya tienes acceso al portal de la cafetería en {{2}} con el usuario {{3}} y la contraseña temporal {{4}}. Te pediremos cambiarla al entrar. | `Ana` · `https://cafeteria.softbot.com.mx` · `8341445807` · `fresa-limon-42` | Alta del tutor y «Reenviar acceso» |
+| `acceso_portal` | Utilidad | Hola {{1}}, ya tienes acceso al portal de la cafetería en {{2}} con el usuario {{3}} y la contraseña temporal {{4}}. Te pediremos cambiarla al entrar. | `Ana` · `https://cafeteria.softbot.com.mx` · `8341445807` · `fresa-limon-42` | Alta del padre de familia y «Reenviar acceso» |
 | `codigo_verificacion` | **Autenticación** | (texto fijo de Meta) «*{{1}}* es tu código de verificación.» + botón **Copiar código**; vence en 15 min (el portal dice 15) | `148789` | Recuperar contraseña |
 
 Notas:
