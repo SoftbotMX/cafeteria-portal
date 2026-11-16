@@ -685,25 +685,4 @@ form.sin-hueco { gap: 10px; }
 .lista-sin-servicio.pasados { opacity: .55; }
 .logo-actual { display: flex; }
 .campo.archivo { border: var(--trazo) solid var(--cafe); border-radius: var(--radio); }
-.campo.archivo input { font-size: 14px; min-height: 36px; }
-
-/* ================================================================ PROVISIONAL
-   Reglas del diseño anterior para las pantallas que aún no pasan a «La Charola». Se borran
-   al terminar el rediseño. */
-label { display: grid; gap: .25rem; font-size: .95rem; }
-form > label input:not([type=hidden]), form > label select, fieldset input { font: inherit; padding: .6rem; border: 1px solid #bbb; border-radius: .4rem; }
-.tarjetas { list-style: none; padding: 0; display: grid; gap: .8rem; }
-.tarjeta { background: #fff; border-radius: .6rem; padding: .8rem 1rem; box-shadow: 0 1px 2px #0002; }
-.tarjeta strong { font-size: 1.1rem; }
-.acciones { display: flex; gap: .5rem; margin: .6rem 0 0; }
-.acciones .boton { flex: 1; text-align: center; }
-.saldo { font-size: 1.6rem; font-weight: 600; margin: .3rem 0 0; }
-.saldo span { font-size: .9rem; font-weight: 400; color: #666; }
-.apartado { margin: 0 0 .4rem; color: #666; }
-.alerta { background: #fde2e2; padding: .4rem .6rem; border-radius: .4rem; margin: .3rem 0; }
-.movimiento { display: flex; justify-content: space-between; gap: 1rem; padding: .6rem 0; border-bottom: 1px solid #e5e5e0; }
-.movimiento .importe { text-align: right; display: grid; }
-.resumen { padding-left: 1.2rem; }
-p.listo:not(.aviso) { background: #dcfce7; padding: .6rem .8rem; border-radius: .4rem; }
-table { border-collapse: collapse; width: 100%; font-size: 14px; }
-th, td { text-align: left; padding: .4rem; border-bottom: 1px solid var(--borde); vertical-align: top; }
+.campo.archivo input { font: inherit; font-size: 14px; min-height: 36px; width: 100%; padding: 6px 0; }
