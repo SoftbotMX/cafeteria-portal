@@ -3,7 +3,9 @@
 
 Estilo: plantilla y funciones de `ProyectoAI/Expreso/docs/bin/seo-impacto/build_seo_impacto.py`
 (plantilla-softbot.docx = `Expreso/docs/assets/plantilla.docx`). El contenido está en `contenido.py`.
-Uso: python3 docs/manual/build_manual.py   (sobrescribe la salida)"""
+Uso: python3 docs/manual/build_manual.py   (sobrescribe la salida)
+Otro documento con el mismo estilo: python3 docs/manual/build_manual.py <modulo> <salida.docx> "<pie>"
+(p. ej. contenido_token Guia-Access-Token-Mercado-Pago.docx "…"); la salida queda junto a este archivo."""
 import html
 import os
 import random
@@ -15,8 +17,9 @@ import zipfile
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 TPL = os.path.join(AQUI, 'plantilla-softbot.docx')
-OUT = os.path.join(AQUI, 'Cafeteria-Manual-de-Pruebas.docx')
-PIE = 'Cafetería escolar · Manual de pruebas · Softbot'
+MODULO = sys.argv[1] if len(sys.argv) > 1 else 'contenido'
+OUT = os.path.join(AQUI, sys.argv[2] if len(sys.argv) > 2 else 'Cafeteria-Manual-de-Pruebas.docx')
+PIE = sys.argv[3] if len(sys.argv) > 3 else 'Cafetería escolar · Manual de pruebas · Softbot'
 W = 10080
 random.seed(20261109)
 _used = set()
@@ -146,7 +149,7 @@ def cover(title, sub, line):
 
 
 sys.path.insert(0, AQUI)
-from contenido import build  # noqa: E402
+build = __import__(MODULO).build  # noqa: E402
 
 body = build(dict(h1=h1, h2=h2, para=para, bullet=bullet, table=table, code=code,
                   note=note, cover=cover, sep=sep))
@@ -164,7 +167,7 @@ fp = os.path.join(work, 'word', 'footer1.xml')
 f = open(fp, encoding='utf-8').read()
 assert 'Mesa Digital · Hallazgos y alcance · Softbot interno' in f
 open(fp, 'w', encoding='utf-8').write(
-    f.replace('Mesa Digital · Hallazgos y alcance · Softbot interno', PIE))
+    f.replace('Mesa Digital · Hallazgos y alcance · Softbot interno', esc(PIE)))
 
 cp = os.path.join(work, 'docProps', 'core.xml')
 c = open(cp, encoding='utf-8').read()
