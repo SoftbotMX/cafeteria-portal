@@ -1,11 +1,14 @@
 """Rediseño del portal del administrador: anticipación 1–30, logo, nombre por partes, alta con
 hijos uno por uno."""
+import io
 import re
 import struct
 import uuid
 import zlib
 
 import httpx
+import pytest
+from PIL import Image
 from sqlalchemy import select
 
 from portal.models import Bitacora, ConfigPedidos, Operador, Tutor
@@ -76,6 +79,72 @@ def test_logo_rechaza_svg_y_archivos_grandes(db, op, admin):
                                 ("x.jpg", bytes.fromhex("ffd8ffc0ffd9"), "image/jpeg")]:
         r = admin.post("/admin/cafeteria/logo", data={"csrf": csrf_de(p)},
                        files={"logo": (nombre, datos, tipo)})
+        assert r.status_code == 400 and "PNG, JPG o WebP" in r.text, nombre
+    db.expire_all()
+    assert db.get(Operador, op.id).logo is None
+
+
+def _con_pillow(formato: str, **opciones) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (40, 30), (201, 138, 79)).save(buf, formato, **opciones)
+    return buf.getvalue()
+
+
+def _webp_grande() -> bytes:
+    """WebP de 5000×1: rebasa el lado máximo (se rechaza antes de que Pillow reserve el lienzo)."""
+    buf = io.BytesIO()
+    Image.effect_noise((5000, 1), 60).convert("RGB").save(buf, "WEBP", lossless=True)
+    return buf.getvalue()
+
+
+def test_webp_enorme_se_rechaza_sin_abrirlo(monkeypatch):
+    from portal.rutas import admin as rutas_admin
+    datos = _webp_grande()
+    assert len(datos) >= rutas_admin.LOGO_MIN
+
+    def no_abrir(*a, **k):
+        raise AssertionError("Pillow no debe abrir un WebP que rebasa el lado máximo")
+    monkeypatch.setattr(rutas_admin.Image, "open", no_abrir)
+    assert rutas_admin._tipo_logo(datos) is None
+
+
+@pytest.mark.parametrize("formato,tipo", [("JPEG", "image/jpeg"), ("WEBP", "image/webp")])
+def test_logo_acepta_jpeg_y_webp(db, op, admin, formato, tipo):
+    datos = _con_pillow(formato)
+    p = admin.get("/admin/cafeteria")
+    r = admin.post("/admin/cafeteria/logo", data={"csrf": csrf_de(p)},
+                   files={"logo": ("logo.bin", datos, "application/octet-stream")})
+    assert r.status_code == 200 and "Logo guardado" in r.text
+    db.expire_all()
+    assert db.get(Operador, op.id).logo_tipo == tipo
+
+
+def test_logo_rechaza_imagenes_que_no_se_decodifican(db, op, admin):
+    """Firma y estructura correctas no bastan: la imagen tiene que decodificarse completa."""
+    png = _png(64, 64)
+    i = png.index(b"IDAT") + 4
+    corrupto = png[:i] + bytes(b ^ 0xff for b in png[i:i + 8]) + png[i + 8:]
+    jpeg = _con_pillow("JPEG")
+    buf = io.BytesIO()
+    cuadros = [Image.new("RGB", (8, 8), c) for c in ("red", "blue")]
+    cuadros[0].save(buf, "WEBP", save_all=True, append_images=cuadros[1:])
+    p = admin.get("/admin/cafeteria")
+    grande = _png(600, 600)  # cortado sigue arriba de LOGO_MIN: lo rechaza la validación, no el tamaño
+    assert len(grande) - 12 >= 64
+    i = png.index(b"IDAT")
+    largo = struct.unpack(">I", png[i - 4:i])[0]
+    mala_suma = png[:i + 4 + largo] + b"\0\0\0\0" + png[i + 8 + largo:]   # pixeles bien, CRC mal
+    for nombre, datos in [("corrupto.png", corrupto),
+                          ("sin-iend.png", grande[:-12]),
+                          ("iend-cortado.png", grande[:-4]),
+                          ("iend-mala-suma.png", grande[:-4] + b"\0" * 4),
+                          ("enorme.webp", _webp_grande()),
+                          ("mala-suma.png", mala_suma),
+                          ("cortado.jpg", jpeg[:len(jpeg) // 2]),
+                          ("animado.webp", buf.getvalue()),
+                          ("x.gif", _con_pillow("GIF"))]:
+        r = admin.post("/admin/cafeteria/logo", data={"csrf": csrf_de(p)},
+                       files={"logo": (nombre, datos, "image/png")})
         assert r.status_code == 400 and "PNG, JPG o WebP" in r.text, nombre
     db.expire_all()
     assert db.get(Operador, op.id).logo is None

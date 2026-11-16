@@ -1,12 +1,13 @@
 import hashlib
+import io
 import re
 import secrets
-import struct
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
+from PIL import Image
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -740,34 +741,60 @@ LOGO_MIN = 64  # menos que esto no es una imagen que se pueda ver
 # Sólo mapas de bits, por su contenido (no se cree la extensión ni el tipo que manda el
 # navegador). SVG no: puede llevar scripts.
 MSG_LOGO = "Sube una imagen PNG, JPG o WebP de hasta 512 KB."
+LOGO_LADO_MAX = 2048  # se muestra a 148 px; acota la memoria al decodificar
+_IEND = b"\0\0\0\0IEND\xaeB`\x82"
+_FORMATOS_LOGO = {"PNG": "image/png", "JPEG": "image/jpeg", "WEBP": "image/webp"}
+
+
+def _webp_medidas_ok(datos: bytes) -> bool:
+    """Medidas del lienzo WebP leídas del encabezado, sin decodificar (formato RIFF de libwebp)."""
+    if len(datos) < 30 or datos[8:12] != b"WEBP":
+        return False
+    bloque = datos[12:16]
+    if bloque == b"VP8X":
+        ancho = int.from_bytes(datos[24:27], "little") + 1
+        alto = int.from_bytes(datos[27:30], "little") + 1
+    elif bloque == b"VP8 ":
+        ancho = int.from_bytes(datos[26:28], "little") & 0x3FFF
+        alto = int.from_bytes(datos[28:30], "little") & 0x3FFF
+    elif bloque == b"VP8L":
+        bits = int.from_bytes(datos[21:25], "little")
+        ancho, alto = (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
+    else:
+        return False
+    return 1 <= ancho <= LOGO_LADO_MAX and 1 <= alto <= LOGO_LADO_MAX
 
 
 def _tipo_logo(datos: bytes) -> str | None:
-    """El tipo si el archivo tiene la estructura mínima de una imagen completa (no sólo la firma:
-    un archivo truncado o con sólo los primeros bytes rompería el logo en todo el portal). No es un
-    decodificador (eso pediría Pillow): sólo la administración sube el logo y uno roto se
-    reemplaza subiendo otro."""
+    """El tipo si el archivo es una imagen PNG, JPEG o WebP que se decodifica completa. Se decide por
+    el contenido (Pillow), no por la extensión ni el tipo que manda el navegador: un archivo truncado,
+    corrupto o de otro formato no llega a guardarse y romper el logo en todo el portal."""
     if len(datos) < LOGO_MIN:
         return None
-    if datos.startswith(b"\x89PNG\r\n\x1a\n"):
-        if datos[12:16] != b"IHDR" or b"IDAT" not in datos or not datos.endswith(b"IEND\xaeB`\x82"):
-            return None
-        ancho, alto = struct.unpack(">II", datos[16:24])
-        return "image/png" if 1 <= ancho <= 4096 and 1 <= alto <= 4096 else None
-    if datos.startswith(b"\xff\xd8\xff"):
-        if not datos.rstrip(b"\0").endswith(b"\xff\xd9"):
-            return None
-        for marca in (b"\xff\xc0", b"\xff\xc1", b"\xff\xc2"):  # inicio de cuadro: alto y ancho
-            i = datos.find(marca)
-            if i >= 0 and len(datos) >= i + 9:
-                alto, ancho = struct.unpack(">HH", datos[i + 5:i + 9])
-                return "image/jpeg" if 1 <= ancho <= 4096 and 1 <= alto <= 4096 else None
+    # PNG: verify() deja de leer al encontrar IEND sin revisar su suma; se exige el cierre completo.
+    if datos.startswith(b"\x89PNG") and not datos.endswith(_IEND):
         return None
-    if datos[:4] == b"RIFF" and datos[8:12] == b"WEBP":
-        tam = struct.unpack("<I", datos[4:8])[0]
-        return "image/webp" if tam + 8 == len(datos) and datos[12:16] in (
-            b"VP8 ", b"VP8L", b"VP8X") and len(datos) > 30 else None
-    return None
+    # WebP: Pillow reserva el lienzo al abrirlo, antes de que se puedan revisar las medidas.
+    if datos[:4] == b"RIFF" and not _webp_medidas_ok(datos):
+        return None
+    try:
+        with Image.open(io.BytesIO(datos), formats=list(_FORMATOS_LOGO)) as img:
+            tipo = _FORMATOS_LOGO.get(img.format)
+            ancho, alto = img.size
+            # Las medidas se leen del encabezado: se revisan antes de decodificar los pixeles.
+            if tipo is None or not (1 <= ancho <= LOGO_LADO_MAX and 1 <= alto <= LOGO_LADO_MAX):
+                return None
+            if getattr(img, "is_animated", False):  # load() sólo revisaría el primer cuadro
+                return None
+            # verify() revisa el contenedor (en PNG: sumas de cada bloque y que cierre con IEND);
+            # load() no lo hace, pero sí decodifica los pixeles. verify() deja la imagen inservible:
+            # se vuelve a abrir para load().
+            img.verify()
+        with Image.open(io.BytesIO(datos), formats=list(_FORMATOS_LOGO)) as img:
+            img.load()  # decodifica todo; truncado o corrupto lanza aquí
+    except Exception:  # cualquier falla del decodificador = no es una imagen que se pueda mostrar
+        return None
+    return tipo
 
 
 @router.post("/cafeteria/logo")
