@@ -241,11 +241,19 @@ button.solo-icono:hover { background: var(--crema); color: var(--cafe); }
 .cifra + .chico b { color: var(--cafe); }
 
 /* ---------------------------------------------------------------- opciones con interruptor (5f) */
-a.opcion {
+a.opcion, button.opcion {
   display: flex; align-items: center; gap: 12px; min-height: 76px; padding: 12px 14px 12px 16px;
   color: var(--cafe); text-decoration: none;
 }
-a.opcion:hover { background: var(--crema); text-decoration: none; }
+button.opcion {
+  width: 100%; border: 0; border-radius: 0; background: #fff; color: var(--cafe);
+  justify-content: flex-start; text-align: left; font: inherit; cursor: pointer;
+  text-transform: none; letter-spacing: normal;
+}
+button.opcion:disabled { cursor: not-allowed; opacity: .55; }
+a.opcion:hover, button.opcion:hover:not(:disabled) {
+  background: var(--crema); color: var(--cafe); text-decoration: none;
+}
 .opcion > .icono { width: 34px; height: 34px; color: var(--cobre-osc); }
 .opcion-texto { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .opcion-titulo { font: 800 26px/1.1 var(--display); font-stretch: 60%; text-transform: uppercase; }
@@ -499,11 +507,11 @@ body.admin { background: #fff; }
 }
 .admin-barra {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; background: #fff;
-  border-top: 1px solid var(--borde); display: grid; grid-template-columns: repeat(4, 1fr);
+  border-top: 1px solid var(--borde); display: grid; grid-template-columns: repeat(5, 1fr);
   padding: 10px 0 calc(8px + env(safe-area-inset-bottom));
 }
 .admin-barra::before {
-  content: ""; position: absolute; top: 17px; left: 12.5%; right: 12.5%; height: var(--trazo);
+  content: ""; position: absolute; top: 17px; left: 10%; right: 10%; height: var(--trazo);
   background: var(--cafe);
 }
 .admin-barra a {
@@ -686,3 +694,25 @@ form.sin-hueco { gap: 10px; }
 .logo-actual { display: flex; }
 .campo.archivo { border: var(--trazo) solid var(--cafe); border-radius: var(--radio); }
 .campo.archivo input { font: inherit; font-size: 14px; min-height: 36px; width: 100%; padding: 6px 0; }
+
+/* ---------------------------------------------------------------- confirmación (admin) */
+dialog.confirmar {
+  width: min(420px, calc(100vw - 32px)); padding: 22px 22px 18px; margin: auto;
+  border: var(--trazo) solid var(--cafe); border-radius: var(--radio);
+  background: #fff; color: var(--cafe);
+}
+dialog.confirmar::backdrop { background: rgba(59, 32, 21, .45); }
+.confirmar-titulo {
+  margin: 0 0 8px; font: 800 28px/1.05 var(--display); font-stretch: 60%; text-transform: uppercase;
+}
+.confirmar .nota { margin: 0; }
+.confirmar-botones { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+.confirmar-botones button { min-height: 52px; font-size: 22px; padding: 0 12px; }
+
+/* ---------------------------------------------------------------- pasos (pagos con tarjeta) */
+ol.pasos { margin: 4px 0 14px; padding-left: 22px; display: grid; gap: 8px; font-size: 14px; line-height: 1.4; }
+ol.pasos li.hecho { color: var(--verde); }
+ol.pasos a .icono { width: 14px; height: 14px; vertical-align: -2px; }
+fieldset.sin-marco { border: 0; padding: 0; margin: 0; min-width: 0; }
+fieldset.sin-marco:disabled { opacity: .55; }
+

@@ -94,3 +94,21 @@ def test_operador_sin_conduit(db, c, conduit):
 def test_host_desconocido(app, conduit):
     otro = TestClient(app, base_url="https://nadie.test")
     assert _firmado(otro, "/validate", {"sender": "+52", "channel": "whatsapp"}).status_code == 404
+
+
+def test_reintento_en_pausa_no_reenvia_la_liga(db, op, c, conduit):
+    """WhatsApp reintenta un mensaje cuya respuesta guardada traía la liga de pago; con los pagos
+    en pausa ya no se reenvía (Codex)."""
+    from portal.models import BotMensaje, Operador, Recarga
+    from tests.fabricas import crear_tutor
+    tutor = crear_tutor(db, op)
+    liga = "https://mp.test/checkout?pref_id=PREF-9"
+    db.add(Recarga(operador_id=op.id, tutor_id=tutor.id, llave="ll-bot", total=100, reparto=[],
+                   init_point=liga))
+    db.add(BotMensaje(operador_id=op.id, message_id=MENSAJE["message_id"],
+                      respuesta=f"Paga aquí: {liga}"))
+    db.query(Operador).update({"mp_pagos_activos": False})
+    db.commit()
+    assert _firmado(c, "/message", MENSAJE).status_code == 200
+    (resp,) = conduit.respuestas
+    assert liga not in resp["reply_text"] and "no están disponibles" in resp["reply_text"]

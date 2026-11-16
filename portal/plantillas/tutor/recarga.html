@@ -31,6 +31,7 @@
   {{ ui.ticket(renglones=renglones, total=r.total | dinero) }}
   {% if not verificada %}<a class="boton" href="/recargas/{{ r.id }}">Revisar de nuevo</a>
   {% elif vigente %}<a class="boton" href="{{ r.init_point }}">Pagar {{ r.total | dinero }} en línea</a>
+  {% elif pausados %}<p class="nota">Los pagos con tarjeta están en pausa por ahora.</p>
   {% else %}<p class="nota">La liga de pago venció.</p><a class="boton" href="/recargar">Arma otra recarga</a>{% endif %}
 {% else %}
   <div class="circulo error">{{ icono("error") }}</div>

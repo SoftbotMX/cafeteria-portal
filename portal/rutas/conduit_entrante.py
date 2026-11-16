@@ -11,13 +11,13 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, literal, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from portal import bot
 from portal.conduit import ErrorEnvio, firma_valida, responder
-from portal.models import BotMensaje, Operador
+from portal.models import BotMensaje, Operador, Recarga
 from portal.sesiones import operador_actual
 
 log = logging.getLogger(__name__)
@@ -50,6 +50,16 @@ async def validar(request: Request, operador: Operador = Depends(operador_actual
     return {"valid": True}
 
 
+MSG_RECARGAS_PAUSA = "Las recargas no están disponibles por ahora."
+
+
+def _trae_liga(db, operador_id: int, texto: str) -> bool:
+    """¿La respuesta guardada lleva la liga de pago de alguna recarga?"""
+    return bool(db.scalar(select(Recarga.id).where(
+        Recarga.operador_id == operador_id, Recarga.init_point.is_not(None),
+        func.strpos(literal(texto), Recarga.init_point) > 0).limit(1)))
+
+
 def _atender_y_contestar(app, operador_id: int, sender: str, texto: str, message_id: str) -> None:
     """En segundo plano (hilo del pool): el bot habla con el TPV y MercadoPago, que tardan."""
     with Session(app.state.engine) as db:
@@ -68,6 +78,9 @@ def _atender_y_contestar(app, operador_id: int, sender: str, texto: str, message
                 return
             if previo.respuesta is not None:
                 respuesta = previo.respuesta
+                if not operador.recargas_activas and _trae_liga(db, operador_id, respuesta):
+                    # Reintento de WhatsApp con los pagos en pausa: no se reenvía la liga (Codex).
+                    respuesta = MSG_RECARGAS_PAUSA
             else:
                 # Sin respuesta: en curso, o abandonado si el proceso murió (Codex). Sólo uno lo
                 # reclama (UPDATE condicional); las llaves de cada operación evitan duplicar.

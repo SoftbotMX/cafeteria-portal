@@ -1,0 +1,97 @@
+{#- Pagos con tarjeta: pausar/activar las recargas en línea y cambiar la cuenta de Mercado Pago.
+    Contexto: csrf, admin, error, mensajes, tiene_token, activos, cuenta_id, cuenta_nombre,
+    cuenta_prueba (None = sin verificar), en_curso, puede_cambiar. -#}
+{% extends "admin/_base.html" %}
+{% import "_ui.html" as ui with context %}
+{% set seccion = "pagos" %}
+{% block titulo %}Pagos con tarjeta · Administración{% endblock %}
+{% block contenido %}
+<div class="admin-dos">
+  <div class="admin-columna">
+    {{ ui.titulo("Pagos con", "tarjeta", tam="admin") }}
+    {% if error %}{{ ui.aviso(error, "error", "alert") }}{% endif %}
+    <p class="nota">Las recargas en línea de los padres de familia, en la web y por WhatsApp, se
+    pagan con tarjeta en Mercado Pago. Las recargas en la caja de la cafetería no dependen de esto.</p>
+
+    <form method="post" action="/admin/pagos/estado"
+          {% if activos %}data-confirmar="¿Pausar los pagos con tarjeta?" data-confirmar-detalle="Nadie podrá recargar en línea, ni en la web ni por WhatsApp, hasta que los vuelvas a activar." data-confirmar-boton="Pausar" data-confirmar-peligro
+          {% else %}data-confirmar="¿Activar los pagos con tarjeta?" data-confirmar-detalle="{{ 'Se cobrará con la cuenta real ' ~ (cuenta_nombre or '') ~ '.' if cuenta_prueba == false else ('La cuenta es de prueba: sólo funcionan tarjetas de prueba.' if cuenta_prueba else 'Los padres de familia podrán recargar en línea otra vez.') }}" data-confirmar-boton="Activar"{% endif %}>
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="activo" value="{{ '0' if activos else '1' }}">
+      <div class="grupo">
+        <button type="submit" class="opcion {{ 'si' if activos else 'no' }}"{% if not tiene_token %} disabled{% endif %}>
+          {{ icono("credit_card") }}
+          <span class="opcion-texto">
+            <span class="opcion-titulo">Recargas en línea</span>
+            <span class="opcion-estado">{{ "Activas · la web y WhatsApp ofrecen recargar" if activos else "En pausa · nadie puede recargar en línea" }}</span>
+          </span>
+          <span class="si-no" aria-hidden="true">{{ "SÍ" if activos else "NO" }}</span>
+          <span class="interruptor" aria-hidden="true"></span>
+          <span class="solo-lector">{{ "Pausar" if activos else "Activar" }}</span>
+        </button>
+      </div>
+    </form>
+    {% if not tiene_token %}<p class="nota">Para activarlas, primero guarda las credenciales de Mercado Pago.</p>
+    {% elif not activos %}<p class="nota">Las ligas de pago que ya se habían enviado vencen solas en 30 minutos; si alguien paga con una, su recarga se acredita.</p>{% endif %}
+
+    {{ ui.titulo("Cuenta de", "Mercado Pago", nivel=2, tam="seccion") }}
+    {% if tiene_token %}
+    <div class="campos">
+      <div class="campo"><span>Cuenta</span><span class="valor">{{ cuenta_nombre or "Sin consultar" }}</span></div>
+      <div class="campo"><span>Número de cuenta</span><code class="valor">{{ cuenta_id or "—" }}</code></div>
+      <div class="campo"><span>Tipo</span>
+        <span class="valor">{% if cuenta_prueba is none %}Sin consultar{% elif cuenta_prueba %}<span class="estado revision">De prueba · sólo tarjetas de prueba</span>{% else %}<span class="estado cobrada">Real · cobra dinero real</span>{% endif %}</span></div>
+    </div>
+    {% if cuenta_prueba is none %}
+    <p class="nota">Esta cuenta se guardó antes de esta pantalla y el portal todavía no sabe de quién
+    es. Consúltalo con Mercado Pago para ver sus datos. Las cuentas que guardes aquí se comprueban solas
+    al guardarlas.</p>
+    <form method="post" action="/admin/pagos/verificar">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="secundario chico-boton">Consultar datos de la cuenta guardada</button>
+    </form>
+    {% endif %}
+    {% else %}
+    <p class="nota">Todavía no hay una cuenta dada de alta: sigue los pasos de «Dar de alta o cambiar la
+    cuenta».</p>
+    {% endif %}
+  </div>
+
+  <div class="admin-columna lateral">
+    {{ ui.titulo("Dar de alta o cambiar la", "cuenta", nivel=2, tam="seccion") }}
+    <p class="nota">La cuenta de Mercado Pago que cobra se da de alta con su <b>Access Token</b>, una
+    llave que da Mercado Pago a la dueña de la cuenta. Así se pasa de la cuenta de prueba a la real de
+    la cafetería, o a otra cuenta más adelante.</p>
+    <ol class="pasos">
+      <li{% if puede_cambiar %} class="hecho"{% endif %}><b>Pausa los pagos con tarjeta</b> con el interruptor
+        «Recargas en línea».{% if puede_cambiar %} Listo.{% endif %}</li>
+      <li><b>Copia el Access Token</b>: entra con la cuenta de Mercado Pago que va a cobrar a
+        <a href="https://www.mercadopago.com.mx/developers/panel/app" target="_blank" rel="noopener">Mercado Pago Developers {{ icono("open_in_new") }}</a>,
+        abre tu aplicación (o crea una de <b>Checkout Pro</b>) → <b>Credenciales de producción</b> →
+        copia el <b>Access Token</b> (empieza con <code>APP_USR-</code>).</li>
+      <li><b>Pégalo aquí</b> con tu contraseña de administración y guarda. No lo mandes por correo ni
+        por WhatsApp.</li>
+    </ol>
+    {% if not puede_cambiar %}{{ ui.aviso("Primero pausa los pagos con tarjeta (paso 1).") }}
+    {% elif en_curso %}{{ ui.aviso(msg_en_curso) }}{% endif %}
+    {% set bloqueado = not puede_cambiar or en_curso %}
+    <form method="post" action="/admin/pagos/credenciales" autocomplete="off"
+          onsubmit="this.querySelector('button[type=submit]').disabled=true">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <fieldset class="sin-marco"{% if bloqueado %} disabled{% endif %}>
+        <div class="campos">
+          <label class="campo"><span>Access Token</span>
+            <input type="password" name="access_token" required autocomplete="off" spellcheck="false" placeholder="APP_USR-…">
+          </label>
+          <label class="campo"><span>Tu contraseña de administración</span>
+            <input type="password" name="contrasena" required autocomplete="current-password">
+          </label>
+        </div>
+        <p class="nota">Se comprueba con Mercado Pago antes de guardarla. Los pagos se quedan en pausa
+        hasta que los actives.</p>
+        <button type="submit" class="chico-boton">Guardar cuenta</button>
+      </fieldset>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -29,7 +29,7 @@ def inicio(request: Request, par: tuple[Sesion, Tutor] = Depends(tutor_listo),
            operador: Operador = Depends(operador_actual)):
     sesion, tutor = par
     ctx = {"tutor": tutor, "csrf": sesion.csrf, "hijos": [], "error_tpv": None,
-           "recargas": bool(operador.mp_access_token_cif)}
+           "recargas": operador.recargas_activas}
     try:
         hijos = tutor_tpv.hijos(request, operador, tutor)
     except SinTPV:
@@ -76,7 +76,7 @@ def hijo(alumno_id: int, request: Request, pagina: int = Query(1, ge=1, le=10000
             "tutor": tutor, "csrf": sesion.csrf, "hijo": None, "error_tpv": MSG_SIN_TPV,
             "hay_varios": False})
     ctx = {"tutor": tutor, "csrf": sesion.csrf, "hijo": ficha, "hay_varios": len(todos) > 1,
-           "recargas": bool(operador.mp_access_token_cif),
+           "recargas": operador.recargas_activas,
            "error_tpv": None}
     try:
         ctx.update(_contexto_pedidos(request, operador, tutor, db, alumno_id, ahora))

@@ -51,7 +51,7 @@
           <span class="hijo-nombre">{{ h.nombre }}</span>
           <span class="chico">{% if h.matricula %}Matrícula {{ h.matricula }} · {% endif %}código {{ h.codigo }}</span>
         </span>
-        <form method="post" action="/admin/tutores/{{ tutor.id }}/desvincular" onsubmit="return confirm('¿Quitar a este hijo de este padre de familia?')">
+        <form method="post" action="/admin/tutores/{{ tutor.id }}/desvincular" data-confirmar="¿Quitar a este hijo de este padre de familia?" data-confirmar-detalle="Dejará de verlo en el portal y de recibir sus avisos. El hijo y su saldo no se borran." data-confirmar-boton="Quitar" data-confirmar-peligro>
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <input type="hidden" name="llave" value="{{ nueva_llave() }}">
           <input type="hidden" name="alumno_id" value="{{ h.id }}">

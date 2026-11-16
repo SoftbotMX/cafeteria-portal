@@ -1,5 +1,5 @@
 {#- Marco del portal del administrador: menú lateral en escritorio, barra inferior en celular.
-    Cada pantalla pone `{% set seccion = "padres" | "horario" | "recargas" | "cafeteria" %}`. -#}
+    Cada pantalla pone `{% set seccion = "padres" | "horario" | "recargas" | "pagos" | "cafeteria" %}`. -#}
 {% extends "base.html" %}
 {% import "_ui.html" as ui with context %}
 {% block clase_cuerpo %}admin{% endblock %}
@@ -8,6 +8,7 @@
 {%- set secciones = [("padres", "/admin", "Padres de familia", "padres"),
                      ("horario", "/admin/pedidos", "Horario de pedidos", "horario"),
                      ("recargas", "/admin/recargas", "Recargas", "recargas"),
+                     ("pagos", "/admin/pagos", "Pagos con tarjeta", "pagos"),
                      ("cafeteria", "/admin/cafeteria", "Datos de la cafetería", "cafetería")] -%}
 <div class="admin-marco">
   <aside class="admin-lateral">
@@ -49,4 +50,16 @@
     {% endfor %}
   </nav>
 </div>
+
+<dialog id="confirmar" class="confirmar" aria-labelledby="confirmar-titulo" aria-describedby="confirmar-detalle">
+  <form method="dialog">
+    <p id="confirmar-titulo" class="confirmar-titulo" data-titulo></p>
+    <p id="confirmar-detalle" class="nota" data-detalle hidden></p>
+    <div class="confirmar-botones">
+      <button value="no" class="secundario">Cancelar</button>
+      <button value="si" data-si>Confirmar</button>
+    </div>
+  </form>
+</dialog>
+<script src="{{ estatico('confirmar.js') }}" defer></script>
 {% endblock %}

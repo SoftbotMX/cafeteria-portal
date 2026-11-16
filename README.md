@@ -49,9 +49,12 @@ de login); los códigos incorrectos sí cuentan contra la IP.
 Checkout Pro. El papá reparte entre sus hijos (pesos enteros, total de $50 a $2,000), paga en
 MercadoPago (sólo tarjeta o saldo de MP: sin OXXO ni SPEI) y el TPV acredita con `recarga`.
 
-- **Token del operador** (cifrado en BD; sin él no aparece «Recargar»):
-  `ssh -t gerri@softbot.com.mx 'cd ~/cafeteria-portal/deploy && docker compose -p cafeteria-portal exec portal python -m portal.cli guardar-mp --host cafeteria.softbot.com.mx'`.
-  Pasar a la cuenta real de la cafetería, paso a paso: `docs/MERCADOPAGO_PRODUCCION.md`.
+- **Cuenta que cobra y pausa**: en la administración, **Pagos con tarjeta** (`/admin/pagos`). Ahí se
+  pausan/activan las recargas en línea (web, WhatsApp y MCP; la pausa no borra el token y el barrido
+  sigue cerrando lo que está en curso) y se da de alta la cuenta con su Access Token (sólo en pausa,
+  sin recargas en curso, con la contraseña del admin; se comprueba con `GET /users/me` y queda
+  cifrado). Paso a paso: `docs/MERCADOPAGO_PRODUCCION.md`. Por terminal también existe
+  `python -m portal.cli guardar-mp --host <host>` (no revisa recargas en curso: preferir la pantalla).
   Pruebas: el Access Token **de prueba** de la app; producción: el de producción. Siempre se usa
   `init_point` (MP ya no tiene `sandbox_init_point`).
 - **Aviso de MP**: cada preferencia lleva `notification_url = https://<host>/mp/aviso`; no hay que

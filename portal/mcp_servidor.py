@@ -187,7 +187,7 @@ def crear_servidor(app: FastAPI) -> MCPServer:
     def preparar_recarga(telefono: str, reparto: list[dict], ctx: Context) -> dict:
         def f(db, op):
             tutor = _tutor(db, op, telefono)
-            if not op.mp_access_token_cif:
+            if not op.recargas_activas:
                 raise ErrorMcp("Las recargas no están disponibles por ahora.")
             hijos_ = acciones.hijos(app, op, tutor)
             suyos = {h["id"] for h in hijos_}
@@ -296,6 +296,9 @@ def crear_servidor(app: FastAPI) -> MCPServer:
         if conf is None:
             raise ErrorMcp("Folio desconocido.")
         if conf.estado in ("ok", "rechazo"):  # ya se ejecutó: misma respuesta, sin repetir
+            if conf.accion == "recarga" and conf.estado == "ok" and not op.recargas_activas:
+                # La respuesta guardada trae la liga de pago: en pausa no se vuelve a ofrecer.
+                return {"estado": "rechazo", "mensaje": "Las recargas no están disponibles por ahora."}
             return {"estado": conf.estado, "mensaje": conf.resultado}
         # Sólo vence lo que nunca se intentó. Un incierto NO vence: pudo entrar, y prepararlo otra
         # vez daría otra llave y podría duplicarlo; se reintenta siempre con la suya (Codex).

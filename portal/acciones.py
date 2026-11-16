@@ -260,7 +260,7 @@ def credencial(db: Session, app: FastAPI, operador: Operador, tutor: Tutor, hijo
 def recargar(db: Session, app: FastAPI, operador: Operador, tutor: Tutor, reparto: list[dict],
              total: Decimal, llave: str) -> Resultado:
     """La liga de pago de MercadoPago (la acreditación llega sola, por el aviso de MP)."""
-    if not operador.mp_access_token_cif:
+    if not operador.recargas_activas:
         return Resultado("rechazo", "Las recargas no están disponibles por ahora.")
     try:
         r: Recarga = recargas.crear(db, app, operador, tutor, reparto, total, llave,
