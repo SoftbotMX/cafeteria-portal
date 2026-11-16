@@ -1,5 +1,6 @@
 import hashlib
 import io
+import logging
 import re
 import secrets
 import uuid
@@ -19,7 +20,9 @@ from portal.credenciales import (
     ErrorEntrega, entregar_credenciales, entregas_de, recuperacion_bloqueada, siguiente_intento,
     tutores_con_entrega, usuario_de,
 )
+from portal.cifrado import cifrar
 from portal.db import get_db
+from portal.mp import ClienteMP, ErrorMP
 from portal.models import Admin, Bitacora, ConfigPedidos, DiaSinServicio, Operador, Sesion, Tutor, Recarga
 from portal.nombres import juntar, partir
 from portal.reglas import ZONAS, ahora_local, cargar_reglas
@@ -37,6 +40,7 @@ from portal.tpv import ErrorTPV, cliente_admin
 from portal.web import templates
 
 router = APIRouter(prefix="/admin")
+log = logging.getLogger("portal.admin")
 
 # Hijos por alta: se agregan uno por uno (la pantalla no tiene filas fijas); tope de cordura.
 MAX_HIJOS = 10
@@ -905,3 +909,158 @@ def corregir_nombre(request: Request, tutor_id: int, nombres: str = Form(""),
         (partes[0] or "")[:100] or None, partes[1] and partes[1][:100], partes[2] and partes[2][:100])
     db.commit()
     return _ficha(request, sesion, admin, operador, db, tutor, mensajes=[aviso])
+
+
+# ---- pagos con tarjeta (recargas en línea con Mercado Pago) ----
+
+MSG_PAUSA_ANTES = "Pausa los pagos con tarjeta antes de cambiar las credenciales."
+MSG_EN_CURSO = ("Todavía hay recargas que la cuenta actual tiene que revisar. Espera a que terminen "
+                "(una liga sin pagar se cierra sola en 24 horas) y vuelve a intentar: si cambias "
+                "ahora, sus pagos no se acreditarían.")
+MSG_TOKEN = "Pega el Access Token completo: empieza con APP_USR- o TEST-."
+MSG_MP_NO_RECONOCE = "Mercado Pago no reconoció esa credencial. Revisa que sea el Access Token y que esté activo."
+MSG_MP_SIN_CONEXION = "No se pudo comprobar con Mercado Pago. No se cambió nada: intenta en un momento."
+MSG_MP_NO_MX = "Esa cuenta de Mercado Pago no es de México. No se cambió nada."
+_TOKEN_MP = re.compile(r"^(APP_USR|TEST)-[A-Za-z0-9_-]{10,250}$")
+
+
+def _en_curso(db: Session, operador: Operador) -> int:
+    """Recargas que la cuenta actual todavía tiene que revisar: pagadas sin acreditar, pendientes
+    con liga, y acreditadas sin su revisión final de pagos dobles. Con otra cuenta ya no se verían."""
+    # Una pendiente con liga se sigue buscando en MP hasta que vence (24 h): pudo pagarse y perderse
+    # el aviso. El tiempo solo no basta para soltarla (Codex).
+    return db.scalar(select(func.count()).select_from(Recarga).where(
+        Recarga.operador_id == operador.id,
+        or_(Recarga.estado == "aprobada",
+            (Recarga.estado == "pendiente") & Recarga.init_point.is_not(None),
+            # Cualquier liga que todavía se pueda pagar, esté como esté la recarga (Codex).
+            Recarga.init_point.is_not(None) & (Recarga.liga_vence > datetime.now(timezone.utc)),
+            Recarga.estado.in_(("acreditada", "revision")) & ~Recarga.conciliada))) or 0
+
+
+def _cuenta_mp(app, token: str) -> tuple[dict | None, str | None]:
+    """(datos de la cuenta, None) o (None, mensaje). Nunca registra el token."""
+    try:
+        yo = ClienteMP(token, transport=getattr(app.state, "mp_transport", None)).usuario()
+    except ErrorMP as e:
+        return None, MSG_MP_SIN_CONEXION if e.status == 0 or e.status >= 500 else MSG_MP_NO_RECONOCE
+    if str(yo.get("site_id") or "") != "MLM":
+        return None, MSG_MP_NO_MX
+    tags = yo.get("tags") if isinstance(yo.get("tags"), list) else []
+    nombre = " · ".join(str(x) for x in (yo.get("nickname"), yo.get("email")) if x)
+    return {"id": str(yo.get("id") or "")[:30] or None, "nombre": nombre[:200] or None,
+            "prueba": token.startswith("TEST-") or "test_user" in tags}, None
+
+
+def _pagina_pagos(request, sesion, admin, operador, db, error=None, mensajes=None, status=200):
+    resp = templates.TemplateResponse(request, "admin/pagos.html", {
+        "csrf": sesion.csrf, "admin": admin, "error": error, "mensajes": mensajes,
+        "tiene_token": bool(operador.mp_access_token_cif), "activos": operador.recargas_activas,
+        "cuenta_id": operador.mp_cuenta_id, "cuenta_nombre": operador.mp_cuenta_nombre,
+        "cuenta_prueba": operador.mp_cuenta_prueba, "en_curso": _en_curso(db, operador),
+        "puede_cambiar": not operador.recargas_activas,
+        "msg_en_curso": MSG_EN_CURSO,
+    }, status_code=status)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@router.get("/pagos")
+def pagos(request: Request, par: tuple[Sesion, Admin] = Depends(sesion_admin),
+          operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
+    return _pagina_pagos(request, par[0], par[1], operador, db)
+
+
+@router.post("/pagos/estado")
+def pagos_estado(request: Request, activo: str = Form(""), csrf: str = Form(""),
+                 par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                 operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
+    sesion, admin = par
+    exigir_csrf(csrf, sesion.csrf)
+    op = db.get(Operador, operador.id, with_for_update=True, populate_existing=True)
+    encender = activo == "1"
+    if encender and not op.mp_access_token_cif:
+        return _pagina_pagos(request, sesion, admin, op, db, status=400,
+                             error="Primero guarda las credenciales de Mercado Pago.")
+    op.mp_pagos_activos = encender
+    db.commit()
+    log.info("pagos con tarjeta %s por admin %s (operador %s)",
+             "activados" if encender else "pausados", admin.usuario, op.id)
+    return _pagina_pagos(request, sesion, admin, op, db, mensajes=[
+        "Pagos con tarjeta activados." if encender else
+        "Pagos con tarjeta en pausa: ni la web ni WhatsApp ofrecen recargar."])
+
+
+@router.post("/pagos/credenciales")
+def pagos_credenciales(request: Request, access_token: str = Form(""), contrasena: str = Form(""),
+                       csrf: str = Form(""), par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                       operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
+    """Cambiar la cuenta que cobra. Ruta síncrona: consulta a Mercado Pago en el pool de hilos."""
+    sesion, admin = par
+    exigir_csrf(csrf, sesion.csrf)
+    if operador.recargas_activas:
+        return _pagina_pagos(request, sesion, admin, operador, db, status=409, error=MSG_PAUSA_ANTES)
+    token = access_token.strip()
+    if not _TOKEN_MP.fullmatch(token):
+        return _pagina_pagos(request, sesion, admin, operador, db, status=400, error=MSG_TOKEN)
+    # La contraseña del administrador otra vez: una sesión abierta y olvidada no basta para
+    # cambiar a dónde va el dinero. Cuenta en el mismo límite de intentos que entrar.
+    ip = ip_cliente(request)
+    clave = _clave_intento(admin.usuario)
+    bloquear_limites(db, operador.id, clave)
+    if limite_excedido(db, operador.id, clave, ip):
+        db.rollback()
+        return _pagina_pagos(request, sesion, admin, operador, db, status=429, error=MSG_LIMITE)
+    if not verificar_contrasena(admin.contrasena_hash, contrasena):
+        registrar_intento(db, operador.id, clave, ip, exito=False)
+        db.commit()
+        return _pagina_pagos(request, sesion, admin, operador, db, status=400,
+                             error="La contraseña del administrador no es correcta.")
+    db.commit()  # suelta el candado de intentos antes de esperar a Mercado Pago
+    cuenta, error = _cuenta_mp(request.app, token)
+    if error:
+        return _pagina_pagos(request, sesion, admin, operador, db, status=400, error=error)
+    op = db.get(Operador, operador.id, with_for_update=True, populate_existing=True)
+    if op.recargas_activas:  # alguien los activó mientras se consultaba a MP
+        db.rollback()
+        return _pagina_pagos(request, sesion, admin, operador, db, status=409, error=MSG_PAUSA_ANTES)
+    if _en_curso(db, op):  # con el operador bloqueado: no se abre ninguna liga mientras tanto
+        db.rollback()
+        return _pagina_pagos(request, sesion, admin, operador, db, status=409, error=MSG_EN_CURSO)
+    op.mp_access_token_cif = cifrar(token, request.app.state.settings.fernet_key)
+    op.mp_cuenta_id, op.mp_cuenta_nombre, op.mp_cuenta_prueba = (
+        cuenta["id"], cuenta["nombre"], cuenta["prueba"])
+    op.mp_pagos_activos = False  # se activan a mano, ya revisada la cuenta
+    db.commit()
+    log.info("credenciales de Mercado Pago cambiadas por admin %s (operador %s, cuenta %s, %s)",
+             admin.usuario, op.id, op.mp_cuenta_id, "prueba" if cuenta["prueba"] else "real")
+    tipo = "de prueba" if cuenta["prueba"] else "real"
+    return _pagina_pagos(request, sesion, admin, op, db, mensajes=[
+        f"Credenciales guardadas: cuenta {tipo} {cuenta['nombre'] or cuenta['id']}. "
+        "Los pagos siguen en pausa: actívalos cuando lo revises."])
+
+
+@router.post("/pagos/verificar")
+def pagos_verificar(request: Request, csrf: str = Form(""),
+                    par: tuple[Sesion, Admin] = Depends(sesion_admin),
+                    operador: Operador = Depends(operador_actual), db: Session = Depends(get_db)):
+    """Pregunta a Mercado Pago de quién es el token guardado (sin cambiarlo)."""
+    sesion, admin = par
+    exigir_csrf(csrf, sesion.csrf)
+    antes = operador.mp_access_token_cif
+    token = operador.token_mp(request.app.state.settings.fernet_key)
+    if not token:
+        return _pagina_pagos(request, sesion, admin, operador, db, status=400,
+                             error="No hay credenciales guardadas.")
+    cuenta, error = _cuenta_mp(request.app, token)
+    if error:
+        return _pagina_pagos(request, sesion, admin, operador, db, status=400, error=error)
+    op = db.get(Operador, operador.id, with_for_update=True, populate_existing=True)
+    if op.mp_access_token_cif != antes:  # cambió mientras se consultaba
+        db.rollback()
+        return _pagina_pagos(request, sesion, admin, op, db)
+    op.mp_cuenta_id, op.mp_cuenta_nombre, op.mp_cuenta_prueba = (
+        cuenta["id"], cuenta["nombre"], cuenta["prueba"])
+    db.commit()
+    return _pagina_pagos(request, sesion, admin, op, db, mensajes=["Datos de la cuenta consultados con Mercado Pago."])
+

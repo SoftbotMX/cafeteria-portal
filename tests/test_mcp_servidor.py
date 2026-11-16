@@ -175,6 +175,20 @@ def test_recarga(db, hijos, llamar):
     assert db.query(Recarga).one().total == 100
 
 
+def test_en_pausa_no_prepara_ni_repite_la_liga(db, hijos, llamar):
+    """Con los pagos con tarjeta en pausa, el asistente no prepara recargas ni vuelve a dar la
+    liga de una ya confirmada (Codex)."""
+    from portal.models import Operador
+    p = llamar("preparar_recarga", telefono=TEL, reparto=[{"alumno_id": hijos[0]["id"], "importe": 100}])
+    assert "https://mp.test/checkout" in llamar("confirmar", telefono=TEL, folio=p["folio"])["mensaje"]
+    db.query(Operador).update({"mp_pagos_activos": False})
+    db.commit()
+    r = llamar("confirmar", telefono=TEL, folio=p["folio"])
+    assert r["estado"] == "rechazo" and "mp.test" not in r["mensaje"]
+    assert "no están disponibles" in llamar("preparar_recarga", telefono=TEL,
+                                             reparto=[{"alumno_id": hijos[0]["id"], "importe": 100}])["error"]
+
+
 def test_recarga_fuera_de_limites(hijos, llamar):
     assert "pesos enteros" in llamar("preparar_recarga", telefono=TEL,
                                      reparto=[{"alumno_id": hijos[0]["id"], "importe": 20}])["error"]

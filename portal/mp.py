@@ -48,6 +48,11 @@ class ClienteMP:
         return self._pedir("POST", "/checkout/preferences", json=cuerpo,
                            cabeceras={"X-Idempotency-Key": idempotencia})
 
+    def usuario(self) -> dict:
+        """La cuenta dueña del token (id, nickname, email, site_id, tags). Sirve para comprobar
+        una credencial antes de guardarla."""
+        return self._pedir("GET", "/users/me")
+
     def pago(self, pago_id: str) -> dict:
         pago_id = str(pago_id).strip()
         if not _ID_PAGO.fullmatch(pago_id):

@@ -100,8 +100,23 @@ def crear(db: Session, app: FastAPI, operador: Operador, tutor: Tutor, reparto: 
             r = db.scalar(select(Recarga).where(
                 Recarga.operador_id == operador.id, Recarga.tutor_id == tutor.id,
                 Recarga.llave == llave))
+    # La pausa y el cambio de credenciales bloquean al operador en exclusiva; aquí se toma en modo
+    # compartido hasta guardar la liga: o la pausa llegó antes y no se abre ni se repite la liga, o
+    # espera a que esta liga quede guardada (y entonces cuenta como recarga en curso). Codex.
+    operador = db.get(Operador, operador.id, with_for_update={"read": True}, populate_existing=True)
+    if not operador.recargas_activas:
+        db.rollback()
+        raise ErrorMP(-1, "Los pagos con tarjeta están en pausa.")
     if r.init_point:
+        db.rollback()  # suelta el candado; la recarga ya estaba guardada
         return r
+    creada = r.creada if r.creada.tzinfo else r.creada.replace(tzinfo=timezone.utc)
+    if r.estado != "pendiente" or \
+            datetime.now(timezone.utc) + VIGENCIA_PAGO > creada + VENCE_PENDIENTE:
+        # No se estrena liga en una recarga que ya venció, ni una que seguiría viva después de que
+        # el barrido la dé por vencida (a las 24 h de creada): su pago ya nadie lo buscaría (Codex).
+        db.rollback()
+        raise ErrorMP(-1, "Esta recarga ya no se puede pagar; arma otra.")
     mp = cliente_mp(app, operador)
     if mp is None:
         raise ErrorMP(-1, "El operador no tiene MercadoPago configurado.")

@@ -29,6 +29,15 @@ class Operador(Base):
     conduit_client_id: Mapped[str | None] = mapped_column(String(200))
     conduit_secreto_cif: Mapped[str | None] = mapped_column(String)
     mp_access_token_cif: Mapped[str | None] = mapped_column(String)
+    # Pagos con tarjeta (recargas en línea) encendidos o en pausa desde la administración. La pausa
+    # sólo impide crear recargas nuevas (web, WhatsApp y asistente): con el token, el barrido
+    # sigue revisando las que están en curso.
+    mp_pagos_activos: Mapped[bool] = mapped_column(Boolean, default=True,
+                                                   server_default=text("true"))
+    # La cuenta de Mercado Pago del token guardado, tal como la reportó MP al guardarlo.
+    mp_cuenta_id: Mapped[str | None] = mapped_column(String(30))
+    mp_cuenta_nombre: Mapped[str | None] = mapped_column(String(200))
+    mp_cuenta_prueba: Mapped[bool | None] = mapped_column(Boolean)
     # Acciones por WhatsApp (pedir, recargar, transferir…). Encendidas por decisión del usuario
     # (2026-10-22) aunque Conduit aún no verifica la firma de Meta (#39): sirve para apagarlas ya.
     bot_escrituras: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
@@ -51,6 +60,11 @@ class Operador(Base):
 
     def secreto_tpv_admin(self, llave_fernet: str) -> str:
         return descifrar(self.tpv_secreto_admin_cif, llave_fernet)
+
+    @property
+    def recargas_activas(self) -> bool:
+        """Se ofrecen y se crean recargas en línea: hay token y la administración no las pausó."""
+        return bool(self.mp_access_token_cif) and self.mp_pagos_activos is not False
 
     def token_mp(self, llave_fernet: str) -> str | None:
         """Access Token de MercadoPago del operador (sin él no se ofrece recargar)."""

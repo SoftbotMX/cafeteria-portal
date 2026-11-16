@@ -49,6 +49,8 @@ def build(k):
         'en otra: en la misma ventana, una sesión cierra la otra.',
         '**Un celular** además de la computadora: el portal está pensado primero para celular, y la '
         'administración cambia el menú lateral por una barra inferior.',
+        '**El Access Token de la cuenta de Mercado Pago** que va a cobrar, para la prueba 2C.8. No va en este '
+        'documento ni se manda por correo o WhatsApp.',
         'Las contraseñas **no** van en este documento: se piden a Softbot.',
     ]:
         o.append(bullet(t))
@@ -149,7 +151,8 @@ def build(k):
     # ------------------------------------------------------------------ 2
     o.append(h1('2. Administración de la cafetería (portal)'))
     o.append(para('La administración da de alta a los padres de familia y a sus hijos, define cuándo se puede '
-                  'pedir, revisa las recargas en línea y configura los datos de la cafetería. Se entra en '
+                  'pedir, revisa las recargas en línea, pausa o activa los pagos con tarjeta y da de alta la '
+                  'cuenta de Mercado Pago, y configura los datos de la cafetería. Se entra en '
                   '**/admin/entrar** con el usuario de la cafetería. En computadora el menú va a la izquierda; en '
                   'celular, en una barra inferior con **padres**, **horario**, **recargas** y **cafetería**.'))
     o.append(h2('Cómo recibe el padre de familia su acceso'))
@@ -178,6 +181,10 @@ def build(k):
                                        'aprobada, pendiente, acreditada, vencida y rechazada. Las de «revisión» y '
                                        'los pagos extra salen resaltados. Las recargas en caja no salen aquí: '
                                        'están en el TPV (Movimientos).'],
+        ['Pagos con tarjeta (/admin/pagos)', 'Interruptor **Recargas en línea** para pausar o activar los pagos '
+                                             'con tarjeta (web y WhatsApp), los datos de la **cuenta de Mercado '
+                                             'Pago** que cobra (de prueba o real) y **Dar de alta o cambiar la '
+                                             'cuenta** con su Access Token.'],
         ['Datos de la cafetería (/admin/cafeteria)', '**WhatsApp de la cafetería** con lada de país (va en los '
                                                      'correos con una liga al chat) y el **logo** (PNG, JPG o '
                                                      'WebP, hasta 512 KB), que sale al entrar y en los '
@@ -194,7 +201,9 @@ def build(k):
          'logo sale en la pantalla de entrar, en el encabezado del portal y en el menú de la administración.'],
         ['Logo inválido', 'Intentar subir un SVG, un archivo de más de 512 KB y un PDF con extensión .png.',
          'Se rechaza: «Sube una imagen PNG, JPG o WebP de hasta 512 KB.» El logo anterior no cambia.'],
-        ['Quitar logo', 'Datos de la cafetería → Quitar logo → confirmar.', 'Sale sólo el nombre de la cafetería.'],
+        ['Quitar logo', 'Datos de la cafetería → Quitar logo; en el recuadro de confirmación tocar primero '
+         'Cancelar y luego repetir con Quitar logo.', 'La confirmación sale con el estilo del portal (no el aviso '
+         'gris del navegador). Cancelar no cambia nada; Quitar logo deja sólo el nombre de la cafetería.'],
         ['Horario de pedidos', 'Marcar los días con servicio (por ejemplo, lunes a viernes), anticipación 7 días '
          'y hora límite 09:00 → Guardar.', 'Se guarda. En el portal sólo se pueden elegir esos días, hasta 7 días '
          'adelante; el sábado y el domingo no salen si no tienen servicio.'],
@@ -226,15 +235,56 @@ def build(k):
          'Aparece en la lista con su código; el padre de familia lo ve al entrar.'],
         ['Reenviar acceso', 'En la ficha, Reenviar acceso.', 'Se genera una contraseña temporal nueva (se muestra '
          'una sola vez); la anterior deja de servir y se cierran sus sesiones.'],
-        ['Desvincular', 'Desvincular a un hijo de un padre de familia.', 'Ese padre de familia deja de verlo y de '
-         'recibir sus avisos; el otro lo sigue viendo.'],
+        ['Desvincular', 'Desvincular a un hijo de un padre de familia y confirmar en el recuadro.', 'Ese padre de '
+         'familia deja de verlo y de recibir sus avisos; el otro lo sigue viendo. El hijo y su saldo no se borran.'],
         ['Desactivar', 'Desactivar a un padre de familia e intentar entrar con su usuario y por WhatsApp.',
          'No puede entrar ni usar WhatsApp. «Activar» lo devuelve.'],
         ['Recargas en línea', 'Después de las pruebas de la sección 4, revisar Recargas y filtrar por estado.',
          'Cada recarga con su fecha, reparto por hijo, total y estado; ninguna en «revisión».'],
-        ['Administración en celular', 'Entrar a la administración desde el celular y recorrer las cuatro '
-         'secciones.', 'Barra inferior con las cuatro secciones; las tablas se leen sin desbordarse y los filtros '
-         'de recargas se deslizan de lado.'],
+        ['Administración en celular', 'Entrar a la administración desde el celular y recorrer las cinco '
+         'secciones.', 'Barra inferior con padres, horario, recargas, pagos y cafetería; las tablas se leen sin '
+         'desbordarse y los filtros de recargas se deslizan de lado.'],
+    ]))
+    o.append(h2('2.4 Pagos con tarjeta'))
+    o.append(para('Aquí se pausan o activan las recargas en línea (las que el padre de familia paga con tarjeta '
+                  'en la web o por WhatsApp) y se da de alta la cuenta de Mercado Pago que cobra. Las recargas en la '
+                  'caja del TPV no dependen de esta pantalla. Para cambiar de cuenta se necesita su **Access '
+                  'Token**: en Mercado Pago Developers, con la cuenta que va a cobrar → la aplicación de Checkout '
+                  'Pro → Credenciales de producción. **Guardar cuenta ya lo comprueba con Mercado Pago**: no hay que '
+                  'verificar después.'))
+    o.append(casos('2C', [
+        ['Pausar los pagos', 'Pagos con tarjeta → tocar «Recargas en línea» → Pausar en el recuadro de '
+         'confirmación.', 'Queda en **NO** («En pausa · nadie puede recargar en línea»). En el portal del padre '
+         'de familia desaparece «Recargar saldo» y abrir /recargar directo responde «Not Found»; por WhatsApp, **2** '
+         'contesta «Las recargas no están disponibles por ahora». La recarga en caja sigue funcionando.'],
+        ['Liga de pago con los pagos en pausa', 'Antes de pausar, armar una recarga y no pagarla; pausar y abrir '
+         'esa recarga en «Mis recargas».', 'Ya no ofrece pagarla: «Los pagos con tarjeta están en pausa por '
+         'ahora».'],
+        ['Activar los pagos', 'Tocar «Recargas en línea» → Activar.', 'Queda en **SÍ**; vuelve «Recargar saldo» en '
+         'el portal y la opción **2** de WhatsApp vuelve a permitir recargar.'],
+        ['Cambiar de cuenta con los pagos activos', 'Con los pagos activos, ver «Dar de alta o cambiar la '
+         'cuenta».', 'El formulario se ve deshabilitado con el aviso «Primero pausa los pagos con tarjeta (paso '
+         '1)».'],
+        ['Recargas en curso', 'Pausar con una recarga recién armada sin pagar (prueba anterior).', 'El formulario '
+         'sigue deshabilitado: «Todavía hay recargas que la cuenta actual tiene que revisar…». Se habilita cuando '
+         'ya no queda ninguna (una liga sin pagar se cierra sola en 24 horas).'],
+        ['Access Token inválido', 'Con los pagos en pausa, pegar «hola» y luego el token inventado '
+         '`APP_USR-1234567890-inventado`, con la contraseña correcta → Guardar cuenta.', '«Pega el Access Token completo…» y «Mercado '
+         'Pago no reconoció esa credencial…». La cuenta guardada no cambia.'],
+        ['Contraseña equivocada', 'Pegar un Access Token válido con una contraseña de administración equivocada.',
+         '«La contraseña del administrador no es correcta.» No cambia nada; el intento cuenta para el bloqueo '
+         'de 5 fallos, igual que al entrar.'],
+        ['Dar de alta la cuenta', 'Con los pagos en pausa, pegar el Access Token de la cuenta que va a cobrar y '
+         'la contraseña → Guardar cuenta.', '«Credenciales guardadas: cuenta real (o de prueba) …». A la '
+         'izquierda salen el nombre, el número de cuenta y el tipo: **Real · cobra dinero real** o **De prueba · '
+         'sólo tarjetas de prueba**. Los pagos siguen en pausa hasta activarlos.'],
+        ['Activar con la cuenta real', 'Con una cuenta **real** guardada (2C.8 con el Access Token de producción '
+         'de la cuenta que cobra), tocar «Recargas en línea» → Activar.', 'El recuadro avisa que se cobrará '
+         'con la cuenta real. Una recarga de $50 con tarjeta real se acredita y el cobro aparece en esa cuenta '
+         'de Mercado Pago (después, devolverla en Mercado Pago y descontarla con Ajustar saldo en el TPV).'],
+        ['Cuenta guardada sin consultar', 'Si la cuenta se guardó antes de esta pantalla, aparece «Consultar '
+         'datos de la cuenta guardada»: tocarlo.', 'Se llenan el nombre, el número y el tipo; el botón '
+         'desaparece.'],
     ]))
 
     # ------------------------------------------------------------------ 3
@@ -346,9 +396,11 @@ def build(k):
                   'libro del TPV: el saldo nuevo se ve en el portal, en WhatsApp y en la caja en cuanto se acredita, '
                   'y a los padres de familia del alumno les llega el aviso de recarga.'))
     o.append(table([2200, 2600, 2700, 2580], ['Vía', 'Quién', 'Cómo se paga', 'Límites'], [
-        ['Portal', 'Padre de familia', 'Mercado Pago (tarjeta), un pago repartido entre sus hijos',
+        ['Portal', 'Padre de familia', 'Mercado Pago (tarjeta), un pago repartido entre sus hijos; sólo con los '
+         'pagos con tarjeta activos (2.4)',
          'Total de $50 a $2,000'],
-        ['WhatsApp', 'Padre de familia', 'Liga de Mercado Pago, repartida entre sus hijos',
+        ['WhatsApp', 'Padre de familia', 'Liga de Mercado Pago, repartida entre sus hijos; sólo con los pagos '
+         'con tarjeta activos (2.4)',
          'Total de $50 a $2,000'],
         ['Caja del TPV', 'Cualquier cajero, para un alumno por ticket', 'Efectivo o tarjeta (no monedero ni '
          'crédito); sólo con conexión', 'De $50 a $2,000 en pesos completos'],

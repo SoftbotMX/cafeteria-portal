@@ -14,6 +14,10 @@ class MPFalso:
         self.consultas: list[str] = []  # ids de pago consultados
         self.busquedas = 0
         self.fallar: set[str] = set()  # "preferencia" | "pago" | "buscar"
+        # La cuenta de cada token aceptado por /users/me (el de pagos y los que se agreguen).
+        self.cuentas: dict[str, dict] = {token: {"id": 123456, "nickname": "CAFETERIA_PRUEBA",
+                                                 "email": "prueba@cafeteria.test",
+                                                 "site_id": "MLM", "tags": ["normal"]}}
         self.transport = httpx.MockTransport(self._manejar)
 
     def pagar(self, external_reference, monto, status="approved", moneda="MXN") -> str:
@@ -24,6 +28,11 @@ class MPFalso:
         return pid
 
     def _manejar(self, req: httpx.Request) -> httpx.Response:
+        if req.method == "GET" and req.url.path == "/users/me":
+            token = req.headers.get("Authorization", "").removeprefix("Bearer ")
+            if token not in self.cuentas:
+                return httpx.Response(401, json={"message": "invalid access token"})
+            return httpx.Response(200, json=self.cuentas[token])
         if req.headers.get("Authorization") != f"Bearer {self.token}":
             return httpx.Response(401, json={"message": "invalid access token"})
         ruta = req.url.path

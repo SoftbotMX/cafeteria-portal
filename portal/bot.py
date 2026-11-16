@@ -207,7 +207,7 @@ class Bot:
                                  f"a https://{self.op.host}")
         if accion == "saldo":
             return self._al_menu(self._saldos())
-        if accion == "recargar" and not self.op.mp_access_token_cif:
+        if accion == "recargar" and not self.op.recargas_activas:
             return self._al_menu("Las recargas no están disponibles por ahora.")
         hijos = acciones.hijos(self.app, self.op, self.tutor)
         if not hijos:

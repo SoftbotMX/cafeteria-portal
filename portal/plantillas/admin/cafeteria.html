@@ -44,7 +44,7 @@
       <button type="submit" class="secundario chico-boton">{{ "Cambiar logo" if logo_version else "Subir logo" }}</button>
     </form>
     {% if logo_version %}
-    <form method="post" action="/admin/cafeteria/logo/quitar" onsubmit="return confirm('¿Quitar el logo de la cafetería?')">
+    <form method="post" action="/admin/cafeteria/logo/quitar" data-confirmar="¿Quitar el logo de la cafetería?" data-confirmar-detalle="Se mostrará sólo el nombre de la cafetería." data-confirmar-boton="Quitar logo" data-confirmar-peligro>
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <button type="submit" class="quitar">{{ icono("close") }}Quitar logo</button>
     </form>

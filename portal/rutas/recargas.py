@@ -37,7 +37,8 @@ def _pagina(request, plantilla, ctx, status=200):
 
 
 def _con_mp(operador: Operador) -> None:
-    if not operador.mp_access_token_cif:
+    """Armar o pagar una recarga nueva. Ver las ya hechas no depende de esto."""
+    if not operador.recargas_activas:
         raise HTTPException(404)
 
 
@@ -185,12 +186,14 @@ def detalle(recarga_id: int, request: Request, par: tuple[Sesion, Tutor] = Depen
             db.rollback()  # MP no respondió: el aviso o el barrido lo terminan
             verificada = False
         r = _propia(db, operador, tutor, recarga_id)
+    # Con los pagos en pausa tampoco se ofrece pagar una liga que ya existía.
+    pausados = not operador.recargas_activas
     vigente = r.estado == "pendiente" and r.init_point and r.liga_vence and \
-        datetime.now(timezone.utc) < r.liga_vence
+        datetime.now(timezone.utc) < r.liga_vence and not pausados
     # Sin poder preguntarle a MP, «pendiente» puede ser un pago que ya se hizo y cuyo aviso no ha
     # llegado: la pantalla no ofrece pagar otra vez (sería un doble cobro). Hallazgo de Codex.
     return _pagina(request, "tutor/recarga.html", {"r": r, "vigente": vigente,
-                                                    "verificada": verificada})
+                                                    "verificada": verificada, "pausados": pausados})
 
 
 def _id_de_pago(request: Request, cuerpo) -> str | None:
