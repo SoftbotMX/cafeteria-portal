@@ -51,6 +51,7 @@ MercadoPago (sólo tarjeta o saldo de MP: sin OXXO ni SPEI) y el TPV acredita co
 
 - **Token del operador** (cifrado en BD; sin él no aparece «Recargar»):
   `ssh -t gerri@softbot.com.mx 'cd ~/cafeteria-portal/deploy && docker compose -p cafeteria-portal exec portal python -m portal.cli guardar-mp --host cafeteria.softbot.com.mx'`.
+  Pasar a la cuenta real de la cafetería, paso a paso: `docs/MERCADOPAGO_PRODUCCION.md`.
   Pruebas: el Access Token **de prueba** de la app; producción: el de producción. Siempre se usa
   `init_point` (MP ya no tiene `sandbox_init_point`).
 - **Aviso de MP**: cada preferencia lleva `notification_url = https://<host>/mp/aviso`; no hay que
