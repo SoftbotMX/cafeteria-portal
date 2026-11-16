@@ -61,8 +61,9 @@ def build(k):
          '**Hora de fin de servicio** (por ejemplo 15:00). A esa hora se liberan los pedidos del día que no se '
          'recogieron. Vacío: a la medianoche. Cerrar la caja **no** libera pedidos.'],
         ['Inventario/Punto de venta → Productos',
-         'Los productos que se pueden pedir por adelantado tienen **«Se puede precomprar»**. El producto de '
-         'recarga en caja tiene **«Es recarga de saldo»**.'],
+         'Los productos que se pueden pedir por adelantado tienen **«Se puede precomprar»**. El producto '
+         '**«Recarga de saldo»** tiene **«Es recarga de saldo»**; no sale entre los productos de la caja: se '
+         'agrega con el botón **«Recargar saldo»**.'],
         ['Punto de venta → Configuración → Métodos de pago',
          'Existe un método con **«Monedero del alumno»** y está en la caja de la cafetería.'],
         ['Ajustes → Técnico → Parámetros del sistema',
@@ -104,8 +105,15 @@ def build(k):
          'Lo impide: «El pedido se cobra sólo con monedero…». Lo extra va en otra venta.'],
         ['Precio del pedido', 'Cambiar el precio de un producto después de que el papá pidió; cobrar el pedido.',
          'Se cobra al precio con que se hizo el pedido.'],
-        ['Recarga en caja', 'Vender el producto de recarga a un alumno, pagando en efectivo.',
-         'Sube su disponible y aparece en Movimientos. (La recarga en caja no manda aviso; la del portal sí.)'],
+        ['Recarga en caja', 'Elegir al alumno → **Recargar saldo** (junto a Cliente; en pantalla angosta, en '
+         'el menú ⋮) → importe → Pago en efectivo → Validar.', 'Sube su disponible, aparece en Movimientos del '
+         'portal como «Recarga» y llega el aviso de recarga a los padres de familia.'],
+        ['Límites de la recarga en caja', 'Intentar $49, $2,001 y $75.50; intentar pagarla con Monedero.',
+         'Sólo acepta de $50 a $2,000 en pesos completos, en efectivo o tarjeta; con Monedero lo impide.'],
+        ['Recarga sin conexión', 'Desconectar la caja de internet e intentar validar una recarga.',
+         'No la cobra: avisa que sin conexión no se recarga saldo.'],
+        ['Devolver una recarga', 'En la caja, Reembolso de una venta de recarga y Validar.', 'Lo impide: la devuelve el '
+         'gerente en **Cafetería → Ajustar saldo** (descontar), que revisa que el saldo no se haya gastado.'],
         ['Ajuste de saldo', 'Alumnos → Ajustar saldo, con motivo.', 'Cambia el saldo; queda en Movimientos como '
          'ajuste y en contabilidad.'],
         ['Bloqueo de credencial', 'Bloquear una credencial (desde el portal o en Credenciales) y pasarla en caja.',
